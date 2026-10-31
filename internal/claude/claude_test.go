@@ -192,6 +192,11 @@ func TestRequestShape(t *testing.T) {
 
 	require.Contains(t, f.headers[0].Get("anthropic-beta"), "server-side-fallback-2026-07-01")
 	require.Contains(t, f.headers[0].Get("anthropic-beta"), "thinking-binding-controls-2026-08-01")
+	require.Contains(t, f.headers[0].Get("anthropic-beta"), "compact-2026-01-12")
+	require.Equal(t, map[string]any{"edits": []any{map[string]any{
+		"type":         "compact_20260112",
+		"instructions": compactInstructions,
+	}}}, body["context_management"])
 
 	toolList := body["tools"].([]any)
 	require.Len(t, toolList, 2)
@@ -230,7 +235,53 @@ func TestOlderModelsSendNoThinkingConfig(t *testing.T) {
 		}
 		require.NotContains(t, f.body(t, 0), "thinking", model)
 		require.NotContains(t, f.headers[0].Get("anthropic-beta"), "thinking-binding-controls-2026-08-01", model)
+		require.NotContains(t, f.body(t, 0), "context_management", model)
+		require.NotContains(t, f.headers[0].Get("anthropic-beta"), "compact-2026-01-12", model)
 	}
+}
+
+func compactionBlock(i int, summary, encrypted string) string {
+	delta, _ := json.Marshal(map[string]string{"type": "compaction_delta", "content": summary, "encrypted_content": encrypted})
+	return blockStart(i, `{"type":"compaction","content":null,"encrypted_content":null}`) + blockDelta(i, string(delta)) + blockStop(i)
+}
+
+func TestCompactionRoundTrip(t *testing.T) {
+	f := newFakeAPI(t,
+		stream("end_turn", compactionBlock(0, "<summary>older work</summary>", "opaque-state"), textBlock(1, "ok")),
+		stream("end_turn", textBlock(0, "again")),
+	)
+	compactions := 0
+	m := f.model(Config{OnCompact: func() { compactions++ }})
+
+	history := []durable.Message{{Role: durable.RoleUser, Text: "hi"}}
+	msg, err := gen(t, m, history, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, compactions)
+	require.Equal(t, "ok", msg.Text)
+	require.Empty(t, msg.ToolCalls)
+
+	history = append(history, msg, durable.Message{Role: durable.RoleUser, Text: "next"})
+	_, err = gen(t, m, history, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1, compactions)
+
+	messages := f.body(t, 1)["messages"].([]any)
+	content := messages[1].(map[string]any)["content"].([]any)
+	require.Equal(t, map[string]any{
+		"type":              "compaction",
+		"content":           "<summary>older work</summary>",
+		"encrypted_content": "opaque-state",
+	}, content[0])
+	require.Equal(t, "ok", content[1].(map[string]any)["text"])
+}
+
+func TestCompactionKeepsToolCall(t *testing.T) {
+	f := newFakeAPI(t, stream("tool_use", compactionBlock(0, "s", "e"), toolBlock(1, "call_1", "bash", `{"command":"ls"}`)))
+	msg, err := gen(t, f.model(Config{}), []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
+	require.NoError(t, err)
+	require.Len(t, msg.ToolCalls, 1)
+	require.Equal(t, "call_1", msg.ToolCalls[0].ID)
+	require.Contains(t, string(msg.Raw), `"compaction"`)
 }
 
 func TestThinkingRawRoundTrip(t *testing.T) {
