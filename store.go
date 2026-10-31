@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS submissions (
 	seq        INTEGER PRIMARY KEY AUTOINCREMENT,
 	request_id TEXT    NOT NULL UNIQUE,   -- exactly-once input
 	text       TEXT    NOT NULL,
-	status     TEXT    NOT NULL,          -- queued | running | done | failed
+	status     TEXT    NOT NULL,          -- queued | running | done | failed | cancelled
 	result     TEXT,
 	error      TEXT,
 	created_at INTEGER NOT NULL

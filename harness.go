@@ -20,6 +20,18 @@ const UnknownOutcome = "This tool call was interrupted by a restart before its r
 const Declined = "The user declined this tool call, so it did not run. " +
 	"Do not retry it unchanged; ask the user or take a different approach."
 
+// CallCancelled is the tool result recorded for a pending call when the user
+// cancels the request.
+const CallCancelled = "The user cancelled the request, so this tool call did not run."
+
+// CancelledUnknown is the tool result recorded for a started call when the
+// user cancels the request.
+const CancelledUnknown = "The user cancelled the request while this tool call was running. " +
+	"It may or may not have taken effect. Check the current state before relying on it."
+
+// RequestCancelled is the user note appended when a running request is cancelled.
+const RequestCancelled = "The user cancelled the request above. Do not continue it unless asked."
+
 // Options configures a Harness.
 type Options struct {
 	Model Model
@@ -438,16 +450,71 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 
 func (h *Harness) finishCall(ctx context.Context, sub Submission, c storedCall, out string, isErr bool) error {
 	return h.commit(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx,
-			`UPDATE tool_calls SET status = 'done', result = ?, is_error = ? WHERE message_seq = ? AND position = ?`,
-			out, isErr, c.MessageSeq, c.Position); err != nil {
-			return err
-		}
-		_, err := appendMessage(ctx, tx, sub.Seq, Message{
-			Role: RoleTool, ToolCallID: c.ID, Text: out, IsError: isErr,
-		})
-		return err
+		return recordResult(ctx, tx, sub, c, out, isErr)
 	})
+}
+
+func recordResult(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall, out string, isErr bool) error {
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE tool_calls SET status = 'done', result = ?, is_error = ? WHERE message_seq = ? AND position = ?`,
+		out, isErr, c.MessageSeq, c.Position); err != nil {
+		return err
+	}
+	_, err := appendMessage(ctx, tx, sub.Seq, Message{
+		Role: RoleTool, ToolCallID: c.ID, Text: out, IsError: isErr,
+	})
+	return err
+}
+
+// Cancel durably stops a submission: it is marked cancelled and will not
+// resume. A running submission gets an error result for every unfinished tool
+// call plus a user note, so the history stays valid for the model API. It waits
+// for an in-progress Run to stop first, so cancel that Run's context before
+// calling it. Done, failed and cancelled submissions are returned unchanged.
+func (h *Harness) Cancel(ctx context.Context, requestID string) (Submission, error) {
+	select {
+	case h.runSem <- struct{}{}:
+		defer func() { <-h.runSem }()
+	case <-ctx.Done():
+		return Submission{}, ctx.Err()
+	}
+
+	var sub Submission
+	err := h.commit(ctx, func(tx *sql.Tx) error {
+		cur, err := getSubmission(ctx, tx, requestID)
+		if err != nil {
+			return fmt.Errorf("failed to find submission %q: %w", requestID, err)
+		}
+		sub = cur
+		switch cur.Status {
+		case StatusQueued:
+		case StatusRunning:
+			calls, _, err := lastAssistantCalls(ctx, tx, cur.Seq)
+			if err != nil {
+				return err
+			}
+			for _, c := range unfinished(calls) {
+				out := CallCancelled
+				if c.Status == callStarted {
+					out = CancelledUnknown
+				}
+				if err := recordResult(ctx, tx, cur, c, out, true); err != nil {
+					return err
+				}
+			}
+			if _, err := appendMessage(ctx, tx, cur.Seq, Message{Role: RoleUser, Text: RequestCancelled}); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+		sub.Status = StatusCancelled
+		return setSubmission(ctx, tx, cur.Seq, StatusCancelled, "", "")
+	})
+	if err != nil {
+		return Submission{}, err
+	}
+	return sub, nil
 }
 
 func newOwnerID() string {

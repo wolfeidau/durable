@@ -28,7 +28,9 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
 - **Approval:** `edit_file` and `bash` show the call and ask `y/N`. Reads never ask.
 - **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so
   use `--yes` only where the model may run anything you could.
-- **Ctrl-C** cancels the running turn. At the prompt, Ctrl-C or Ctrl-D exits.
+- **Ctrl-C** during a turn (including an approval prompt or a resumed task) cancels the
+  task durably: a restart won't resume it. `kill -9` and SIGTERM still resume. At the
+  prompt, Ctrl-C or Ctrl-D exits.
 
 ## Wiring it into your agent
 
@@ -87,8 +89,8 @@ the result and the tool message commit together afterwards. A call found in
 
 If `Options.Approve` is set, it is asked before a `pending` call is marked
 `started`. `false` records a `Declined` error result and the model carries on; an
-error or cancellation leaves the call `pending`, so the next `Run` asks again. It is
-never asked for calls already `started`.
+error or cancellation of `Run` leaves the call `pending`, so the next `Run` asks again
+unless `Cancel` records its result. It is never asked for calls already `started`.
 
 - `ReplaySafe` tools run again.
 - `ReplayNever` tools get an error result (`UnknownOutcome`) telling the model to
@@ -121,6 +123,14 @@ stays `running`, so an outage pauses work and the next `Run` resumes it. Cancell
 the context never counts as a failure: the submission stays `running` and the next
 `Run` picks it up.
 
+**Cancellation.** `Cancel(ctx, requestID)` moves a submission to the terminal
+`cancelled` status, so `Run` never resumes it. For a running submission it records an
+error result for every unfinished call of the latest assistant message
+(`CallCancelled` for `pending`, `CancelledUnknown` for `started`) and appends a user
+note (`RequestCancelled`), so the history stays valid for the model API. Done, failed
+and cancelled submissions are returned unchanged. `Cancel` waits for an in-progress
+`Run` to stop, so cancel that `Run`'s context first.
+
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
 
@@ -134,7 +144,13 @@ simulate crashes by cancelling the context at the worst moments: after an unsafe
 during a model call. Others cover lease exclusion, stale-owner fencing, duplicate
 request IDs, and queue ordering. Further tests cover lease loss cancelling a running
 tool, concurrent `Run` calls not double-executing a tool, retried and failed model
-calls, and cancellation during retry backoff.
+calls, and cancellation during retry backoff. Cancel tests cover queued and running
+submissions, mixed done/started/pending calls getting exactly one result each,
+idempotence, unknown IDs, waiting for `Run`, stale-owner fencing and surviving a
+reopen. The REPL tests check that Ctrl-C during a tool or at an approval prompt cancels
+without resuming, and that SIGTERM leaves the task running. A real-binary test
+(`TestInterruptCancelsAndDoesNotResume`) sends SIGINT and checks a restart doesn't
+re-run the task.
 
 ## Next steps, roughly in order of payoff
 

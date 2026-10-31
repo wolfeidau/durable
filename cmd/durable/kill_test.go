@@ -289,3 +289,39 @@ func TestKillDuringApprovalKeepsCallPending(t *testing.T) {
 	require.Equal(t, []durable.Role{durable.RoleUser, durable.RoleAssistant, durable.RoleTool, durable.RoleAssistant}, historyRoles(hist))
 	require.False(t, hist[2].IsError)
 }
+
+func TestInterruptCancelsAndDoesNotResume(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	marker := filepath.Join(ws, "marker.txt")
+	api := newFakeAPI(t, "echo ran >> marker.txt; sleep 30")
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	_, err := io.WriteString(a.stdin, "run it\n")
+	require.NoError(t, err)
+	eventually(t, "marker line", func() bool { return len(readLinesOf(t, marker)) == 1 })
+	require.NoError(t, a.cmd.Process.Signal(syscall.SIGINT))
+	eventually(t, "cancelled", func() bool { return strings.Contains(a.out.String(), "cancelled") })
+
+	_, err = io.WriteString(a.stdin, "something else\n")
+	require.NoError(t, err)
+	eventually(t, "second API request", func() bool { return len(api.requests()) == 2 })
+	reqs := api.requests()
+	require.True(t, hasToolResult(t, reqs[1], true, durable.CancelledUnknown), reqs[1])
+
+	require.NoError(t, a.stdin.Close())
+	done := make(chan error, 1)
+	go func() { done <- a.cmd.Wait() }()
+	select {
+	case err := <-done:
+		require.NoError(t, err, a.out.String())
+	case <-time.After(testTimeout):
+		t.Fatalf("agent did not exit: %s", a.out.String())
+	}
+
+	restart(t, bin, ws, home, api.srv.URL, "--yes")
+
+	require.Len(t, readLinesOf(t, marker), 1, "bash must not run again")
+	require.Len(t, api.requests(), 2, "a cancelled task must not resume")
+	finalHistory(t, ws)
+}

@@ -120,6 +120,8 @@ const (
 	StatusRunning SubmissionStatus = "running"
 	StatusDone    SubmissionStatus = "done"
 	StatusFailed  SubmissionStatus = "failed"
+	// StatusCancelled is terminal, like done and failed; see Harness.Cancel.
+	StatusCancelled SubmissionStatus = "cancelled"
 )
 
 // Submission is one unit of user input and the run it triggered.
