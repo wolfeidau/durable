@@ -101,6 +101,28 @@ unless `Cancel` records its result. It is never asked for calls already `started
 Tool call IDs are stable once committed, so tools that hit external APIs can pass
 `call.ID` as an idempotency key.
 
+A tool whose work can outlive a crash may also implement the optional `Recoverer`
+interface (`Recover(ctx, call) string`). Before recording `UnknownOutcome` for a
+`started` `ReplayNever` call, and before `Cancel` records `CancelledUnknown` for one,
+the harness calls `Recover`, which stops what is left and returns a note appended to
+the result. `Recover` must be idempotent: a crash can land after it runs but before
+the result commits. If `ctx` ends during `Recover`, the call stays `started`. Wrappers
+around a tool must forward `Recover`, because embedding `Tool` does not promote it.
+
+**Orphaned bash commands.** `kill -9` or a forced exit leaves the command's process
+group running, so by the time the model sees the unknown outcome the command may still
+be changing state. The bash tool therefore starts each command holding an `flock` on a
+state file (`<session dir>/bash/<sha256 of call ID>`, outside the workspace), passes the
+descriptor to the command, and records the process group ID in the file. The kernel
+drops the lock when the last holder exits, so a held lock proves the command is alive.
+On recovery, an unlocked file means the command is dead and nothing is signalled (group
+IDs get reused). A held lock means `SIGKILL` goes to the recorded group, and the result
+says the command was still running and has been stopped. If it cannot be stopped, or
+the recorded ID is not usable, the result says the command may still be running.
+Limits: a descendant that closes the inherited descriptor and leaves the group escapes
+detection; a crash between starting the command and writing the ID is reported as
+may-still-be-running; Unix only. OS sandboxing is out of scope.
+
 **Exactly-once input.** `submissions.request_id` is unique. Submitting an ID twice
 returns the first submission.
 
@@ -154,6 +176,15 @@ without resuming, and that SIGTERM leaves the task running. A real-binary test
 (`TestInterruptCancelsAndDoesNotResume`) sends SIGINT and checks a restart doesn't
 re-run the task.
 
+`TestKillStopsOrphanedCommand` kills the agent mid-`bash`, checks the command is still
+alive, restarts, and checks it was stopped, never finished, and reported with the
+stopped note. `Orphan`/`Recover` tests in `internal/tools` cover a live orphan,
+state-file cleanup after success, error, timeout and cancel, reused group IDs, lock
+holders outside the recorded group, unusable IDs (`0`, `1`, `-1`, empty) never being
+signalled, and idempotence. `recover_test.go` covers `Recover` running once before the
+result commits, not for `pending` or `ReplaySafe` calls, cancellation during `Recover`,
+and `Cancel` recovering `started` calls only.
+
 ## Next steps, roughly in order of payoff
 
 1. **Streaming to clients.** Add an observer called after each commit (or have
@@ -161,9 +192,9 @@ re-run the task.
    "send everything after seq N" gives any number of clients a consistent, resumable
    view: terminal, web, phone.
 2. **Bash replay.** Most of a coding agent's risk is in `bash`. Keep it
-   `ReplayNever`, and consider recording the command's working-tree state (e.g. a
-   `git stash create` hash) in the `started` commit so the unknown-outcome message
-   can say exactly what changed.
+   `ReplayNever` (orphaned commands are already stopped on recovery), and consider
+   recording the command's working-tree state (e.g. a `git stash create` hash) in the
+   `started` commit so the unknown-outcome message can say exactly what changed.
 3. **Steering.** Let `Submit` arrive while a run is in progress and have the loop
    check for queued input between tool calls (Pi's "queue modes").
 4. **Durable subagents / tasks.** Model a subagent as another submission (or another

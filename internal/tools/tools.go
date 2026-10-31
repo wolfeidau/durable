@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -20,7 +21,9 @@ const binarySniffBytes = 8192
 type tool struct {
 	spec   durable.ToolSpec
 	replay durable.Replay
-	run    func(ctx context.Context, input json.RawMessage) (string, error)
+	run    func(ctx context.Context, call durable.ToolCall) (string, error)
+	// recover is set only by tools that can leave a process behind.
+	recover func(ctx context.Context, call durable.ToolCall) string
 }
 
 func (t tool) Spec() durable.ToolSpec { return t.spec }
@@ -28,11 +31,19 @@ func (t tool) Spec() durable.ToolSpec { return t.spec }
 func (t tool) Replay() durable.Replay { return t.replay }
 
 func (t tool) Execute(ctx context.Context, call durable.ToolCall) (string, error) {
-	return t.run(ctx, call.Input)
+	return t.run(ctx, call)
+}
+
+func (t tool) Recover(ctx context.Context, call durable.ToolCall) string {
+	if t.recover == nil {
+		return ""
+	}
+	return t.recover(ctx, call)
 }
 
 // All returns the tools in a fixed order so the tool list is stable for prompt caching.
-func All(root string) ([]durable.Tool, error) {
+// stateDir holds per-call bookkeeping that must survive a crash; keep it outside the workspace.
+func All(root, stateDir string) ([]durable.Tool, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve root: %w", err)
@@ -41,12 +52,16 @@ func All(root string) ([]durable.Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve root symlinks: %w", err)
 	}
+	bashDir := filepath.Join(stateDir, "bash")
+	if err := os.MkdirAll(bashDir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create bash state directory: %w", err)
+	}
 	return []durable.Tool{
 		newReadFile(real),
 		newListFiles(real),
 		newGrep(real),
 		newEditFile(real),
-		newBash(real),
+		newBash(real, bashDir),
 	}, nil
 }
 

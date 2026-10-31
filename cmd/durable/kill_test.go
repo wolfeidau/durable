@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/tools"
 )
 
 const testTimeout = 90 * time.Second
@@ -324,4 +326,34 @@ func TestInterruptCancelsAndDoesNotResume(t *testing.T) {
 	require.Len(t, readLinesOf(t, marker), 1, "bash must not run again")
 	require.Len(t, api.requests(), 2, "a cancelled task must not resume")
 	finalHistory(t, ws)
+}
+
+func TestKillStopsOrphanedCommand(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	pidFile := filepath.Join(ws, "pid.txt")
+	marker := filepath.Join(ws, "marker.txt")
+	api := newFakeAPI(t, "echo $$ > pid.txt; sleep 4; echo late >> marker.txt")
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	_, err := io.WriteString(a.stdin, "run it\n")
+	require.NoError(t, err)
+	eventually(t, "pid file", func() bool { return len(readLinesOf(t, pidFile)) == 1 })
+	pid, err := strconv.Atoi(readLinesOf(t, pidFile)[0])
+	require.NoError(t, err)
+	a.kill(t)
+	killedAt := time.Now()
+	require.NoError(t, syscall.Kill(pid, 0), "the command must outlive the agent")
+
+	restart(t, bin, ws, home, api.srv.URL, "--yes")
+
+	require.Eventually(t, func() bool { return syscall.Kill(pid, 0) == syscall.ESRCH }, 5*time.Second, 20*time.Millisecond)
+	reqs := api.requests()
+	require.Len(t, reqs, 2)
+	require.True(t, hasToolResult(t, reqs[1], true, durable.UnknownOutcome), reqs[1])
+	require.True(t, hasToolResult(t, reqs[1], true, tools.OrphanStopped), reqs[1])
+
+	// Wait past the sleep so a surviving command would have written its marker.
+	time.Sleep(6*time.Second - time.Since(killedAt))
+	require.Empty(t, readLinesOf(t, marker), "the orphan must not finish its command")
 }

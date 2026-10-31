@@ -29,6 +29,14 @@ func (d displayTool) Execute(ctx context.Context, call durable.ToolCall) (string
 	return d.Tool.Execute(ctx, call)
 }
 
+// Recover forwards to the wrapped tool; the embedded interface does not promote optional methods.
+func (d displayTool) Recover(ctx context.Context, call durable.ToolCall) string {
+	if r, ok := d.Tool.(durable.Recoverer); ok {
+		return r.Recover(ctx, call)
+	}
+	return ""
+}
+
 type callInput struct {
 	Path      string `json:"path"`
 	Command   string `json:"command"`

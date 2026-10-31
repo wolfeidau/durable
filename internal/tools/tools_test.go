@@ -15,13 +15,18 @@ import (
 
 type env struct {
 	root  string
+	state string
 	tools map[string]durable.Tool
 }
+
+// bashState is the state file for the call ID that runCtx uses.
+func (e env) bashState() string { return statePath(filepath.Join(e.state, "bash"), "1") }
 
 func newEnv(t *testing.T) env {
 	t.Helper()
 	root := t.TempDir()
-	all, err := All(root)
+	state := t.TempDir()
+	all, err := All(root, state)
 	require.NoError(t, err)
 	m := map[string]durable.Tool{}
 	for _, tl := range all {
@@ -29,7 +34,7 @@ func newEnv(t *testing.T) env {
 	}
 	real, err := filepath.EvalSymlinks(root)
 	require.NoError(t, err)
-	return env{root: real, tools: m}
+	return env{root: real, state: state, tools: m}
 }
 
 func (e env) run(t *testing.T, name string, in map[string]any) (string, error) {
@@ -54,7 +59,7 @@ func (e env) write(t *testing.T, rel, content string) string {
 
 func TestAllOrderAndSchemas(t *testing.T) {
 	root := t.TempDir()
-	all, err := All(root)
+	all, err := All(root, t.TempDir())
 	require.NoError(t, err)
 
 	var names []string

@@ -49,7 +49,7 @@ func (c *ChatCmd) Run(ctx context.Context, g *Globals) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("failed to create session directory: %w", err)
 	}
-	toolset, err := tools.All(cwd)
+	toolset, err := tools.All(cwd, filepath.Dir(path))
 	if err != nil {
 		return fmt.Errorf("failed to build tools: %w", err)
 	}

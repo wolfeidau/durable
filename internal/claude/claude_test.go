@@ -449,7 +449,7 @@ func TestSmoke(t *testing.T) {
 	}
 	root := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(root, "note.txt"), []byte("the word is pong\n"), 0o600))
-	toolset, err := tools.All(root)
+	toolset, err := tools.All(root, t.TempDir())
 	require.NoError(t, err)
 	specs := make([]durable.ToolSpec, len(toolset))
 	for i, tool := range toolset {

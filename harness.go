@@ -422,7 +422,11 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 	case !known:
 		return h.finishCall(ctx, sub, c, fmt.Sprintf("unknown tool %q", c.Name), true)
 	case c.Status == callStarted && tool.Replay() != ReplaySafe:
-		return h.finishCall(ctx, sub, c, UnknownOutcome, true)
+		note := h.recoverCall(ctx, c)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return h.finishCall(ctx, sub, c, joinNote(UnknownOutcome, note), true)
 	case c.Status == callPending:
 		if h.opts.Approve != nil {
 			ok, err := h.opts.Approve(ctx, c.ToolCall)
@@ -460,6 +464,22 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 	return h.finishCall(ctx, sub, c, out, isErr)
 }
 
+// recoverCall returns "" for tools that cannot recover or are unknown.
+func (h *Harness) recoverCall(ctx context.Context, c storedCall) string {
+	r, ok := h.tools[c.Name].(Recoverer)
+	if !ok {
+		return ""
+	}
+	return r.Recover(ctx, c.ToolCall)
+}
+
+func joinNote(out, note string) string {
+	if note == "" {
+		return out
+	}
+	return out + " " + note
+}
+
 func (h *Harness) finishCall(ctx context.Context, sub Submission, c storedCall, out string, isErr bool) error {
 	return h.commit(ctx, func(tx *sql.Tx) error {
 		return recordResult(ctx, tx, sub, c, out, isErr)
@@ -491,6 +511,23 @@ func (h *Harness) Cancel(ctx context.Context, requestID string) (Submission, err
 		return Submission{}, ctx.Err()
 	}
 
+	// Stop orphaned processes before the commit so no process I/O runs in the transaction.
+	notes := map[int]string{}
+	if cur, err := getSubmission(ctx, h.db, requestID); err == nil && cur.Status == StatusRunning {
+		calls, _, err := lastAssistantCalls(ctx, h.db, cur.Seq)
+		if err != nil {
+			return Submission{}, err
+		}
+		for _, c := range unfinished(calls) {
+			if c.Status == callStarted {
+				notes[c.Position] = h.recoverCall(ctx, c)
+			}
+		}
+		if ctx.Err() != nil {
+			return Submission{}, ctx.Err()
+		}
+	}
+
 	var sub Submission
 	err := h.commit(ctx, func(tx *sql.Tx) error {
 		cur, err := getSubmission(ctx, tx, requestID)
@@ -508,7 +545,7 @@ func (h *Harness) Cancel(ctx context.Context, requestID string) (Submission, err
 			for _, c := range unfinished(calls) {
 				out := CallCancelled
 				if c.Status == callStarted {
-					out = CancelledUnknown
+					out = joinNote(CancelledUnknown, notes[c.Position])
 				}
 				if err := recordResult(ctx, tx, cur, c, out, true); err != nil {
 					return err

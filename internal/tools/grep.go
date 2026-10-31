@@ -33,13 +33,13 @@ func newGrep(root string) durable.Tool {
 				`"required":["pattern","path","glob"],"additionalProperties":false}`),
 		},
 		replay: durable.ReplaySafe,
-		run: func(ctx context.Context, input json.RawMessage) (string, error) {
+		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Pattern string  `json:"pattern"`
 				Path    *string `json:"path"`
 				Glob    *string `json:"glob"`
 			}
-			if err := decode(input, &in); err != nil {
+			if err := decode(call.Input, &in); err != nil {
 				return "", err
 			}
 			re, err := regexp.Compile(in.Pattern)
