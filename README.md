@@ -162,6 +162,15 @@ and later the adapter sends `prefix_mismatch_behavior: "drop_block"`, so the API
 those blocks and the session carries on without that reasoning, instead of failing with
 a 400. It also restarts the prompt cache.
 
+**Long sessions.** The adapter turns on server-side compaction on Claude 5 and later.
+When a request reaches 150,000 input tokens, the API summarizes the older history into a
+compaction block at the start of the reply, and the agent prints `[compacting history]`.
+The block is stored in `Raw` like any other content, and the API ignores everything
+before it on later requests. Nothing is rewritten, so the transcript stays append-only
+and a crash needs no special handling. The whole transcript is still sent, so tokens
+drop but request size keeps growing. Every later request must enable compaction, so a
+session that has compacted can't continue on an older `--model`.
+
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
 
@@ -192,6 +201,9 @@ signalled, and idempotence. `recover_test.go` covers `Recover` running once befo
 result commits, not for `pending` or `ReplaySafe` calls, cancellation during `Recover`,
 and `Cancel` recovering `started` calls only.
 
+Claude adapter tests cover compaction blocks surviving a streamed round trip through
+`Raw` unchanged, arriving alongside a tool call, and not being sent to older models.
+
 ## Next steps, roughly in order of payoff
 
 1. **Streaming to clients.** Add an observer called after each commit (or have
@@ -207,9 +219,7 @@ and `Cancel` recovering `started` calls only.
 4. **Durable subagents / tasks.** Model a subagent as another submission (or another
    session file) that the parent tool call waits on; the parent's call ID owns it,
    so cancelling one cancels the other.
-5. **Compaction.** When history gets long, commit a summary message plus a marker
-   row, and have `loadHistory` start from the latest marker.
-6. **Persisting partial streams.** Only worth it if you want clients to see partial
+5. **Persisting partial streams.** Only worth it if you want clients to see partial
    output after a reconnect; commit partials to a separate table and discard them
    when the final message commits.
 

@@ -70,10 +70,11 @@ func (c *ChatCmd) Run(ctx context.Context, g *Globals) error {
 
 	opts := durable.Options{
 		Model: claude.New(anthropic.NewClient(clientOpts...), claude.Config{
-			Model:  c.Model,
-			System: systemPrompt,
-			Effort: c.Effort,
-			OnText: func(s string) { fmt.Fprint(out, s) },
+			Model:     c.Model,
+			System:    systemPrompt,
+			Effort:    c.Effort,
+			OnText:    func(s string) { fmt.Fprint(out, s) },
+			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
 		}),
 		Tools:    withDisplay(toolset, out),
 		LeaseTTL: c.LeaseTTL,

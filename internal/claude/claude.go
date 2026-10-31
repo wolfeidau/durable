@@ -15,6 +15,11 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
+// With tools defined the summarizer can call one instead of writing a summary.
+const compactInstructions = "Summarize the transcript inside <summary></summary> tags. " +
+	"Include relevant information in the summary for continuing the task in the next context window. " +
+	"Do not call any tools while writing this summary; respond with text only."
+
 const (
 	defaultModel     = "claude-sonnet-5-5"
 	defaultMaxTokens = 64000
@@ -32,6 +37,8 @@ type Config struct {
 	Effort    string
 	// OnText receives streamed text deltas. A retried stream may repeat text.
 	OnText func(string)
+	// OnCompact is called when the API starts summarizing older history into a compaction block.
+	OnCompact func()
 }
 
 // Model is a durable.Model backed by Claude.
@@ -80,7 +87,12 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 	}
 	// Stored thinking is bound to the system prompt and tools, so a new binary must degrade rather than fail the session.
 	if !olderThanClaude5.MatchString(m.cfg.Model) {
-		params.Betas = append(params.Betas, anthropic.AnthropicBetaThinkingBindingControls2026_08_01)
+		params.Betas = append(params.Betas, anthropic.AnthropicBetaThinkingBindingControls2026_08_01, anthropic.AnthropicBetaCompact2026_01_12)
+		params.ContextManagement = anthropic.BetaContextManagementConfigParam{
+			Edits: []anthropic.BetaContextManagementConfigEditUnionParam{{
+				OfCompact20260112: &anthropic.BetaCompact20260112EditParam{Instructions: anthropic.String(compactInstructions)},
+			}},
+		}
 		params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfAdaptive: &anthropic.BetaThinkingConfigAdaptiveParam{
 			BlockBinding: anthropic.BetaThinkingBlockBindingParam{
 				PrefixMismatchBehavior: anthropic.BetaThinkingPrefixMismatchBehaviorDropBlock,
@@ -99,6 +111,9 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 		ev := stream.Current()
 		if err := acc.Accumulate(ev); err != nil {
 			return durable.Message{}, durable.Transient(fmt.Errorf("failed to accumulate stream event: %w", err))
+		}
+		if m.cfg.OnCompact != nil && ev.Type == "content_block_start" && ev.ContentBlock.Type == "compaction" {
+			m.cfg.OnCompact()
 		}
 		if m.cfg.OnText != nil && ev.Type == "content_block_delta" && ev.Delta.Type == "text_delta" {
 			m.cfg.OnText(ev.Delta.Text)
