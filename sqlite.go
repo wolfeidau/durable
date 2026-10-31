@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 
 	_ "github.com/mattn/go-sqlite3" // swap for modernc.org/sqlite if you want no cgo
 )
@@ -13,7 +14,8 @@ import (
 // loss, and IMMEDIATE transactions so the lease fence takes the write lock
 // before anything else in the transaction runs.
 func Open(ctx context.Context, path string, opts Options) (*Harness, error) {
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_synchronous=FULL&_busy_timeout=5000&_txlock=immediate&_foreign_keys=on", path)
+	// SQLite treats ?, # and % in a file: URI specially, so escape the path.
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_synchronous=FULL&_busy_timeout=5000&_txlock=immediate&_foreign_keys=on", (&url.URL{Path: path}).EscapedPath())
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err

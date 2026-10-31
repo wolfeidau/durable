@@ -4,6 +4,28 @@ A small durable harness for a Go coding agent, modeled on the ideas in Pi Durabl
 Every step of a run is committed to SQLite before the next one starts, so you can
 `kill -9` the agent mid-run, start it again, and it picks up where it stopped.
 
+## Running the agent
+
+`cmd/durable` is a small coding agent built on the harness, using Claude and five
+tools (`read_file`, `list_files`, `grep`, `edit_file`, `bash`).
+
+```sh
+go build -o durable ./cmd/durable
+export ANTHROPIC_API_KEY=...   # or sign in with `ant auth login`
+./durable                      # same as `./durable chat`
+```
+
+Flags: `--model` (default `claude-opus-5-5`), `--effort` (default `high`),
+`--session` (default `default`) and `--yes`.
+
+- **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers
+  the working directory and `--session`. To resume after a crash or a quit, run the agent
+  again in the same directory. Unfinished work continues before the first prompt.
+- **Approval:** `edit_file` and `bash` show the call and ask `y/N`. Reads never ask.
+- **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so
+  use `--yes` only where the model may run anything you could.
+- **Ctrl-C** cancels the running turn. At the prompt, Ctrl-C or Ctrl-D exits.
+
 ## Wiring it into your agent
 
 Implement two interfaces around what you already have:
@@ -23,7 +45,9 @@ type Tool interface {
 Then replace your in-memory loop:
 
 ```go
-h, err := durable.Open(ctx, "~/.myagent/sessions/<cwd-hash>/session.sqlite", durable.Options{
+// Open does not expand "~" or create directories; do both before calling it.
+path := filepath.Join(home, ".myagent", "sessions", cwdHash, "session.sqlite")
+h, err := durable.Open(ctx, path, durable.Options{
     Model: myModel,
     Tools: []durable.Tool{readTool, editTool, bashTool},
 })
@@ -57,6 +81,11 @@ rows for its calls commit together. Before executing, the call is marked `starte
 the result and the tool message commit together afterwards. A call found in
 `started` on resume crashed mid-flight, so its outcome is unknown:
 
+If `Options.Approve` is set, it is asked before a `pending` call is marked
+`started`. `false` records a `Declined` error result and the model carries on; an
+error or cancellation leaves the call `pending`, so the next `Run` asks again. It is
+never asked for calls already `started`.
+
 - `ReplaySafe` tools run again.
 - `ReplayNever` tools get an error result (`UnknownOutcome`) telling the model to
   check the current state before retrying. The model is good at this: it'll
@@ -78,21 +107,26 @@ lease also cancels the run: `Run` cancels the context it hands to tools and retu
 new owner may briefly overlap with it. `Run` is also serialised within a process, so
 overlapping calls wait for each other instead of executing the same tool twice.
 
-**Model failures.** A failing `Generate` is retried up to `ModelAttempts` times
-(default 4) with `ModelBackoff` doubling between tries (default 1s, so 1s, 2s, 4s).
-Then the submission is marked `failed` with the last error and `Run` moves on to the
-next one. `Run` and `Prompt` do not return model errors; check `Submission.Status`.
-`failed` is terminal, so retrying needs a new request ID. Errors aren't classified,
-so a permanent error costs the full retry time. Cancelling the context never counts
-as a failure: the submission stays `running` and the next `Run` picks it up.
+**Model failures.** An error from `Generate` fails the submission at once, with the
+error text in `Submission.Error`, and `Run` moves on to the next one. `failed` is
+terminal, so retrying needs a new request ID. Wrap errors worth retrying (rate limits,
+outages, network faults) with `durable.Transient`: they are retried up to
+`ModelAttempts` times (default 4) with `ModelBackoff` doubling between tries (default
+1s, so 1s, 2s, 4s). If they still fail, `Run` returns the error and the submission
+stays `running`, so an outage pauses work and the next `Run` resumes it. Cancelling
+the context never counts as a failure: the submission stays `running` and the next
+`Run` picks it up.
 
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
 
 ## Tests
 
-`go test -race ./...` simulates crashes by cancelling the context at the worst
-moments: after an unsafe tool's side effect, after a safe tool's side effect, and
+`go test -race ./...` includes a real `kill -9` test (`cmd/durable/kill_test.go`). It
+builds the binary, points it at a fake Anthropic server, kills it mid-`bash` call and
+while an approval prompt is showing, restarts it, and checks the tool ran once, the
+unknown outcome was reported, and the submission finished. The harness tests also
+simulate crashes by cancelling the context at the worst moments: after an unsafe tool's side effect, after a safe tool's side effect, and
 during a model call. Others cover lease exclusion, stale-owner fencing, duplicate
 request IDs, and queue ordering. Further tests cover lease loss cancelling a running
 tool, concurrent `Run` calls not double-executing a tool, retried and failed model

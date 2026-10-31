@@ -1,0 +1,105 @@
+package commands
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/claude"
+	"github.com/wolfeidau/durable/internal/tools"
+)
+
+// The prompt must stay fixed: any change invalidates the prompt cache and stored thinking blocks.
+const systemPrompt = `You are a coding agent working in the user's current directory through the provided tools.
+Read code before changing it. Make small, focused edits and verify them by running the project's tests or build when possible.
+Prefer read_file, list_files and grep for exploration, and use bash for running commands.
+If a tool result says a call was interrupted or declined, check the current state before retrying.
+Be concise.`
+
+// ChatCmd runs the interactive agent.
+type ChatCmd struct {
+	Model    string        `default:"claude-opus-5-5" help:"Claude model."`
+	Effort   string        `default:"high" help:"Reasoning effort."`
+	Yes      bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
+	Session  string        `default:"default" help:"Session name; sessions are per directory."`
+	LeaseTTL time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
+}
+
+// Run opens the session, resumes unfinished work and reads prompts until EOF or interrupt.
+func (c *ChatCmd) Run(ctx context.Context, g *Globals) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+	path, err := SessionPath(cwd, c.Session)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("failed to create session directory: %w", err)
+	}
+	toolset, err := tools.All(cwd)
+	if err != nil {
+		return fmt.Errorf("failed to build tools: %w", err)
+	}
+
+	out := os.Stdout
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigs)
+	lines := readLines(os.Stdin)
+
+	opts := durable.Options{
+		Model: claude.New(anthropic.NewClient(), claude.Config{
+			Model:  c.Model,
+			System: systemPrompt,
+			Effort: c.Effort,
+			OnText: func(s string) { fmt.Fprint(out, s) },
+		}),
+		Tools:    withDisplay(toolset, out),
+		LeaseTTL: c.LeaseTTL,
+	}
+	if !c.Yes {
+		opts.Approve = newApprover(lines, out)
+	}
+
+	h, err := openWithNotice(ctx, path, opts, sigs, func() {
+		fmt.Fprintln(out, "waiting for session lease...")
+	})
+	if err != nil {
+		return err
+	}
+	defer h.Close()
+
+	r := &repl{h: h, lines: lines, sigs: sigs, out: out}
+	return r.run(ctx)
+}
+
+// openWithNotice lets Ctrl-C abandon a lease wait and calls notice if Open is slow.
+func openWithNotice(ctx context.Context, path string, opts durable.Options, sigs <-chan os.Signal, notice func()) (*durable.Harness, error) {
+	octx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		select {
+		case <-sigs:
+			cancel()
+		case <-stop:
+		}
+	}()
+	timer := time.AfterFunc(time.Second, notice)
+	defer timer.Stop()
+
+	h, err := durable.Open(octx, path, opts)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open session: %w", err)
+	}
+	return h, nil
+}

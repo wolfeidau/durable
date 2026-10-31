@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -398,7 +399,7 @@ func TestModelFailureFailsSubmissionAndQueueContinues(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, StatusFailed, a.Status)
 	require.Contains(t, a.Error, "provider exploded")
-	require.EqualValues(t, 3, badCalls.Load())
+	require.EqualValues(t, 1, badCalls.Load())
 
 	b, err := h.Get(ctx, "b")
 	require.NoError(t, err)
@@ -410,7 +411,7 @@ func TestTransientModelErrorIsRetried(t *testing.T) {
 	var calls atomic.Int32
 	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
 		if calls.Add(1) <= 2 {
-			return Message{}, errors.New("flaky")
+			return Message{}, Transient(errors.New("flaky"))
 		}
 		return Message{Role: RoleAssistant, Text: "fine"}, nil
 	})
@@ -430,7 +431,7 @@ func TestCancelDuringBackoffLeavesSubmissionRunning(t *testing.T) {
 	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
 		if calls.Add(1) == 1 {
 			called <- struct{}{}
-			return Message{}, errors.New("flaky")
+			return Message{}, Transient(errors.New("flaky"))
 		}
 		return Message{Role: RoleAssistant, Text: "fine"}, nil
 	})
@@ -456,4 +457,269 @@ func TestCancelDuringBackoffLeavesSubmissionRunning(t *testing.T) {
 	sub, err = h.Get(ctx, "a")
 	require.NoError(t, err)
 	require.Equal(t, StatusDone, sub.Status)
+}
+
+// approvalModel asks for one tool call, then answers with the tool result.
+func approvalModel(history []Message, _ []ToolSpec) (Message, error) {
+	last := history[len(history)-1]
+	if last.Role == RoleUser {
+		return Message{Role: RoleAssistant, ToolCalls: []ToolCall{
+			{ID: "c1", Name: "write_file", Input: json.RawMessage(`{}`)},
+		}}, nil
+	}
+	return Message{Role: RoleAssistant, Text: "saw: " + last.Text}, nil
+}
+
+func callStatus(t *testing.T, h *Harness) string {
+	t.Helper()
+	var s string
+	require.NoError(t, h.db.QueryRow(`SELECT status FROM tool_calls WHERE call_id = 'c1'`).Scan(&s))
+	return s
+}
+
+func TestApproveRunsBeforeStarted(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	var h *Harness
+	var statusInApprove string
+	var runsInApprove int32 = -1
+	h = openWith(t, ctx, Options{
+		Model: modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+			return approvalModel(hist, s)
+		}),
+		Tools: []Tool{write}, LeaseTTL: ttl,
+		Approve: func(_ context.Context, call ToolCall) (bool, error) {
+			require.Equal(t, "c1", call.ID)
+			statusInApprove = callStatus(t, h)
+			runsInApprove = write.runs.Load()
+			return true, nil
+		},
+	})
+	defer h.Close()
+
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.Equal(t, callPending, statusInApprove)
+	require.EqualValues(t, 0, runsInApprove)
+	require.EqualValues(t, 1, write.runs.Load())
+}
+
+func TestDeclinedCallDoesNotRunAndModelContinues(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	h := openWith(t, ctx, Options{
+		Model: modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+			return approvalModel(hist, s)
+		}),
+		Tools: []Tool{write}, LeaseTTL: ttl,
+		Approve: func(context.Context, ToolCall) (bool, error) { return false, nil },
+	})
+	defer h.Close()
+
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.EqualValues(t, 0, write.runs.Load())
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,assistant,tool,assistant", roles(hist))
+	require.Equal(t, Declined, hist[2].Text)
+	require.True(t, hist[2].IsError)
+	require.Equal(t, "saw: "+Declined, sub.Result)
+}
+
+func TestCancelWhileWaitingForApprovalLeavesCallPending(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	var asked atomic.Int32
+	waiting := make(chan struct{}, 1)
+	h := openWith(t, ctx, Options{
+		Model: modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+			return approvalModel(hist, s)
+		}),
+		Tools: []Tool{write}, LeaseTTL: ttl,
+		Approve: func(ctx context.Context, _ ToolCall) (bool, error) {
+			if asked.Add(1) == 1 {
+				waiting <- struct{}{}
+				<-ctx.Done()
+				return false, ctx.Err()
+			}
+			return true, nil
+		},
+	})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() { errc <- h.Run(runCtx) }()
+	<-waiting
+	cancel()
+	require.ErrorIs(t, <-errc, context.Canceled)
+	require.Equal(t, callPending, callStatus(t, h))
+	require.EqualValues(t, 0, write.runs.Load())
+
+	require.NoError(t, h.Run(ctx))
+	require.EqualValues(t, 2, asked.Load())
+	require.EqualValues(t, 1, write.runs.Load())
+	sub, err := h.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+}
+
+func TestApproveErrorIsReturnedAndCallStaysPending(t *testing.T) {
+	ctx := context.Background()
+	boom := errors.New("prompt broke")
+	h := openWith(t, ctx, Options{
+		Model: modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+			return approvalModel(hist, s)
+		}),
+		Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl,
+		Approve: func(context.Context, ToolCall) (bool, error) { return false, boom },
+	})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "go")
+	require.ErrorIs(t, err, boom)
+	require.Equal(t, callPending, callStatus(t, h))
+}
+
+func TestApproveNotCalledForReplayedOrUnknownCalls(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	model := modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+		return approvalModel(hist, s)
+	})
+	var asked atomic.Int32
+	approve := func(context.Context, ToolCall) (bool, error) { asked.Add(1); return true, nil }
+
+	// Crash after the effect: the call is left started.
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", replay: ReplaySafe, crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	require.EqualValues(t, 1, asked.Load())
+	h1.abandon()
+
+	h2, err := Open(ctx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.EqualValues(t, 1, asked.Load(), "replayed started call must not be re-approved")
+	require.EqualValues(t, 2, write.runs.Load())
+
+	// Unknown tool: never asked.
+	h3 := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, Approve: approve})
+	defer h3.Close()
+	sub, err := h3.Prompt(ctx, "b", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.EqualValues(t, 1, asked.Load())
+}
+
+func TestStartedReplayNeverStillYieldsUnknownOutcomeWithApprove(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	model := modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+		return approvalModel(hist, s)
+	})
+	var asked atomic.Int32
+	approve := func(context.Context, ToolCall) (bool, error) { asked.Add(1); return true, nil }
+
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	h2, err := Open(ctx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, UnknownOutcome, hist[2].Text)
+	require.EqualValues(t, 1, asked.Load())
+	require.EqualValues(t, 1, write.runs.Load())
+}
+
+func TestTransientErrorExhaustionPausesRun(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	var down atomic.Bool
+	down.Store(true)
+	cause := errors.New("overloaded")
+	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		calls.Add(1)
+		if down.Load() {
+			return Message{}, Transient(cause)
+		}
+		return Message{Role: RoleAssistant, Text: "fine"}, nil
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, ModelAttempts: 3, ModelBackoff: time.Millisecond})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "a", "hi")
+	require.NoError(t, err)
+	err = h.Run(ctx)
+	require.ErrorIs(t, err, cause)
+	require.EqualValues(t, 3, calls.Load())
+	sub, err := h.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusRunning, sub.Status)
+
+	down.Store(false)
+	require.NoError(t, h.Run(ctx))
+	sub, err = h.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+}
+
+func TestTransientHelper(t *testing.T) {
+	require.NoError(t, Transient(nil))
+	base := errors.New("x")
+	err := fmt.Errorf("wrapped: %w", Transient(base))
+	require.ErrorIs(t, err, base)
+	require.True(t, isTransient(err))
+	require.False(t, isTransient(base))
+}
+
+func TestMessageRawRoundTripsByteForByte(t *testing.T) {
+	ctx := context.Background()
+	raw := `[{"type":"thinking","thinking":"a<b && c>d","signature":"EqQB+/="},{"type":"text","text":"hi"}]`
+	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		return Message{Role: RoleAssistant, Text: "hi", Raw: json.RawMessage(raw)}, nil
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, raw, string(hist[1].Raw))
+}
+
+func TestOpenEscapesPath(t *testing.T) {
+	ctx := context.Background()
+	dir := filepath.Join(t.TempDir(), "we?ird #dir %41 x")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, "s?#%41 .sqlite")
+
+	h, err := Open(ctx, path, Options{Model: &scriptedModel{}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	require.NoError(t, h.Close())
+
+	_, err = os.Stat(path)
+	require.NoError(t, err)
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	for _, e := range entries {
+		require.True(t, strings.HasPrefix(e.Name(), "s?#%41 .sqlite"), e.Name())
+	}
 }
