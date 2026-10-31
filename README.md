@@ -172,3 +172,7 @@ re-run the task.
 6. **Persisting partial streams.** Only worth it if you want clients to see partial
    output after a reconnect; commit partials to a separate table and discard them
    when the final message commits.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).
