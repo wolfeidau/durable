@@ -156,6 +156,12 @@ note (`RequestCancelled`), so the history stays valid for the model API. Done, f
 and cancelled submissions are returned unchanged. `Cancel` waits for an in-progress
 `Run` to stop, so cancel that `Run`'s context first.
 
+**Changed prompts or tools.** Stored thinking blocks are bound to the system prompt and
+tool list that produced them, so upgrading the binary can invalidate them. On Claude 5
+and later the adapter sends `prefix_mismatch_behavior: "drop_block"`, so the API drops
+those blocks and the session carries on without that reasoning, instead of failing with
+a 400. It also restarts the prompt cache.
+
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
 
