@@ -89,7 +89,7 @@ func event(name, data string) string {
 	return "event: " + name + "\ndata: " + data + "\n\n"
 }
 
-const messageStart = `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`
+const messageStart = `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`
 
 func blockStart(i int, block string) string {
 	return event("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":%s}`, i, block))
@@ -175,10 +175,10 @@ func TestRequestShape(t *testing.T) {
 	require.NoError(t, err)
 
 	body := f.body(t, 0)
-	require.Equal(t, "claude-opus-5-5", body["model"])
+	require.Equal(t, "claude-sonnet-5-5", body["model"])
 	require.EqualValues(t, 64000, body["max_tokens"])
 	require.Equal(t, true, body["stream"])
-	require.Equal(t, map[string]any{"effort": "high"}, body["output_config"])
+	require.Equal(t, map[string]any{"effort": "medium"}, body["output_config"])
 	require.Equal(t, "default", body["fallbacks"])
 	require.Equal(t, map[string]any{"type": "ephemeral"}, body["cache_control"])
 	require.Equal(t, []any{map[string]any{"type": "text", "text": "be brief"}}, body["system"])

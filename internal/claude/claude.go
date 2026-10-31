@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	defaultModel     = "claude-opus-5-5"
+	defaultModel     = "claude-sonnet-5-5"
 	defaultMaxTokens = 64000
-	defaultEffort    = "high"
+	defaultEffort    = "medium"
 )
 
 // Config configures the adapter. Zero values select the defaults.

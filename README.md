@@ -14,7 +14,7 @@ go build -o durable ./cmd/durable
 ./durable --api-token-from-1password 'op://<vault>/<item>/<field>'
 ```
 
-Flags: `--model` (default `claude-opus-5-5`), `--effort` (default `high`),
+Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
 `--session` (default `default`), `--yes`, `--api-token` and `--api-token-from-1password`.
 
 - **Credentials:** `--api-token-from-1password` reads the key with the `op` CLI when the

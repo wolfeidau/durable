@@ -26,8 +26,8 @@ Be concise.`
 
 // ChatCmd runs the interactive agent.
 type ChatCmd struct {
-	Model    string        `default:"claude-opus-5-5" help:"Claude model."`
-	Effort   string        `default:"high" help:"Reasoning effort."`
+	Model    string        `default:"claude-sonnet-5-5" help:"Claude model."`
+	Effort   string        `default:"medium" help:"Reasoning effort."`
 	Yes      bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
 	Session  string        `default:"default" help:"Session name; sessions are per directory."`
 	LeaseTTL time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
