@@ -248,8 +248,10 @@ func TestQueueRunsInOrderAcrossSubmissions(t *testing.T) {
 	defer h.Close()
 
 	// Queue two inputs (e.g. a user typed while the agent was busy), then run.
-	h.Submit(ctx, "a", "first")
-	h.Submit(ctx, "b", "second")
+	_, err := h.Submit(ctx, "a", "first")
+	require.NoError(t, err)
+	_, err = h.Submit(ctx, "b", "second")
+	require.NoError(t, err)
 	if err := h.Run(ctx); err != nil {
 		t.Fatal(err)
 	}
