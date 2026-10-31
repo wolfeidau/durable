@@ -2,6 +2,7 @@ package durable
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -722,4 +723,265 @@ func TestOpenEscapesPath(t *testing.T) {
 	for _, e := range entries {
 		require.True(t, strings.HasPrefix(e.Name(), "s?#%41 .sqlite"), e.Name())
 	}
+}
+
+// assertToolResultsMatch checks every tool call in the history has exactly one tool message after it.
+func assertToolResultsMatch(t *testing.T, hist []Message) {
+	t.Helper()
+	for i, m := range hist {
+		for _, c := range m.ToolCalls {
+			n := 0
+			for _, later := range hist[i+1:] {
+				if later.Role == RoleTool && later.ToolCallID == c.ID {
+					n++
+				}
+			}
+			require.Equal(t, 1, n, "tool call %q", c.ID)
+		}
+	}
+}
+
+// startRun runs h.Run in the background and returns a stop func that cancels it and returns its error.
+func startRun(h *Harness) (stop func() error) {
+	runCtx, cancel := context.WithCancel(context.Background())
+	errc := make(chan error, 1)
+	go func() { errc <- h.Run(runCtx) }()
+	return func() error {
+		cancel()
+		return <-errc
+	}
+}
+
+// threeCallModel asks for calls a, b and c in one message, then answers.
+func threeCallModel(_ context.Context, hist []Message, _ []ToolSpec) (Message, error) {
+	if hist[len(hist)-1].Role == RoleUser && lastUserText(hist) == "go" {
+		return Message{Role: RoleAssistant, ToolCalls: []ToolCall{
+			{ID: "ca", Name: "a", Input: json.RawMessage(`{}`)},
+			{ID: "cb", Name: "b", Input: json.RawMessage(`{}`)},
+			{ID: "cc", Name: "c", Input: json.RawMessage(`{}`)},
+		}}, nil
+	}
+	return Message{Role: RoleAssistant, Text: "fine"}, nil
+}
+
+func TestCancelQueuedAppendsNothingAndRunSkipsIt(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	h := openWith(t, ctx, Options{LeaseTTL: ttl, Model: modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		calls.Add(1)
+		return Message{Role: RoleAssistant, Text: "fine"}, nil
+	})})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "a", "hi")
+	require.NoError(t, err)
+	sub, err := h.Cancel(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, sub.Status)
+
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Empty(t, hist)
+	require.NoError(t, h.Run(ctx))
+	require.Zero(t, calls.Load())
+	got, err := h.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, got.Status)
+}
+
+func TestCancelRunningWithoutReplyAddsNoteAndNextPromptSeesIt(t *testing.T) {
+	ctx := context.Background()
+	entered := make(chan struct{}, 1)
+	var seen []Message
+	h := openWith(t, ctx, Options{LeaseTTL: ttl, Model: modelFunc(func(ctx context.Context, hist []Message, _ []ToolSpec) (Message, error) {
+		if lastUserText(hist) == "first" {
+			entered <- struct{}{}
+			<-ctx.Done()
+			return Message{}, ctx.Err()
+		}
+		seen = hist
+		return Message{Role: RoleAssistant, Text: "fine"}, nil
+	})})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "a", "first")
+	require.NoError(t, err)
+	stop := startRun(h)
+	<-entered
+	require.ErrorIs(t, stop(), context.Canceled)
+
+	sub, err := h.Cancel(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, sub.Status)
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,user", roles(hist))
+	require.Equal(t, RequestCancelled, hist[1].Text)
+
+	next, err := h.Prompt(ctx, "b", "second")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, next.Status)
+	require.Equal(t, "user,user,user", roles(seen))
+	require.Equal(t, RequestCancelled, seen[1].Text)
+}
+
+func TestCancelRecordsOneResultPerUnfinishedCall(t *testing.T) {
+	ctx := context.Background()
+	a := &fakeTool{name: "a", replay: ReplaySafe}
+	b := newBlockingTool("b")
+	c := &fakeTool{name: "c"}
+	h := openWith(t, ctx, Options{LeaseTTL: ttl, Model: modelFunc(threeCallModel), Tools: []Tool{a, b, c}})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "r1", "go")
+	require.NoError(t, err)
+	stop := startRun(h)
+	<-b.entered
+	require.ErrorIs(t, stop(), context.Canceled)
+
+	sub, err := h.Cancel(ctx, "r1")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, sub.Status)
+
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,assistant,tool,tool,tool,user", roles(hist))
+	require.Equal(t, "ca", hist[2].ToolCallID)
+	require.Equal(t, "a ok (run 1)", hist[2].Text)
+	require.False(t, hist[2].IsError)
+	require.Equal(t, "cb", hist[3].ToolCallID)
+	require.Equal(t, CancelledUnknown, hist[3].Text)
+	require.True(t, hist[3].IsError)
+	require.Equal(t, "cc", hist[4].ToolCallID)
+	require.Equal(t, CallCancelled, hist[4].Text)
+	require.True(t, hist[4].IsError)
+	require.Equal(t, RequestCancelled, hist[5].Text)
+	assertToolResultsMatch(t, hist)
+
+	require.NoError(t, h.Run(ctx))
+	require.EqualValues(t, 1, a.runs.Load())
+	require.EqualValues(t, 1, b.runs.Load())
+	require.Zero(t, c.runs.Load())
+	after, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Len(t, after, len(hist))
+}
+
+func TestCancelIsIdempotentForTerminalSubmissions(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, Options{LeaseTTL: ttl, Model: modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		return Message{Role: RoleAssistant, Text: "fine"}, nil
+	})})
+	defer h.Close()
+
+	done, err := h.Prompt(ctx, "a", "hi")
+	require.NoError(t, err)
+	got, err := h.Cancel(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, done, got)
+	require.Equal(t, StatusDone, got.Status)
+
+	_, err = h.Submit(ctx, "b", "hi")
+	require.NoError(t, err)
+	_, err = h.Cancel(ctx, "b")
+	require.NoError(t, err)
+	again, err := h.Cancel(ctx, "b")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, again.Status)
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,assistant", roles(hist))
+}
+
+func TestCancelUnknownIDReturnsErrNoRows(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, Options{LeaseTTL: ttl, Model: &scriptedModel{}})
+	defer h.Close()
+
+	_, err := h.Cancel(ctx, "missing")
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func TestCancelWaitsForRunToStop(t *testing.T) {
+	ctx := context.Background()
+	b := newBlockingTool("b")
+	h := openWith(t, ctx, Options{LeaseTTL: ttl, Model: modelFunc(threeCallModel), Tools: []Tool{&fakeTool{name: "a"}, b, &fakeTool{name: "c"}}})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "r1", "go")
+	require.NoError(t, err)
+	stop := startRun(h)
+	<-b.entered
+
+	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer cancel()
+	_, err = h.Cancel(short, "r1")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+
+	type result struct {
+		sub Submission
+		err error
+	}
+	res := make(chan result, 1)
+	go func() {
+		sub, err := h.Cancel(ctx, "r1")
+		res <- result{sub, err}
+	}()
+	select {
+	case <-res:
+		t.Fatal("Cancel returned while Run was still working")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	require.ErrorIs(t, stop(), context.Canceled)
+	select {
+	case r := <-res:
+		require.NoError(t, r.err)
+		require.Equal(t, StatusCancelled, r.sub.Status)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Cancel did not return after Run stopped")
+	}
+}
+
+func TestCancelByStaleOwnerFailsWithLeaseLost(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	ctx := context.Background()
+	h1 := open(t, ctx, path, &scriptedModel{})
+	_, err := h1.Submit(ctx, "a", "hi")
+	require.NoError(t, err)
+	h1.stopRenew()
+	<-h1.renewDone
+
+	h2 := open(t, ctx, path, &scriptedModel{})
+	defer h2.Close()
+
+	_, err = h1.Cancel(ctx, "a")
+	require.ErrorIs(t, err, ErrLeaseLost)
+	h1.db.Close()
+	sub, err := h2.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusQueued, sub.Status)
+}
+
+func TestCancelledStaysCancelledAfterReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	ctx := context.Background()
+	model := &scriptedModel{}
+	h1 := open(t, ctx, path, model)
+	_, err := h1.Submit(ctx, "a", "hi")
+	require.NoError(t, err)
+	_, err = h1.Cancel(ctx, "a")
+	require.NoError(t, err)
+	require.NoError(t, h1.Close())
+
+	h2 := open(t, ctx, path, model)
+	defer h2.Close()
+	sub, err := h2.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, sub.Status)
+	unfinished, err := h2.Unfinished(ctx)
+	require.NoError(t, err)
+	require.Empty(t, unfinished)
+	require.NoError(t, h2.Run(ctx))
+	require.Zero(t, model.calls.Load())
 }

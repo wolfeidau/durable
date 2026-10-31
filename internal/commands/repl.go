@@ -80,7 +80,10 @@ func (r *repl) finish(ctx context.Context, res turnResult) (bool, error) {
 	case res.terminated || ctx.Err() != nil:
 		return true, nil
 	case errors.Is(res.err, context.Canceled):
-		fmt.Fprintln(r.out, "\ninterrupted")
+		if err := r.cancelUnfinished(ctx); err != nil {
+			return true, fmt.Errorf("failed to cancel the task: %w", err)
+		}
+		fmt.Fprintln(r.out, "\ncancelled")
 	case res.err != nil:
 		fmt.Fprintf(r.out, "\nerror: %v\n", res.err)
 	case res.sub.Status == durable.StatusFailed:
@@ -89,6 +92,19 @@ func (r *repl) finish(ctx context.Context, res turnResult) (bool, error) {
 		fmt.Fprintln(r.out)
 	}
 	return false, nil
+}
+
+func (r *repl) cancelUnfinished(ctx context.Context) error {
+	subs, err := r.h.Unfinished(ctx)
+	if err != nil {
+		return err
+	}
+	for _, s := range subs {
+		if _, err := r.h.Cancel(ctx, s.RequestID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *repl) run(ctx context.Context) error {

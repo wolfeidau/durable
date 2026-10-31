@@ -28,7 +28,7 @@ func newApprover(lines <-chan string, out io.Writer) func(context.Context, durab
 		default:
 			return true, nil
 		}
-		fmt.Fprint(out, "Run this call? [y/N] ")
+		fmt.Fprint(out, "Run this call? [y/N] (Ctrl-C stops the task) ")
 
 		select {
 		case <-ctx.Done():
