@@ -25,6 +25,10 @@ type Options struct {
 	LeaseTTL time.Duration
 	// MaxTurns caps model calls per submission. Default 50.
 	MaxTurns int
+	// ModelAttempts caps tries per model call before the submission fails. Default 4.
+	ModelAttempts int
+	// ModelBackoff is the first retry delay, doubling each retry. Default 1s.
+	ModelBackoff time.Duration
 }
 
 // Harness drives one durable session stored in one SQLite database.
@@ -34,6 +38,9 @@ type Harness struct {
 	tools map[string]Tool
 	specs []ToolSpec
 	owner string
+
+	leaseLost chan struct{} // closed by renewLoop when the lease is lost
+	runSem    chan struct{} // capacity 1; serialises Run
 
 	stopRenew context.CancelFunc
 	renewDone chan struct{}
@@ -56,11 +63,18 @@ func OpenDB(ctx context.Context, db *sql.DB, opts Options) (*Harness, error) {
 	if opts.MaxTurns <= 0 {
 		opts.MaxTurns = 50
 	}
+	if opts.ModelAttempts <= 0 {
+		opts.ModelAttempts = 4
+	}
+	if opts.ModelBackoff <= 0 {
+		opts.ModelBackoff = time.Second
+	}
 	if err := migrate(ctx, db); err != nil {
 		return nil, fmt.Errorf("durable: migrate: %w", err)
 	}
 
-	h := &Harness{db: db, opts: opts, tools: map[string]Tool{}, owner: newOwnerID()}
+	h := &Harness{db: db, opts: opts, tools: map[string]Tool{}, owner: newOwnerID(),
+		leaseLost: make(chan struct{}), runSem: make(chan struct{}, 1)}
 	for _, t := range opts.Tools {
 		spec := t.Spec()
 		h.tools[spec.Name] = t
@@ -102,6 +116,7 @@ func (h *Harness) renewLoop(ctx context.Context) {
 			// A lost lease is also caught by the fence in every commit;
 			// stopping here just avoids pointless writes.
 			if errors.Is(renewLease(ctx, h.db, h.owner, h.opts.LeaseTTL), ErrLeaseLost) {
+				close(h.leaseLost)
 				return
 			}
 		}
@@ -173,10 +188,38 @@ func (h *Harness) Prompt(ctx context.Context, requestID, text string) (Submissio
 // Run works through unfinished submissions in order until none are left.
 // Call it right after Open to resume whatever a crashed process left behind.
 //
-// It returns early on context cancellation, a lost lease, or a model error.
-// Nothing is lost in any of those cases: calling Run again (in this process
-// or another) continues from the last commit.
+// It returns early on context cancellation or a lost lease (ErrLeaseLost, which
+// also cancels the context passed to tools). Model errors do not cause an early
+// return: after ModelAttempts tries the submission is marked failed and Run
+// moves on. Nothing is lost on an early return: calling Run again (in this
+// process or another) continues from the last commit.
 func (h *Harness) Run(ctx context.Context) error {
+	select {
+	case h.runSem <- struct{}{}:
+		defer func() { <-h.runSem }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	go func() {
+		select {
+		case <-h.leaseLost:
+			cancel(ErrLeaseLost)
+		case <-ctx.Done():
+		}
+	}()
+
+	err := h.runQueue(ctx)
+	if err != nil && ctx.Err() != nil {
+		// Surface ErrLeaseLost rather than the context.Canceled it caused.
+		return context.Cause(ctx)
+	}
+	return err
+}
+
+func (h *Harness) runQueue(ctx context.Context) error {
 	for {
 		sub, ok, err := nextUnfinished(ctx, h.db)
 		if err != nil || !ok {
@@ -248,7 +291,7 @@ func (h *Harness) drive(ctx context.Context, sub Submission) error {
 		if err := h.db.QueryRowContext(ctx, `SELECT status FROM submissions WHERE seq = ?`, sub.Seq).Scan(&status); err != nil {
 			return err
 		}
-		if SubmissionStatus(status) == StatusDone {
+		if s := SubmissionStatus(status); s == StatusDone || s == StatusFailed {
 			return nil
 		}
 	}
@@ -280,9 +323,30 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission) error {
 	if err != nil {
 		return err
 	}
-	reply, err := h.opts.Model.Generate(ctx, history, h.specs)
-	if err != nil {
-		return fmt.Errorf("durable: model: %w", err)
+	var reply Message
+	backoff := h.opts.ModelBackoff
+	for attempt := 1; ; attempt++ {
+		var err error
+		reply, err = h.opts.Model.Generate(ctx, history, h.specs)
+		if err == nil {
+			break
+		}
+		// Cancellation is the process going away, never a model failure.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if attempt >= h.opts.ModelAttempts {
+			return h.commit(ctx, func(tx *sql.Tx) error {
+				return setSubmission(ctx, tx, sub.Seq, StatusFailed, "",
+					fmt.Sprintf("model failed after %d attempts: %v", attempt, err))
+			})
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
 	}
 	reply.Role = RoleAssistant
 

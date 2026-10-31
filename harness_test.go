@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // abandon simulates the process dying: stop renewing and drop the database
@@ -260,4 +262,196 @@ func TestQueueRunsInOrderAcrossSubmissions(t *testing.T) {
 	if hist[0].Text != "first" || hist[5].Text != "second" {
 		t.Errorf("submissions ran out of order: %s", roles(hist))
 	}
+}
+
+// blockingTool blocks until released, or until ctx is cancelled.
+type blockingTool struct {
+	name      string
+	runs      atomic.Int32
+	entered   chan struct{}
+	release   chan struct{} // nil means wait for ctx instead
+	cancelled chan struct{}
+}
+
+func newBlockingTool(name string) *blockingTool {
+	return &blockingTool{name: name, entered: make(chan struct{}, 4), cancelled: make(chan struct{}, 4)}
+}
+
+func (t *blockingTool) Spec() ToolSpec { return ToolSpec{Name: t.name} }
+func (t *blockingTool) Replay() Replay { return ReplayNever }
+func (t *blockingTool) Execute(ctx context.Context, _ ToolCall) (string, error) {
+	t.runs.Add(1)
+	t.entered <- struct{}{}
+	select {
+	case <-ctx.Done():
+		t.cancelled <- struct{}{}
+		return "", ctx.Err()
+	case <-t.release:
+		return t.name + " ok", nil
+	}
+}
+
+type modelFunc func(ctx context.Context, history []Message, tools []ToolSpec) (Message, error)
+
+func (f modelFunc) Generate(ctx context.Context, history []Message, tools []ToolSpec) (Message, error) {
+	return f(ctx, history, tools)
+}
+
+func lastUserText(history []Message) string {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == RoleUser {
+			return history[i].Text
+		}
+	}
+	return ""
+}
+
+func openWith(t *testing.T, ctx context.Context, opts Options) *Harness {
+	t.Helper()
+	h, err := Open(ctx, filepath.Join(t.TempDir(), "session.sqlite"), opts)
+	require.NoError(t, err)
+	return h
+}
+
+func TestLeaseLossCancelsRunningTool(t *testing.T) {
+	ctx := context.Background()
+	write := newBlockingTool("write_file")
+	h := openWith(t, ctx, Options{
+		Model: &scriptedModel{}, LeaseTTL: ttl,
+		Tools: []Tool{write, &fakeTool{name: "read_file", replay: ReplaySafe}},
+	})
+	defer h.abandon()
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := h.Prompt(ctx, "req-1", "fix the bug")
+		errc <- err
+	}()
+
+	<-write.entered
+	_, err := h.db.ExecContext(ctx, `UPDATE lease SET owner = 'thief' WHERE id = 1`)
+	require.NoError(t, err)
+
+	select {
+	case err := <-errc:
+		require.ErrorIs(t, err, ErrLeaseLost)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Prompt did not return after the lease was lost")
+	}
+	select {
+	case <-write.cancelled:
+	default:
+		t.Fatal("tool did not see cancellation")
+	}
+}
+
+func TestConcurrentRunsDoNotDoubleExecute(t *testing.T) {
+	ctx := context.Background()
+	model := &scriptedModel{}
+	write := newBlockingTool("write_file")
+	write.release = make(chan struct{})
+	read := &fakeTool{name: "read_file", replay: ReplaySafe}
+	h := openWith(t, ctx, Options{Model: model, Tools: []Tool{write, read}, LeaseTTL: ttl})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "req-1", "fix the bug")
+	require.NoError(t, err)
+
+	errc := make(chan error, 2)
+	go func() { errc <- h.Run(ctx) }()
+	<-write.entered
+	go func() { errc <- h.Run(ctx) }()
+	time.Sleep(20 * time.Millisecond) // long enough for the second Run to race
+	close(write.release)
+
+	require.NoError(t, <-errc)
+	require.NoError(t, <-errc)
+	require.EqualValues(t, 1, write.runs.Load())
+	require.EqualValues(t, 1, read.runs.Load())
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,assistant,tool,tool,assistant", roles(hist))
+}
+
+func TestModelFailureFailsSubmissionAndQueueContinues(t *testing.T) {
+	ctx := context.Background()
+	var badCalls atomic.Int32
+	model := modelFunc(func(_ context.Context, history []Message, _ []ToolSpec) (Message, error) {
+		if lastUserText(history) == "bad" {
+			badCalls.Add(1)
+			return Message{}, errors.New("provider exploded")
+		}
+		return Message{Role: RoleAssistant, Text: "fine"}, nil
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, ModelAttempts: 3, ModelBackoff: time.Millisecond})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "a", "bad")
+	require.NoError(t, err)
+	_, err = h.Submit(ctx, "b", "good")
+	require.NoError(t, err)
+	require.NoError(t, h.Run(ctx))
+
+	a, err := h.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, a.Status)
+	require.Contains(t, a.Error, "provider exploded")
+	require.EqualValues(t, 3, badCalls.Load())
+
+	b, err := h.Get(ctx, "b")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, b.Status)
+}
+
+func TestTransientModelErrorIsRetried(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		if calls.Add(1) <= 2 {
+			return Message{}, errors.New("flaky")
+		}
+		return Message{Role: RoleAssistant, Text: "fine"}, nil
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, ModelBackoff: time.Millisecond})
+	defer h.Close()
+
+	sub, err := h.Prompt(ctx, "a", "hi")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.EqualValues(t, 3, calls.Load())
+}
+
+func TestCancelDuringBackoffLeavesSubmissionRunning(t *testing.T) {
+	ctx := context.Background()
+	var calls atomic.Int32
+	called := make(chan struct{}, 1)
+	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		if calls.Add(1) == 1 {
+			called <- struct{}{}
+			return Message{}, errors.New("flaky")
+		}
+		return Message{Role: RoleAssistant, Text: "fine"}, nil
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, ModelBackoff: time.Hour})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "a", "hi")
+	require.NoError(t, err)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	errc := make(chan error, 1)
+	go func() { errc <- h.Run(runCtx) }()
+	<-called
+	cancel()
+	require.ErrorIs(t, <-errc, context.Canceled)
+
+	sub, err := h.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusRunning, sub.Status)
+
+	require.NoError(t, h.Run(ctx))
+	sub, err = h.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
 }
