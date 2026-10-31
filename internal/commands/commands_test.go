@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -285,6 +286,7 @@ func (c *ctxTool) count() int {
 type sigRepl struct {
 	h     *durable.Harness
 	stdin *io.PipeWriter
+	path  string
 	sigs  chan os.Signal
 	out   *lockedBuffer
 	done  chan error
@@ -307,11 +309,12 @@ func startSigRepl(t *testing.T, model durable.Model, tool durable.Tool, yes bool
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
-	h, err := durable.Open(ctx, filepath.Join(t.TempDir(), "s.sqlite"), opts)
+	path := filepath.Join(t.TempDir(), "s.sqlite")
+	h, err := durable.Open(ctx, path, opts)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = h.Close() })
 
-	s := &sigRepl{h: h, stdin: pw, sigs: make(chan os.Signal, 2), out: out, done: make(chan error, 1)}
+	s := &sigRepl{h: h, path: path, stdin: pw, sigs: make(chan os.Signal, 2), out: out, done: make(chan error, 1)}
 	r := &repl{h: h, lines: lines, sigs: s.sigs, out: out}
 	go func() { s.done <- r.run(ctx) }()
 	t.Cleanup(func() { _ = pw.Close() })
@@ -492,4 +495,37 @@ func TestDisplayToolPreservesOrderSpecAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "ok", res)
 	require.Contains(t, out.String(), "[bash] ls -la")
+}
+
+// stuckTool ignores cancellation until released, like a tool slow to stop.
+type stuckTool struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *stuckTool) Spec() durable.ToolSpec { return durable.ToolSpec{Name: "bash"} }
+func (s *stuckTool) Replay() durable.Replay { return durable.ReplayNever }
+func (s *stuckTool) Execute(context.Context, durable.ToolCall) (string, error) {
+	close(s.started)
+	<-s.release
+	return "", nil
+}
+
+func TestSecondInterruptKeepsLease(t *testing.T) {
+	tool := &stuckTool{started: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(func() { close(tool.release) })
+	s := startSigRepl(t, &fakeModel{fn: toolThenText}, tool, true)
+	s.typeLine(t, "go")
+	<-tool.started
+	s.sigs <- syscall.SIGINT
+	s.sigs <- syscall.SIGINT
+	require.ErrorContains(t, <-s.done, "interrupted twice")
+	require.NoError(t, s.h.Close())
+
+	db, err := sql.Open("sqlite3", s.path)
+	require.NoError(t, err)
+	defer db.Close()
+	var leases int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM lease`).Scan(&leases))
+	require.Equal(t, 1, leases)
 }

@@ -19,11 +19,7 @@ import (
 // abandon simulates the process dying: stop renewing and drop the database
 // handle without releasing the lease, so the next owner must wait it out.
 func (h *Harness) abandon() {
-	h.closeOnce.Do(func() {
-		h.stopRenew()
-		<-h.renewDone
-		h.db.Close()
-	})
+	_ = h.Detach()
 }
 
 const ttl = 150 * time.Millisecond
@@ -222,6 +218,19 @@ func TestLeaseKeepsSecondWriterOut(t *testing.T) {
 	if d := time.Since(start); d > ttl {
 		t.Errorf("handover after Close took %v", d)
 	}
+}
+
+func TestDetachKeepsLeaseUntilTTL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	ctx := context.Background()
+	h1 := open(t, ctx, path, &scriptedModel{})
+	require.NoError(t, h1.Detach())
+	require.NoError(t, h1.Close())
+
+	start := time.Now()
+	h2 := open(t, ctx, path, &scriptedModel{})
+	defer h2.Close()
+	require.Greater(t, time.Since(start), ttl/2)
 }
 
 func TestStaleOwnerCannotCommit(t *testing.T) {

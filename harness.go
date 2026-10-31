@@ -146,11 +146,23 @@ func (h *Harness) renewLoop(ctx context.Context) {
 // Close releases the lease so another process can open the session at once,
 // then closes the database.
 func (h *Harness) Close() error {
+	return h.shutdown(true)
+}
+
+// Detach closes the database but keeps the lease until its TTL expires. Use it
+// when exiting with a run still stopping, so no new owner can overlap with it.
+func (h *Harness) Detach() error {
+	return h.shutdown(false)
+}
+
+func (h *Harness) shutdown(release bool) error {
 	var err error
 	h.closeOnce.Do(func() {
 		h.stopRenew()
 		<-h.renewDone
-		_ = releaseLease(context.Background(), h.db, h.owner)
+		if release {
+			_ = releaseLease(context.Background(), h.db, h.owner)
+		}
 		err = h.db.Close()
 	})
 	return err
