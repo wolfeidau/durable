@@ -25,7 +25,8 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
 - **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers
   the working directory and `--session`. To resume after a crash or a quit, run the agent
   again in the same directory. Unfinished work continues before the first prompt.
-- **Approval:** `edit_file` and `bash` show the call and ask `y/N`. Reads never ask.
+- **Approval:** every tool shows the call and asks `y/N`, except tools that declare
+  themselves read-only (`read_file`, `list_files`, `grep`).
 - **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so
   use `--yes` only where the model may run anything you could.
 - **Ctrl-C** during a turn (including an approval prompt or a resumed task) cancels the

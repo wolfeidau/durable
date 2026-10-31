@@ -11,9 +11,23 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
-// newApprover asks on lines for mutating tools; read-only tools never ask.
-func newApprover(lines <-chan string, out io.Writer) func(context.Context, durable.ToolCall) (bool, error) {
+// readOnlyTools uses an explicit declaration because ReplaySafe also covers idempotent writes.
+func readOnlyTools(tools []durable.Tool) map[string]bool {
+	names := map[string]bool{}
+	for _, t := range tools {
+		if r, ok := t.(interface{ ReadOnly() bool }); ok && r.ReadOnly() {
+			names[t.Spec().Name] = true
+		}
+	}
+	return names
+}
+
+// newApprover asks on lines for every tool not listed in readOnly, so a new tool asks by default.
+func newApprover(lines <-chan string, out io.Writer, readOnly map[string]bool) func(context.Context, durable.ToolCall) (bool, error) {
 	return func(ctx context.Context, call durable.ToolCall) (bool, error) {
+		if readOnly[call.Name] {
+			return true, nil
+		}
 		var in callInput
 		_ = json.Unmarshal(call.Input, &in)
 		switch call.Name {
@@ -26,7 +40,7 @@ func newApprover(lines <-chan string, out io.Writer) func(context.Context, durab
 				fmt.Fprintf(out, "\n[edit_file] %s\n  old: %s\n  new: %s\n", in.Path, truncate(in.OldString, 200), truncate(in.NewString, 200))
 			}
 		default:
-			return true, nil
+			fmt.Fprintf(out, "\n[%s] %s\n", call.Name, truncate(string(call.Input), 200))
 		}
 		fmt.Fprint(out, "Run this call? [y/N] (Ctrl-C stops the task) ")
 

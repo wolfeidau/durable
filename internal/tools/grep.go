@@ -32,7 +32,8 @@ func newGrep(root string) durable.Tool {
 				`"glob":{"type":["string","null"],"description":"Only search files whose base name matches this glob (e.g. *.go), or null for all files."}},` +
 				`"required":["pattern","path","glob"],"additionalProperties":false}`),
 		},
-		replay: durable.ReplaySafe,
+		replay:   durable.ReplaySafe,
+		readOnly: true,
 		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Pattern string  `json:"pattern"`

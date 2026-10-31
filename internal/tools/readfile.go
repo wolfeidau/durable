@@ -30,7 +30,8 @@ func newReadFile(root string) durable.Tool {
 				`"limit":{"type":["integer","null"],"description":"Maximum lines to return, or null for 2000."}},` +
 				`"required":["path","offset","limit"],"additionalProperties":false}`),
 		},
-		replay: durable.ReplaySafe,
+		replay:   durable.ReplaySafe,
+		readOnly: true,
 		run: func(_ context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path   string `json:"path"`
