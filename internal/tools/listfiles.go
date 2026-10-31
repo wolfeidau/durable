@@ -24,7 +24,8 @@ func newListFiles(root string) durable.Tool {
 				`"path":{"type":["string","null"],"description":"Directory to list, or null for the workspace root."}},` +
 				`"required":["path"],"additionalProperties":false}`),
 		},
-		replay: durable.ReplaySafe,
+		replay:   durable.ReplaySafe,
+		readOnly: true,
 		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path *string `json:"path"`

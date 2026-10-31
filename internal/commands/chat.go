@@ -79,7 +79,7 @@ func (c *ChatCmd) Run(ctx context.Context, g *Globals) error {
 		LeaseTTL: c.LeaseTTL,
 	}
 	if !c.Yes {
-		opts.Approve = newApprover(lines, out)
+		opts.Approve = newApprover(lines, out, readOnlyTools(toolset))
 	}
 
 	h, err := openWithNotice(ctx, path, opts, sigs, func() {

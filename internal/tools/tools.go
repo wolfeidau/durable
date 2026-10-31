@@ -19,9 +19,10 @@ import (
 const binarySniffBytes = 8192
 
 type tool struct {
-	spec   durable.ToolSpec
-	replay durable.Replay
-	run    func(ctx context.Context, call durable.ToolCall) (string, error)
+	spec     durable.ToolSpec
+	replay   durable.Replay
+	readOnly bool
+	run      func(ctx context.Context, call durable.ToolCall) (string, error)
 	// recover is set only by tools that can leave a process behind.
 	recover func(ctx context.Context, call durable.ToolCall) string
 }
@@ -29,6 +30,9 @@ type tool struct {
 func (t tool) Spec() durable.ToolSpec { return t.spec }
 
 func (t tool) Replay() durable.Replay { return t.replay }
+
+// ReadOnly reports whether the tool can run without approval.
+func (t tool) ReadOnly() bool { return t.readOnly }
 
 func (t tool) Execute(ctx context.Context, call durable.ToolCall) (string, error) {
 	return t.run(ctx, call)
