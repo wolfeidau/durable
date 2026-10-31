@@ -18,6 +18,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
 	"github.com/stretchr/testify/require"
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/tools"
 )
 
 // reply is one scripted HTTP response.
@@ -88,7 +89,7 @@ func event(name, data string) string {
 	return "event: " + name + "\ndata: " + data + "\n\n"
 }
 
-const messageStart = `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`
+const messageStart = `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`
 
 func blockStart(i int, block string) string {
 	return event("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":%s}`, i, block))
@@ -174,10 +175,10 @@ func TestRequestShape(t *testing.T) {
 	require.NoError(t, err)
 
 	body := f.body(t, 0)
-	require.Equal(t, "claude-opus-5-5", body["model"])
+	require.Equal(t, "claude-sonnet-5-5", body["model"])
 	require.EqualValues(t, 64000, body["max_tokens"])
 	require.Equal(t, true, body["stream"])
-	require.Equal(t, map[string]any{"effort": "high"}, body["output_config"])
+	require.Equal(t, map[string]any{"effort": "medium"}, body["output_config"])
 	require.Equal(t, "default", body["fallbacks"])
 	require.Equal(t, map[string]any{"type": "ephemeral"}, body["cache_control"])
 	require.Equal(t, []any{map[string]any{"type": "text", "text": "be brief"}}, body["system"])
@@ -446,9 +447,32 @@ func TestSmoke(t *testing.T) {
 	if os.Getenv("ANTHROPIC_API_KEY") == "" || os.Getenv("DURABLE_SMOKE") != "1" {
 		t.Skip("set ANTHROPIC_API_KEY and DURABLE_SMOKE=1 to run against the real API")
 	}
-	m := New(anthropic.NewClient(), Config{MaxTokens: 2000})
-	msg, err := gen(t, m, []durable.Message{{Role: durable.RoleUser, Text: "Reply with the single word: pong"}}, nil)
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "note.txt"), []byte("the word is pong\n"), 0o600))
+	toolset, err := tools.All(root)
 	require.NoError(t, err)
-	require.NotEmpty(t, msg.Text)
-	require.NotEmpty(t, msg.Raw)
+	specs := make([]durable.ToolSpec, len(toolset))
+	for i, tool := range toolset {
+		specs[i] = tool.Spec()
+	}
+
+	// Sends the real strict schemas, then replays the first turn's thinking and tool call.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	m := New(anthropic.NewClient(), Config{MaxTokens: 8000})
+	history := []durable.Message{{Role: durable.RoleUser, Text: "Read note.txt with read_file, then reply with only the word in it."}}
+	first, err := m.Generate(ctx, history, specs)
+	require.NoError(t, err)
+	require.NotEmpty(t, first.Raw)
+	require.NotEmpty(t, first.ToolCalls)
+
+	history = append(history, first)
+	for _, call := range first.ToolCalls {
+		out, err := toolset[0].Execute(ctx, call)
+		require.NoError(t, err)
+		history = append(history, durable.Message{Role: durable.RoleTool, ToolCallID: call.ID, Text: out})
+	}
+	second, err := m.Generate(ctx, history, specs)
+	require.NoError(t, err)
+	require.Contains(t, strings.ToLower(second.Text), "pong")
 }

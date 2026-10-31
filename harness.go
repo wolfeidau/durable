@@ -176,6 +176,11 @@ func (h *Harness) Get(ctx context.Context, requestID string) (Submission, error)
 	return getSubmission(ctx, h.db, requestID)
 }
 
+// Unfinished returns queued and running submissions, oldest first.
+func (h *Harness) Unfinished(ctx context.Context) ([]Submission, error) {
+	return listUnfinished(ctx, h.db)
+}
+
 // History returns the whole transcript across submissions.
 func (h *Harness) History(ctx context.Context) ([]Message, error) {
 	return loadHistory(ctx, h.db)

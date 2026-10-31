@@ -36,6 +36,17 @@ func TestBashStdinIsEmpty(t *testing.T) {
 	require.Equal(t, "done\n", out)
 }
 
+func TestBashScrubsCredentials(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "leak-me")
+	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "leak-me")
+	t.Setenv("DURABLE_KEEP", "kept")
+	e := newEnv(t)
+	out, err := e.run(t, "bash", map[string]any{"command": "env", "timeout_seconds": nil})
+	require.NoError(t, err)
+	require.NotContains(t, out, "leak-me")
+	require.Contains(t, out, "DURABLE_KEEP=kept")
+}
+
 func TestBashTimeoutBounds(t *testing.T) {
 	e := newEnv(t)
 	_, err := e.run(t, "bash", map[string]any{"command": "true", "timeout_seconds": 601})
