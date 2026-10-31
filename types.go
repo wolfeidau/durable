@@ -85,6 +85,8 @@ type Tool interface {
 	// Execute runs the call. A returned error becomes an error result the
 	// model sees; it does not stop the run. Context cancellation does stop
 	// the run without recording a result (the same as the process dying).
+	// Tools must honour ctx: it is also cancelled when the lease is lost, and
+	// a tool that ignores it keeps running alongside the new owner.
 	Execute(ctx context.Context, call ToolCall) (string, error)
 }
 

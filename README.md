@@ -71,7 +71,20 @@ returns the first submission.
 **Fenced single writer.** `Open` takes the lease (waiting out a crashed owner's
 TTL, 10s by default). Every commit's first statement re-checks ownership, so a
 process that was paused and lost its lease gets `ErrLeaseLost` instead of writing
-over the new owner. `Close` releases the lease for instant handover.
+over the new owner. `Close` releases the lease for instant handover. Losing the
+lease also cancels the run: `Run` cancels the context it hands to tools and returns
+`ErrLeaseLost`, so tools must honour `ctx`. This is cooperative. A tool that ignores
+`ctx` keeps running, and detection can take up to `LeaseTTL/3` after takeover, so a
+new owner may briefly overlap with it. `Run` is also serialised within a process, so
+overlapping calls wait for each other instead of executing the same tool twice.
+
+**Model failures.** A failing `Generate` is retried up to `ModelAttempts` times
+(default 4) with `ModelBackoff` doubling between tries (default 1s, so 1s, 2s, 4s).
+Then the submission is marked `failed` with the last error and `Run` moves on to the
+next one. `Run` and `Prompt` do not return model errors; check `Submission.Status`.
+`failed` is terminal, so retrying needs a new request ID. Errors aren't classified,
+so a permanent error costs the full retry time. Cancelling the context never counts
+as a failure: the submission stays `running` and the next `Run` picks it up.
 
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
@@ -81,7 +94,9 @@ call is simply made again, which costs tokens but loses nothing.
 `go test -race ./...` simulates crashes by cancelling the context at the worst
 moments: after an unsafe tool's side effect, after a safe tool's side effect, and
 during a model call. Others cover lease exclusion, stale-owner fencing, duplicate
-request IDs, and queue ordering.
+request IDs, and queue ordering. Further tests cover lease loss cancelling a running
+tool, concurrent `Run` calls not double-executing a tool, retried and failed model
+calls, and cancellation during retry backoff.
 
 ## Next steps, roughly in order of payoff
 
