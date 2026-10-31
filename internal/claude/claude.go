@@ -1,0 +1,259 @@
+// Package claude implements durable.Model on top of the Anthropic Messages API.
+package claude
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/anthropics/anthropic-sdk-go/v2/packages/param"
+	"github.com/wolfeidau/durable"
+)
+
+const (
+	defaultModel     = "claude-opus-5-5"
+	defaultMaxTokens = 64000
+	defaultEffort    = "high"
+)
+
+// Config configures the adapter. Zero values select the defaults.
+type Config struct {
+	Model     string
+	System    string
+	MaxTokens int64
+	Effort    string
+	// OnText receives streamed text deltas. A retried stream may repeat text.
+	OnText func(string)
+}
+
+// Model is a durable.Model backed by Claude.
+type Model struct {
+	client anthropic.Client
+	cfg    Config
+}
+
+var _ durable.Model = (*Model)(nil)
+
+// New returns a Model using client and cfg.
+func New(client anthropic.Client, cfg Config) *Model {
+	if cfg.Model == "" {
+		cfg.Model = defaultModel
+	}
+	if cfg.MaxTokens == 0 {
+		cfg.MaxTokens = defaultMaxTokens
+	}
+	if cfg.Effort == "" {
+		cfg.Effort = defaultEffort
+	}
+	return &Model{client: client, cfg: cfg}
+}
+
+// Generate sends history and tools to the API and returns the assistant turn.
+func (m *Model) Generate(ctx context.Context, history []durable.Message, tools []durable.ToolSpec) (durable.Message, error) {
+	msgs, err := toMessages(history)
+	if err != nil {
+		return durable.Message{}, err
+	}
+	toolParams, err := toTools(tools)
+	if err != nil {
+		return durable.Message{}, err
+	}
+
+	params := anthropic.BetaMessageNewParams{
+		Model:     anthropic.Model(m.cfg.Model),
+		MaxTokens: m.cfg.MaxTokens,
+		Messages:  msgs,
+		Tools:     toolParams,
+		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
+		Fallbacks: anthropic.BetaFallbacksParamOfDefault(),
+		// Top-level cache control caches tools, system and history together.
+		CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
+		OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffort(m.cfg.Effort)},
+	}
+	if m.cfg.System != "" {
+		params.System = []anthropic.BetaTextBlockParam{{Text: m.cfg.System}}
+	}
+
+	stream := m.client.Beta.Messages.NewStreaming(ctx, params)
+	defer stream.Close()
+
+	var acc anthropic.BetaMessage
+	for stream.Next() {
+		ev := stream.Current()
+		if err := acc.Accumulate(ev); err != nil {
+			return durable.Message{}, durable.Transient(fmt.Errorf("failed to accumulate stream event: %w", err))
+		}
+		if m.cfg.OnText != nil && ev.Type == "content_block_delta" && ev.Delta.Type == "text_delta" {
+			m.cfg.OnText(ev.Delta.Text)
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return durable.Message{}, classify(ctx, err)
+	}
+	if err := ctx.Err(); err != nil {
+		return durable.Message{}, err
+	}
+
+	return toResult(acc)
+}
+
+func toResult(acc anthropic.BetaMessage) (durable.Message, error) {
+	switch acc.StopReason {
+	case anthropic.BetaStopReasonEndTurn, anthropic.BetaStopReasonToolUse, anthropic.BetaStopReasonStopSequence:
+	case "":
+		// The stream ended without message_delta, so the connection was cut.
+		return durable.Message{}, durable.Transient(errors.New("stream ended before a stop reason"))
+	case anthropic.BetaStopReasonRefusal:
+		return durable.Message{}, fmt.Errorf("model refused to respond (category %q): %s", acc.StopDetails.Category, acc.StopDetails.Explanation)
+	default:
+		return durable.Message{}, fmt.Errorf("unexpected stop reason %q", acc.StopReason)
+	}
+
+	var text strings.Builder
+	var calls []durable.ToolCall
+	raw := make([]json.RawMessage, 0, len(acc.Content))
+	for _, block := range acc.Content {
+		raw = append(raw, json.RawMessage(block.RawJSON()))
+		switch block.Type {
+		case "text":
+			text.WriteString(block.Text)
+		case "tool_use":
+			calls = append(calls, durable.ToolCall{ID: block.ID, Name: block.Name, Input: append(json.RawMessage(nil), block.Input...)})
+		}
+	}
+	// HTML escaping would rewrite <, > and & inside signed thinking text.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(raw); err != nil {
+		return durable.Message{}, fmt.Errorf("failed to marshal assistant content: %w", err)
+	}
+	rawJSON := bytes.TrimSpace(buf.Bytes())
+	return durable.Message{Role: durable.RoleAssistant, Text: text.String(), ToolCalls: calls, Raw: rawJSON}, nil
+}
+
+func classify(ctx context.Context, err error) error {
+	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	wrapped := fmt.Errorf("failed to generate: %w", err)
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) {
+		return durable.Transient(wrapped)
+	}
+	// An SSE error event carries the 200 status of its stream, so use the error type.
+	if apiErr.StatusCode < 400 {
+		switch apiErr.Type() {
+		case anthropic.ErrorTypeOverloadedError, anthropic.ErrorTypeRateLimitError, anthropic.ErrorTypeAPIError, anthropic.ErrorTypeTimeoutError:
+			return durable.Transient(wrapped)
+		}
+		return wrapped
+	}
+	switch s := apiErr.StatusCode; {
+	case s == 408, s == 409, s == 429, s >= 500:
+		return durable.Transient(wrapped)
+	}
+	return wrapped
+}
+
+func toTools(specs []durable.ToolSpec) ([]anthropic.BetaToolUnionParam, error) {
+	out := make([]anthropic.BetaToolUnionParam, 0, len(specs))
+	for _, s := range specs {
+		schema := anthropic.BetaToolInputSchemaParam{Properties: map[string]any{}}
+		if len(s.Schema) > 0 {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(s.Schema, &fields); err != nil {
+				return nil, fmt.Errorf("failed to decode schema for tool %q: %w", s.Name, err)
+			}
+			extra := map[string]any{}
+			for k, v := range fields {
+				switch k {
+				case "type":
+				case "properties":
+					var props any
+					if err := json.Unmarshal(v, &props); err != nil {
+						return nil, fmt.Errorf("failed to decode properties for tool %q: %w", s.Name, err)
+					}
+					schema.Properties = props
+				case "required":
+					if err := json.Unmarshal(v, &schema.Required); err != nil {
+						return nil, fmt.Errorf("failed to decode required for tool %q: %w", s.Name, err)
+					}
+				default:
+					extra[k] = v
+				}
+			}
+			if len(extra) > 0 {
+				schema.ExtraFields = extra
+			}
+		}
+		out = append(out, anthropic.BetaToolUnionParam{OfTool: &anthropic.BetaToolParam{
+			Name:        s.Name,
+			Description: anthropic.String(s.Description),
+			InputSchema: schema,
+			Strict:      anthropic.Bool(true),
+		}})
+	}
+	return out, nil
+}
+
+func toMessages(history []durable.Message) ([]anthropic.BetaMessageParam, error) {
+	var out []anthropic.BetaMessageParam
+	var results, texts []anthropic.BetaContentBlockParamUnion
+
+	// Parallel tool results and a prompt after them must share one user turn.
+	flush := func() {
+		if len(results)+len(texts) == 0 {
+			return
+		}
+		blocks := append(append([]anthropic.BetaContentBlockParamUnion{}, results...), texts...)
+		out = append(out, anthropic.NewBetaUserMessage(blocks...))
+		results, texts = nil, nil
+	}
+
+	for _, msg := range history {
+		switch msg.Role {
+		case durable.RoleUser:
+			texts = append(texts, anthropic.NewBetaTextBlock(msg.Text))
+		case durable.RoleTool:
+			results = append(results, anthropic.NewBetaToolResultBlock(msg.ToolCallID, msg.Text, msg.IsError))
+		case durable.RoleAssistant:
+			flush()
+			blocks, err := assistantBlocks(msg)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, anthropic.BetaMessageParam{OfAssistant: &anthropic.BetaAssistantMessageParam{Content: blocks}})
+		default:
+			return nil, fmt.Errorf("unknown message role %q", msg.Role)
+		}
+	}
+	flush()
+	return out, nil
+}
+
+func assistantBlocks(msg durable.Message) ([]anthropic.BetaContentBlockParamUnion, error) {
+	if len(msg.Raw) == 0 {
+		var blocks []anthropic.BetaContentBlockParamUnion
+		if msg.Text != "" {
+			blocks = append(blocks, anthropic.NewBetaTextBlock(msg.Text))
+		}
+		for _, c := range msg.ToolCalls {
+			blocks = append(blocks, anthropic.NewBetaToolUseBlock(c.ID, c.Input, c.Name))
+		}
+		return blocks, nil
+	}
+	var raws []json.RawMessage
+	if err := json.Unmarshal(msg.Raw, &raws); err != nil {
+		return nil, fmt.Errorf("failed to decode raw assistant content: %w", err)
+	}
+	blocks := make([]anthropic.BetaContentBlockParamUnion, len(raws))
+	for i, r := range raws {
+		blocks[i] = param.Override[anthropic.BetaContentBlockParamUnion](r)
+	}
+	return blocks, nil
+}
