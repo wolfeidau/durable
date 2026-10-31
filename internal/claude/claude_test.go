@@ -182,11 +182,16 @@ func TestRequestShape(t *testing.T) {
 	require.Equal(t, "default", body["fallbacks"])
 	require.Equal(t, map[string]any{"type": "ephemeral"}, body["cache_control"])
 	require.Equal(t, []any{map[string]any{"type": "text", "text": "be brief"}}, body["system"])
-	for _, k := range []string{"thinking", "temperature", "top_p", "top_k", "tool_choice"} {
+	require.Equal(t, map[string]any{
+		"type":          "adaptive",
+		"block_binding": map[string]any{"prefix_mismatch_behavior": "drop_block"},
+	}, body["thinking"])
+	for _, k := range []string{"temperature", "top_p", "top_k", "tool_choice"} {
 		require.NotContains(t, body, k)
 	}
 
 	require.Contains(t, f.headers[0].Get("anthropic-beta"), "server-side-fallback-2026-07-01")
+	require.Contains(t, f.headers[0].Get("anthropic-beta"), "thinking-binding-controls-2026-08-01")
 
 	toolList := body["tools"].([]any)
 	require.Len(t, toolList, 2)
@@ -202,6 +207,30 @@ func TestRequestShape(t *testing.T) {
 	}, first["input_schema"])
 	require.Equal(t, "a_tool", toolList[1].(map[string]any)["name"])
 	require.Equal(t, true, toolList[1].(map[string]any)["strict"])
+}
+
+func TestOlderModelsSendNoThinkingConfig(t *testing.T) {
+	for model, want := range map[string]bool{
+		"claude-haiku-4-5":           false,
+		"claude-opus-4-8":            false,
+		"claude-sonnet-4-20250514":   false,
+		"claude-3-5-sonnet-20241022": false,
+		"claude-opus-5":              true,
+		"claude-fable-5-1":           true,
+		"claude-sonnet-5-5":          true,
+		"claude-next-model":          true,
+	} {
+		f := newFakeAPI(t, stream("end_turn", textBlock(0, "ok")))
+		_, err := gen(t, f.model(Config{Model: model}), []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
+		require.NoError(t, err)
+		if want {
+			require.Contains(t, f.body(t, 0), "thinking", model)
+			require.Contains(t, f.headers[0].Get("anthropic-beta"), "thinking-binding-controls-2026-08-01", model)
+			continue
+		}
+		require.NotContains(t, f.body(t, 0), "thinking", model)
+		require.NotContains(t, f.headers[0].Get("anthropic-beta"), "thinking-binding-controls-2026-08-01", model)
+	}
 }
 
 func TestThinkingRawRoundTrip(t *testing.T) {

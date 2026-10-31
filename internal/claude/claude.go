@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
@@ -19,6 +20,9 @@ const (
 	defaultMaxTokens = 64000
 	defaultEffort    = "medium"
 )
+
+// olderThanClaude5 matches models where adaptive thinking is rejected or would turn thinking on.
+var olderThanClaude5 = regexp.MustCompile(`^claude-([a-z]+-)?[1-4](-|$)`)
 
 // Config configures the adapter. Zero values select the defaults.
 type Config struct {
@@ -73,6 +77,15 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 		// Top-level cache control caches tools, system and history together.
 		CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 		OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffort(m.cfg.Effort)},
+	}
+	// Stored thinking is bound to the system prompt and tools, so a new binary must degrade rather than fail the session.
+	if !olderThanClaude5.MatchString(m.cfg.Model) {
+		params.Betas = append(params.Betas, anthropic.AnthropicBetaThinkingBindingControls2026_08_01)
+		params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfAdaptive: &anthropic.BetaThinkingConfigAdaptiveParam{
+			BlockBinding: anthropic.BetaThinkingBlockBindingParam{
+				PrefixMismatchBehavior: anthropic.BetaThinkingPrefixMismatchBehaviorDropBlock,
+			},
+		}}
 	}
 	if m.cfg.System != "" {
 		params.System = []anthropic.BetaTextBlockParam{{Text: m.cfg.System}}
