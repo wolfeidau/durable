@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wolfeidau/durable"
 )
 
 func TestBashOutput(t *testing.T) {
@@ -96,8 +99,11 @@ func TestBashParentCancelKillsChildren(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	errCh := make(chan error, 1)
+	input, err := json.Marshal(map[string]any{"command": cmd, "timeout_seconds": nil})
+	require.NoError(t, err)
+	bash := e.tools["bash"]
 	go func() {
-		_, err := e.runCtx(t, ctx, "bash", map[string]any{"command": cmd, "timeout_seconds": nil})
+		_, err := bash.Execute(ctx, durable.ToolCall{ID: "1", Name: "bash", Input: input})
 		errCh <- err
 	}()
 

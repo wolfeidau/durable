@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -65,7 +66,7 @@ type fakeTool struct {
 
 func (t *fakeTool) Spec() ToolSpec { return ToolSpec{Name: t.name} }
 func (t *fakeTool) Replay() Replay { return t.replay }
-func (t *fakeTool) Execute(ctx context.Context, c ToolCall) (string, error) {
+func (t *fakeTool) Execute(ctx context.Context, _ ToolCall) (string, error) {
 	n := t.runs.Add(1) // the side effect
 	if n == t.crashOn {
 		t.cancel() // the process dies after the effect, before the result is saved
@@ -311,9 +312,9 @@ func (f modelFunc) Generate(ctx context.Context, history []Message, tools []Tool
 }
 
 func lastUserText(history []Message) string {
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == RoleUser {
-			return history[i].Text
+	for _, m := range slices.Backward(history) {
+		if m.Role == RoleUser {
+			return m.Text
 		}
 	}
 	return ""

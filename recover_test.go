@@ -44,8 +44,8 @@ func TestRecoverRunsOnceBeforeResultCommits(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "session.sqlite")
 	model := &scriptedModel{}
 	crashCtx, cancel := context.WithCancel(context.Background())
-	write := &recFake{fakeTool: &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}, recoverCounter: recoverCounter{note: "orphan stopped."}}
-	read := &recFake{fakeTool: &fakeTool{name: "read_file", replay: ReplaySafe}, recoverCounter: recoverCounter{note: "unused"}}
+	write := &recFake{fakeTool: &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}, note: "orphan stopped."}
+	read := &recFake{fakeTool: &fakeTool{name: "read_file", replay: ReplaySafe}, note: "unused"}
 	h1 := open(t, crashCtx, path, model, write, read)
 	_, err := h1.Prompt(crashCtx, "req-1", "go")
 	require.ErrorIs(t, err, context.Canceled)

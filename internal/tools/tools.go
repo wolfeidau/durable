@@ -52,7 +52,7 @@ func All(root, stateDir string) ([]durable.Tool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve root: %w", err)
 	}
-	real, err := filepath.EvalSymlinks(abs)
+	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve root symlinks: %w", err)
 	}
@@ -61,11 +61,11 @@ func All(root, stateDir string) ([]durable.Tool, error) {
 		return nil, fmt.Errorf("failed to create bash state directory: %w", err)
 	}
 	return []durable.Tool{
-		newReadFile(real),
-		newListFiles(real),
-		newGrep(real),
-		newEditFile(real),
-		newBash(real, bashDir),
+		newReadFile(resolved),
+		newListFiles(resolved),
+		newGrep(resolved),
+		newEditFile(resolved),
+		newBash(resolved, bashDir),
 	}, nil
 }
 
@@ -91,9 +91,9 @@ func resolve(root, p string) (string, error) {
 	// Resolve the deepest existing ancestor so not-yet-existing files are checked too.
 	existing, rest := p, ""
 	for {
-		real, err := filepath.EvalSymlinks(existing)
+		resolved, err := filepath.EvalSymlinks(existing)
 		if err == nil {
-			p = filepath.Join(real, rest)
+			p = filepath.Join(resolved, rest)
 			break
 		}
 		if !errors.Is(err, fs.ErrNotExist) {

@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/alecthomas/kong"
+
 	"github.com/wolfeidau/durable/internal/commands"
 )
 

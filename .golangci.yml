@@ -1,23 +1,74 @@
 version: "2"
 linters:
+  default: none
   enable:
+    - bodyclose
+    - depguard
+    - durationcheck
     - errcheck
+    - errorlint
+    - exhaustive
+    - forbidigo
+    - gocognit
+    - gocritic
+    - gosec
     - govet
     - ineffassign
+    - intrange
+    - misspell
+    - modernize
+    - nilerr
+    - noctx
+    - nolintlint
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
     - staticcheck
+    - testifylint
+    - thelper
+    - unconvert
+    - unparam
     - unused
-    - gosec
-    - gocritic
+    - usetesting
+  settings:
+    depguard:
+      rules:
+        testify:
+          deny:
+            - pkg: github.com/stretchr/testify/assert
+              desc: use testify/require so tests fail fast
+    exhaustive:
+      default-signifies-exhaustive: true
+    forbidigo:
+      forbid:
+        - pattern: ^slog\.(Default|Debug|Info|Warn|Error)(Context)?$
+          msg: pass the logger via Globals.Logger
+    gocognit:
+      # Ratchet: lower to 25 once newGrep, newListFiles, Cancel, drive and toTools are refactored.
+      min-complexity: 45
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      rules:
+        - name: context-as-argument
+          arguments:
+            - allow-types-before: "*testing.T"
+        - name: redefines-builtin-id
+        - name: unused-parameter
   exclusions:
-    generated: lax
     presets:
-      - comments
-      - common-false-positives
-      - legacy
       - std-error-handling
-    paths:
-      - third_party$
-      - builtin$
+    rules:
+      # The agent's tools exist to run commands and open model-chosen paths; resolve() is the control.
+      - path: internal/tools/
+        linters: [gosec]
+        text: "G204|G301|G304"
+      - path: internal/creds/
+        linters: [gosec]
+        text: G204
+      - path: _test\.go
+        linters: [gosec, noctx]
 formatters:
   enable:
     - gci
@@ -27,15 +78,13 @@ formatters:
       sections:
         - standard
         - default
+        - localmodule
     gofmt:
       rewrite-rules:
         - pattern: "interface{}"
           replacement: "any"
         - pattern: "a[b:len(a)]"
           replacement: "a[b:]"
-  exclusions:
-    generated: lax
-    paths:
-      - third_party$
-      - builtin$
-
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

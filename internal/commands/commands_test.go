@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/tools"
 )

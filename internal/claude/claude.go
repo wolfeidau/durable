@@ -12,6 +12,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/packages/param"
+
 	"github.com/wolfeidau/durable"
 )
 
@@ -75,7 +76,7 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 	}
 
 	params := anthropic.BetaMessageNewParams{
-		Model:     anthropic.Model(m.cfg.Model),
+		Model:     m.cfg.Model,
 		MaxTokens: m.cfg.MaxTokens,
 		Messages:  msgs,
 		Tools:     toolParams,
@@ -178,6 +179,7 @@ func classify(ctx context.Context, err error) error {
 		switch apiErr.Type() {
 		case anthropic.ErrorTypeOverloadedError, anthropic.ErrorTypeRateLimitError, anthropic.ErrorTypeAPIError, anthropic.ErrorTypeTimeoutError:
 			return durable.Transient(wrapped)
+		default:
 		}
 		return wrapped
 	}

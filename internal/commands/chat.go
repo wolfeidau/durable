@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
+
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/claude"
 	"github.com/wolfeidau/durable/internal/creds"
@@ -37,7 +38,7 @@ type ChatCmd struct {
 }
 
 // Run opens the session, resumes unfinished work and reads prompts until EOF or interrupt.
-func (c *ChatCmd) Run(ctx context.Context, g *Globals) error {
+func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)

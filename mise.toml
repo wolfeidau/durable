@@ -5,9 +5,11 @@ lockfile = true
 [tools]
 go = "1.27.3"
 golangci-lint = "2.15.0"
-goreleaser = "v2.19.0"
 lefthook = "2.1.9"
 
 [tasks."check:tidy"]
 run = "go mod tidy -diff"
 
+
+[tasks."check:lint"]
+run = "golangci-lint run --timeout 3m"
