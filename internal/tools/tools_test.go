@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -354,4 +355,32 @@ func TestEditFileCreate(t *testing.T) {
 	data, err = os.ReadFile(filepath.Join(e.root, "x/y/new.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "hello", string(data))
+}
+
+func TestEditFileHonoursContext(t *testing.T) {
+	e := newEnv(t)
+	p := e.write(t, "f.txt", "one")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := e.runCtx(t, ctx, "edit_file", map[string]any{"path": "f.txt", "old_string": "one", "new_string": "two"})
+	require.ErrorIs(t, err, context.Canceled)
+	data, err := os.ReadFile(p)
+	require.NoError(t, err)
+	require.Equal(t, "one", string(data))
+}
+
+func TestLongLinesCutOnRuneBoundary(t *testing.T) {
+	e := newEnv(t)
+	// "é" is two bytes, so an odd cut offset lands mid-character.
+	e.write(t, "u.txt", "x"+strings.Repeat("é", 3000)+"\n")
+
+	out, err := e.run(t, "read_file", map[string]any{"path": "u.txt", "offset": nil, "limit": nil})
+	require.NoError(t, err)
+	require.True(t, utf8.ValidString(out))
+	require.Contains(t, out, "... [line truncated]")
+
+	out, err = e.run(t, "grep", map[string]any{"pattern": "é", "path": nil, "glob": nil})
+	require.NoError(t, err)
+	require.True(t, utf8.ValidString(out))
+	require.Contains(t, out, "...")
 }

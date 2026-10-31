@@ -27,8 +27,8 @@ Be concise.`
 
 // ChatCmd runs the interactive agent.
 type ChatCmd struct {
-	Model    string        `default:"claude-sonnet-5-5" help:"Claude model."`
-	Effort   string        `default:"medium" help:"Reasoning effort."`
+	Model    string        `help:"Claude model; empty uses the built-in default."`
+	Effort   string        `help:"Reasoning effort; empty uses the built-in default."`
 	Yes      bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
 	Session  string        `default:"default" help:"Session name; sessions are per directory."`
 	LeaseTTL time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
@@ -69,6 +69,10 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	defer signal.Stop(sigs)
 	lines := readLines(os.Stdin)
 
+	var quiet map[string]bool
+	if !c.Yes {
+		quiet = approvedTools(toolset)
+	}
 	opts := durable.Options{
 		Model: claude.New(anthropic.NewClient(clientOpts...), claude.Config{
 			Model:     c.Model,
@@ -77,7 +81,7 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 			OnText:    func(s string) { fmt.Fprint(out, s) },
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
 		}),
-		Tools:    withDisplay(toolset, out),
+		Tools:    withDisplay(toolset, out, quiet),
 		LeaseTTL: c.LeaseTTL,
 	}
 	if !c.Yes {

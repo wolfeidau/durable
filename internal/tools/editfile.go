@@ -26,7 +26,7 @@ func newEditFile(root string) durable.Tool {
 				`"required":["path","old_string","new_string"],"additionalProperties":false}`),
 		},
 		replay: durable.ReplayNever,
-		run: func(_ context.Context, call durable.ToolCall) (string, error) {
+		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path      string `json:"path"`
 				OldString string `json:"old_string"`
@@ -37,6 +37,9 @@ func newEditFile(root string) durable.Tool {
 			}
 			p, err := resolve(root, in.Path)
 			if err != nil {
+				return "", err
+			}
+			if err := ctx.Err(); err != nil {
 				return "", err
 			}
 			if in.OldString == "" {

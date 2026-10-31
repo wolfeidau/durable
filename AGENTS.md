@@ -10,7 +10,7 @@ When running something that needs a credential, keep it out of command output an
 
 Return errors up the stack; log only at the top level (the command `Run` function or the HTTP handler boundary). Never log an error and then return it — it will be logged twice.
 
-Always wrap with context using `%w`:
+Wrap errors from other packages with context using `%w`. Errors from the same package may be returned as they are when wrapping would add nothing:
 
 ```go
 return fmt.Errorf("failed to parse base URL: %w", err)

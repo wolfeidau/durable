@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -20,10 +19,15 @@ func readLines(r io.Reader) <-chan string {
 	ch := make(chan string)
 	go func() {
 		defer close(ch)
-		sc := bufio.NewScanner(r)
-		sc.Buffer(make([]byte, 64*1024), 4<<20)
-		for sc.Scan() {
-			ch <- sc.Text()
+		br := bufio.NewReader(r)
+		for {
+			line, err := br.ReadString('\n')
+			if line != "" {
+				ch <- strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r")
+			}
+			if err != nil {
+				return
+			}
 		}
 	}()
 	return ch
@@ -161,7 +165,5 @@ func (r *repl) work(ctx context.Context, fn func(context.Context) (durable.Submi
 }
 
 func randomID() string {
-	var b [16]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
+	return rand.Text()
 }

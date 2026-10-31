@@ -57,6 +57,10 @@ func (l *lockFile) release() {
 	_ = l.f.Close()
 }
 
+func killGroup(pgid int) error {
+	return syscall.Kill(-pgid, syscall.SIGKILL)
+}
+
 func tryLock(f *os.File) bool {
 	return syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil
 }
@@ -79,7 +83,7 @@ func recoverBash(ctx context.Context, path string) string {
 	if err != nil || pgid <= 1 {
 		return OrphanRunning
 	}
-	if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+	if err := killGroup(pgid); err != nil && !errors.Is(err, syscall.ESRCH) {
 		return OrphanRunning
 	}
 

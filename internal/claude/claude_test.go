@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/fakeapi"
 	"github.com/wolfeidau/durable/internal/tools"
 )
 
@@ -86,45 +87,13 @@ func (f *fakeAPI) count() int {
 	return len(f.bodies)
 }
 
-func event(name, data string) string {
-	return "event: " + name + "\ndata: " + data + "\n\n"
-}
-
-const messageStart = `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`
-
-func blockStart(i int, block string) string {
-	return event("content_block_start", fmt.Sprintf(`{"type":"content_block_start","index":%d,"content_block":%s}`, i, block))
-}
-
-func blockDelta(i int, delta string) string {
-	return event("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":%d,"delta":%s}`, i, delta))
-}
-
-func blockStop(i int) string {
-	return event("content_block_stop", fmt.Sprintf(`{"type":"content_block_stop","index":%d}`, i))
-}
-
-func textBlock(i int, parts ...string) string {
-	s := blockStart(i, `{"type":"text","text":""}`)
-	for _, p := range parts {
-		s += blockDelta(i, fmt.Sprintf(`{"type":"text_delta","text":%q}`, p))
-	}
-	return s + blockStop(i)
-}
+var messageStart = fakeapi.MessageStart("claude-sonnet-5-5")
 
 func thinkingBlock(i int, thinking, sig string) string {
-	return blockStart(i, `{"type":"thinking","thinking":"","signature":""}`) +
-		blockDelta(i, fmt.Sprintf(`{"type":"thinking_delta","thinking":%q}`, thinking)) +
-		blockDelta(i, fmt.Sprintf(`{"type":"signature_delta","signature":%q}`, sig)) +
-		blockStop(i)
-}
-
-func toolBlock(i int, id, name string, parts ...string) string {
-	s := blockStart(i, fmt.Sprintf(`{"type":"tool_use","id":%q,"name":%q,"input":{}}`, id, name))
-	for _, p := range parts {
-		s += blockDelta(i, fmt.Sprintf(`{"type":"input_json_delta","partial_json":%q}`, p))
-	}
-	return s + blockStop(i)
+	return fakeapi.BlockStart(i, `{"type":"thinking","thinking":"","signature":""}`) +
+		fakeapi.BlockDelta(i, fmt.Sprintf(`{"type":"thinking_delta","thinking":%q}`, thinking)) +
+		fakeapi.BlockDelta(i, fmt.Sprintf(`{"type":"signature_delta","signature":%q}`, sig)) +
+		fakeapi.BlockStop(i)
 }
 
 func stream(stop string, blocks ...string) reply {
@@ -132,10 +101,7 @@ func stream(stop string, blocks ...string) reply {
 }
 
 func streamWithDetails(stop, details string, blocks ...string) reply {
-	s := event("message_start", messageStart) + strings.Join(blocks, "")
-	s += event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null,"stop_details":%s},"usage":{"output_tokens":5}}`, stop, details))
-	s += event("message_stop", `{"type":"message_stop"}`)
-	return reply{status: 200, body: s}
+	return reply{status: 200, body: fakeapi.Stream("claude-sonnet-5-5", stop, details, blocks...)}
 }
 
 func apiError(status int, typ string) reply {
@@ -150,7 +116,7 @@ func gen(t *testing.T, m *Model, history []durable.Message, tools []durable.Tool
 }
 
 func TestGenerateText(t *testing.T) {
-	f := newFakeAPI(t, stream("end_turn", textBlock(0, "Hello", ", ", "world")))
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "Hello", ", ", "world")))
 	var got []string
 	m := f.model(Config{System: "be brief", OnText: func(s string) { got = append(got, s) }})
 
@@ -164,7 +130,7 @@ func TestGenerateText(t *testing.T) {
 }
 
 func TestRequestShape(t *testing.T) {
-	f := newFakeAPI(t, stream("end_turn", textBlock(0, "ok")))
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
 	m := f.model(Config{System: "be brief"})
 	tools := []durable.ToolSpec{
 		{Name: "b_tool", Description: "second alphabetically", Schema: json.RawMessage(
@@ -226,7 +192,7 @@ func TestOlderModelsSendNoThinkingConfig(t *testing.T) {
 		"claude-sonnet-5-5":          true,
 		"claude-next-model":          true,
 	} {
-		f := newFakeAPI(t, stream("end_turn", textBlock(0, "ok")))
+		f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
 		_, err := gen(t, f.model(Config{Model: model}), []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
 		require.NoError(t, err)
 		if want {
@@ -243,13 +209,13 @@ func TestOlderModelsSendNoThinkingConfig(t *testing.T) {
 
 func compactionBlock(i int, summary, encrypted string) string {
 	delta, _ := json.Marshal(map[string]string{"type": "compaction_delta", "content": summary, "encrypted_content": encrypted})
-	return blockStart(i, `{"type":"compaction","content":null,"encrypted_content":null}`) + blockDelta(i, string(delta)) + blockStop(i)
+	return fakeapi.BlockStart(i, `{"type":"compaction","content":null,"encrypted_content":null}`) + fakeapi.BlockDelta(i, string(delta)) + fakeapi.BlockStop(i)
 }
 
 func TestCompactionRoundTrip(t *testing.T) {
 	f := newFakeAPI(t,
-		stream("end_turn", compactionBlock(0, "<summary>older work</summary>", "opaque-state"), textBlock(1, "ok")),
-		stream("end_turn", textBlock(0, "again")),
+		stream("end_turn", compactionBlock(0, "<summary>older work</summary>", "opaque-state"), fakeapi.TextBlock(1, "ok")),
+		stream("end_turn", fakeapi.TextBlock(0, "again")),
 	)
 	compactions := 0
 	m := f.model(Config{OnCompact: func() { compactions++ }})
@@ -277,7 +243,7 @@ func TestCompactionRoundTrip(t *testing.T) {
 }
 
 func TestCompactionKeepsToolCall(t *testing.T) {
-	f := newFakeAPI(t, stream("tool_use", compactionBlock(0, "s", "e"), toolBlock(1, "call_1", "bash", `{"command":"ls"}`)))
+	f := newFakeAPI(t, stream("tool_use", compactionBlock(0, "s", "e"), fakeapi.ToolBlock(1, "call_1", "bash", `{"command":"ls"}`)))
 	msg, err := gen(t, f.model(Config{}), []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
 	require.NoError(t, err)
 	require.Len(t, msg.ToolCalls, 1)
@@ -290,10 +256,10 @@ func TestThinkingRawRoundTrip(t *testing.T) {
 	f := newFakeAPI(t,
 		stream("tool_use",
 			thinkingBlock(0, "let me <think> & check", sig),
-			textBlock(1, "reading"),
-			toolBlock(2, "toolu_1", "read_file", `{"path":`, `"a.go"}`),
+			fakeapi.TextBlock(1, "reading"),
+			fakeapi.ToolBlock(2, "toolu_1", "read_file", `{"path":`, `"a.go"}`),
 		),
-		stream("end_turn", textBlock(0, "done")),
+		stream("end_turn", fakeapi.TextBlock(0, "done")),
 	)
 	m := f.model(Config{})
 	tools := []durable.ToolSpec{{Name: "read_file"}}
@@ -325,7 +291,7 @@ func TestThinkingRawRoundTrip(t *testing.T) {
 }
 
 func TestAssistantRebuiltWithoutRaw(t *testing.T) {
-	f := newFakeAPI(t, stream("end_turn", textBlock(0, "ok")))
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
 	m := f.model(Config{})
 	history := []durable.Message{
 		{Role: durable.RoleUser, Text: "go"},
@@ -343,7 +309,7 @@ func TestAssistantRebuiltWithoutRaw(t *testing.T) {
 }
 
 func TestParallelToolResultsMerge(t *testing.T) {
-	f := newFakeAPI(t, stream("end_turn", textBlock(0, "ok")))
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
 	m := f.model(Config{})
 	history := []durable.Message{
 		{Role: durable.RoleUser, Text: "go"},
@@ -368,7 +334,7 @@ func TestParallelToolResultsMerge(t *testing.T) {
 }
 
 func TestToolResultThenPromptMerge(t *testing.T) {
-	f := newFakeAPI(t, stream("end_turn", textBlock(0, "ok")))
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
 	m := f.model(Config{})
 	history := []durable.Message{
 		{Role: durable.RoleUser, Text: "go"},
@@ -389,16 +355,16 @@ func TestToolResultThenPromptMerge(t *testing.T) {
 }
 
 func TestStopReasons(t *testing.T) {
-	partial := toolBlock(0, "t1", "bash", `{"cmd":"rm`)
+	partial := fakeapi.ToolBlock(0, "t1", "bash", `{"cmd":"rm`)
 	tests := []struct {
 		name      string
 		reply     reply
 		wantErr   string
 		wantCalls int
 	}{
-		{name: "end_turn", reply: stream("end_turn", textBlock(0, "x"))},
-		{name: "tool_use", reply: stream("tool_use", toolBlock(0, "t1", "bash", `{"cmd":"ls"}`)), wantCalls: 1},
-		{name: "stop_sequence", reply: stream("stop_sequence", textBlock(0, "x"))},
+		{name: "end_turn", reply: stream("end_turn", fakeapi.TextBlock(0, "x"))},
+		{name: "tool_use", reply: stream("tool_use", fakeapi.ToolBlock(0, "t1", "bash", `{"cmd":"ls"}`)), wantCalls: 1},
+		{name: "stop_sequence", reply: stream("stop_sequence", fakeapi.TextBlock(0, "x"))},
 		{name: "max_tokens", reply: stream("max_tokens", partial), wantErr: `"max_tokens"`},
 		{name: "pause_turn", reply: stream("pause_turn", partial), wantErr: `"pause_turn"`},
 		{name: "unknown", reply: stream("brand_new", partial), wantErr: `"brand_new"`},
@@ -429,7 +395,7 @@ func TestContextCancelMidStream(t *testing.T) {
 	started := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
-		_, _ = io.WriteString(w, event("message_start", messageStart))
+		_, _ = io.WriteString(w, messageStart)
 		w.(http.Flusher).Flush()
 		close(started)
 		<-r.Context().Done()
@@ -494,8 +460,8 @@ func TestErrorClassification(t *testing.T) {
 
 func TestStreamErrorClassification(t *testing.T) {
 	sseErr := func(typ string) reply {
-		return reply{status: 200, body: event("message_start", messageStart) +
-			event("error", fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":"boom"}}`, typ))}
+		return reply{status: 200, body: messageStart +
+			fakeapi.Event("error", fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":"boom"}}`, typ))}
 	}
 	for _, typ := range []string{"overloaded_error", "rate_limit_error", "api_error"} {
 		t.Run(typ, func(t *testing.T) {
@@ -510,7 +476,7 @@ func TestStreamErrorClassification(t *testing.T) {
 		require.Equal(t, durable.StatusFailed, sub.Status)
 	})
 	t.Run("cut stream", func(t *testing.T) {
-		f := newFakeAPI(t, reply{status: 200, body: event("message_start", messageStart) + textBlock(0, "par")})
+		f := newFakeAPI(t, reply{status: 200, body: messageStart + fakeapi.TextBlock(0, "par")})
 		sub, err := runThroughHarness(t, f)
 		require.Error(t, err)
 		require.Equal(t, durable.StatusRunning, sub.Status)

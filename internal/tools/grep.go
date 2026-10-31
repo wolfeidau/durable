@@ -127,7 +127,7 @@ func (st *grepState) file(ctx context.Context, path, rel string) error {
 		}
 		st.count++
 		if len(line) > maxGrepLine {
-			line = line[:maxGrepLine] + "..."
+			line = strings.ToValidUTF8(line[:maxGrepLine], "") + "..."
 		}
 		fmt.Fprintf(&st.sb, "%s:%d:%s\n", rel, n, line)
 	}
