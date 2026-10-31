@@ -1,0 +1,133 @@
+package commands
+
+import (
+	"bufio"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"syscall"
+
+	"github.com/wolfeidau/durable"
+)
+
+// readLines feeds stdin lines to one channel shared by the prompt and approval.
+func readLines(r io.Reader) <-chan string {
+	ch := make(chan string)
+	go func() {
+		defer close(ch)
+		sc := bufio.NewScanner(r)
+		sc.Buffer(make([]byte, 64*1024), 4<<20)
+		for sc.Scan() {
+			ch <- sc.Text()
+		}
+	}()
+	return ch
+}
+
+type repl struct {
+	h     *durable.Harness
+	lines <-chan string
+	sigs  <-chan os.Signal
+	out   io.Writer
+}
+
+type turnResult struct {
+	sub        durable.Submission
+	err        error
+	terminated bool // SIGTERM arrived during the turn
+	forced     bool // a second signal arrived before the turn stopped
+}
+
+// turn runs fn under a context that the first signal cancels.
+func (r *repl) turn(ctx context.Context, fn func(context.Context) (durable.Submission, error)) turnResult {
+	tctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	done := make(chan turnResult, 1)
+	go func() {
+		sub, err := fn(tctx)
+		done <- turnResult{sub: sub, err: err}
+	}()
+
+	var signalled, terminated bool
+	for {
+		select {
+		case res := <-done:
+			res.terminated = terminated
+			return res
+		case s := <-r.sigs:
+			if signalled {
+				return turnResult{forced: true}
+			}
+			signalled = true
+			terminated = s == syscall.SIGTERM
+			cancel()
+		}
+	}
+}
+
+// finish reports a turn's outcome and says whether the REPL should stop.
+func (r *repl) finish(ctx context.Context, res turnResult) (bool, error) {
+	switch {
+	case res.forced:
+		return true, errors.New("interrupted twice, exiting without waiting for the turn")
+	case errors.Is(res.err, durable.ErrLeaseLost):
+		return true, fmt.Errorf("session lease lost: %w", res.err)
+	case res.terminated || ctx.Err() != nil:
+		return true, nil
+	case errors.Is(res.err, context.Canceled):
+		fmt.Fprintln(r.out, "\ninterrupted")
+	case res.err != nil:
+		fmt.Fprintf(r.out, "\nerror: %v\n", res.err)
+	case res.sub.Status == durable.StatusFailed:
+		fmt.Fprintf(r.out, "\nfailed: %s\n", res.sub.Error)
+	default:
+		fmt.Fprintln(r.out)
+	}
+	return false, nil
+}
+
+func (r *repl) run(ctx context.Context) error {
+	// Resume unfinished work before the first prompt.
+	res := r.turn(ctx, func(c context.Context) (durable.Submission, error) { return durable.Submission{}, r.h.Run(c) })
+	if stop, err := r.finish(ctx, res); stop {
+		return err
+	}
+
+	for {
+		fmt.Fprint(r.out, "> ")
+		var line string
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-r.sigs:
+			fmt.Fprintln(r.out)
+			return nil
+		case l, ok := <-r.lines:
+			if !ok {
+				fmt.Fprintln(r.out)
+				return nil
+			}
+			line = l
+		}
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		id := randomID()
+		res := r.turn(ctx, func(c context.Context) (durable.Submission, error) { return r.h.Prompt(c, id, line) })
+		if stop, err := r.finish(ctx, res); stop {
+			return err
+		}
+	}
+}
+
+func randomID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
+}

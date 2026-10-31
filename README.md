@@ -4,6 +4,28 @@ A small durable harness for a Go coding agent, modeled on the ideas in Pi Durabl
 Every step of a run is committed to SQLite before the next one starts, so you can
 `kill -9` the agent mid-run, start it again, and it picks up where it stopped.
 
+## Running the agent
+
+`cmd/durable` is a small coding agent built on the harness, using Claude and five
+tools (`read_file`, `list_files`, `grep`, `edit_file`, `bash`).
+
+```sh
+go build -o durable ./cmd/durable
+export ANTHROPIC_API_KEY=...   # or sign in with `ant auth login`
+./durable                      # same as `./durable chat`
+```
+
+Flags: `--model` (default `claude-opus-5-5`), `--effort` (default `high`),
+`--session` (default `default`) and `--yes`.
+
+- **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers
+  the working directory and `--session`. To resume after a crash or a quit, run the agent
+  again in the same directory. Unfinished work continues before the first prompt.
+- **Approval:** `edit_file` and `bash` show the call and ask `y/N`. Reads never ask.
+- **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so
+  use `--yes` only where the model may run anything you could.
+- **Ctrl-C** cancels the running turn. At the prompt, Ctrl-C or Ctrl-D exits.
+
 ## Wiring it into your agent
 
 Implement two interfaces around what you already have:
@@ -100,8 +122,11 @@ call is simply made again, which costs tokens but loses nothing.
 
 ## Tests
 
-`go test -race ./...` simulates crashes by cancelling the context at the worst
-moments: after an unsafe tool's side effect, after a safe tool's side effect, and
+`go test -race ./...` includes a real `kill -9` test (`cmd/durable/kill_test.go`). It
+builds the binary, points it at a fake Anthropic server, kills it mid-`bash` call and
+while an approval prompt is showing, restarts it, and checks the tool ran once, the
+unknown outcome was reported, and the submission finished. The harness tests also
+simulate crashes by cancelling the context at the worst moments: after an unsafe tool's side effect, after a safe tool's side effect, and
 during a model call. Others cover lease exclusion, stale-owner fencing, duplicate
 request IDs, and queue ordering. Further tests cover lease loss cancelling a running
 tool, concurrent `Run` calls not double-executing a tool, retried and failed model

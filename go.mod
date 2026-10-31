@@ -3,6 +3,7 @@ module github.com/wolfeidau/durable
 go 1.25
 
 require (
+	github.com/alecthomas/kong v1.16.1
 	github.com/anthropics/anthropic-sdk-go/v2 v2.4.0
 	github.com/mattn/go-sqlite3 v1.14.52
 )
