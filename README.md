@@ -30,7 +30,8 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
   use `--yes` only where the model may run anything you could.
 - **Ctrl-C** during a turn (including an approval prompt or a resumed task) cancels the
   task durably: a restart won't resume it. `kill -9` and SIGTERM still resume. At the
-  prompt, Ctrl-C or Ctrl-D exits.
+  prompt, Ctrl-C or Ctrl-D exits. A second Ctrl-C exits without waiting for the turn:
+  the task resumes on restart, after waiting out the session lease.
 
 ## Wiring it into your agent
 
@@ -106,7 +107,8 @@ returns the first submission.
 **Fenced single writer.** `Open` takes the lease (waiting out a crashed owner's
 TTL, 10s by default). Every commit's first statement re-checks ownership, so a
 process that was paused and lost its lease gets `ErrLeaseLost` instead of writing
-over the new owner. `Close` releases the lease for instant handover. Losing the
+over the new owner. `Close` releases the lease for instant handover; `Detach` closes
+without releasing it, for exits where a run may still be stopping. Losing the
 lease also cancels the run: `Run` cancels the context it hands to tools and returns
 `ErrLeaseLost`, so tools must honour `ctx`. This is cooperative. A tool that ignores
 `ctx` keeps running, and detection can take up to `LeaseTTL/3` after takeover, so a

@@ -74,6 +74,9 @@ func (r *repl) turn(ctx context.Context, fn func(context.Context) (durable.Submi
 func (r *repl) finish(ctx context.Context, res turnResult) (bool, error) {
 	switch {
 	case res.forced:
+		if err := r.h.Detach(); err != nil {
+			return true, fmt.Errorf("failed to detach from session: %w", err)
+		}
 		return true, errors.New("interrupted twice, exiting without waiting for the turn")
 	case errors.Is(res.err, durable.ErrLeaseLost):
 		return true, fmt.Errorf("session lease lost: %w", res.err)
