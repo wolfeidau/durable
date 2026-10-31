@@ -20,6 +20,7 @@ package durable
 import (
 	"context"
 	"encoding/json"
+	"errors"
 )
 
 // Role is who produced a message in the transcript.
@@ -48,6 +49,8 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	IsError    bool       `json:"is_error,omitempty"`
+	// Raw is provider-specific content replayed verbatim to the same provider.
+	Raw json.RawMessage `json:"raw,omitempty"`
 }
 
 // ToolSpec describes a tool to the model.
@@ -62,6 +65,25 @@ type ToolSpec struct {
 // again with the same history.
 type Model interface {
 	Generate(ctx context.Context, history []Message, tools []ToolSpec) (Message, error)
+}
+
+type transientError struct{ err error }
+
+func (e transientError) Error() string { return e.err.Error() }
+func (e transientError) Unwrap() error { return e.err }
+
+// Transient marks a model error as worth retrying (rate limits, outages,
+// network faults). Unmarked errors fail the submission at once.
+func Transient(err error) error {
+	if err == nil {
+		return nil
+	}
+	return transientError{err}
+}
+
+func isTransient(err error) bool {
+	var t transientError
+	return errors.As(err, &t)
 }
 
 // Replay says what to do with a tool call that started before a crash but

@@ -23,7 +23,9 @@ type Tool interface {
 Then replace your in-memory loop:
 
 ```go
-h, err := durable.Open(ctx, "~/.myagent/sessions/<cwd-hash>/session.sqlite", durable.Options{
+// Open does not expand "~" or create directories; do both before calling it.
+path := filepath.Join(home, ".myagent", "sessions", cwdHash, "session.sqlite")
+h, err := durable.Open(ctx, path, durable.Options{
     Model: myModel,
     Tools: []durable.Tool{readTool, editTool, bashTool},
 })
@@ -57,6 +59,11 @@ rows for its calls commit together. Before executing, the call is marked `starte
 the result and the tool message commit together afterwards. A call found in
 `started` on resume crashed mid-flight, so its outcome is unknown:
 
+If `Options.Approve` is set, it is asked before a `pending` call is marked
+`started`. `false` records a `Declined` error result and the model carries on; an
+error or cancellation leaves the call `pending`, so the next `Run` asks again. It is
+never asked for calls already `started`.
+
 - `ReplaySafe` tools run again.
 - `ReplayNever` tools get an error result (`UnknownOutcome`) telling the model to
   check the current state before retrying. The model is good at this: it'll
@@ -78,13 +85,15 @@ lease also cancels the run: `Run` cancels the context it hands to tools and retu
 new owner may briefly overlap with it. `Run` is also serialised within a process, so
 overlapping calls wait for each other instead of executing the same tool twice.
 
-**Model failures.** A failing `Generate` is retried up to `ModelAttempts` times
-(default 4) with `ModelBackoff` doubling between tries (default 1s, so 1s, 2s, 4s).
-Then the submission is marked `failed` with the last error and `Run` moves on to the
-next one. `Run` and `Prompt` do not return model errors; check `Submission.Status`.
-`failed` is terminal, so retrying needs a new request ID. Errors aren't classified,
-so a permanent error costs the full retry time. Cancelling the context never counts
-as a failure: the submission stays `running` and the next `Run` picks it up.
+**Model failures.** An error from `Generate` fails the submission at once, with the
+error text in `Submission.Error`, and `Run` moves on to the next one. `failed` is
+terminal, so retrying needs a new request ID. Wrap errors worth retrying (rate limits,
+outages, network faults) with `durable.Transient`: they are retried up to
+`ModelAttempts` times (default 4) with `ModelBackoff` doubling between tries (default
+1s, so 1s, 2s, 4s). If they still fail, `Run` returns the error and the submission
+stays `running`, so an outage pauses work and the next `Run` resumes it. Cancelling
+the context never counts as a failure: the submission stays `running` and the next
+`Run` picks it up.
 
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.

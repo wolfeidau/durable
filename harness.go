@@ -16,6 +16,10 @@ import (
 const UnknownOutcome = "This tool call was interrupted by a restart before its result was saved. " +
 	"It may or may not have taken effect. Check the current state before retrying it."
 
+// Declined is the tool result recorded when Options.Approve rejects a call.
+const Declined = "The user declined this tool call, so it did not run. " +
+	"Do not retry it unchanged; ask the user or take a different approach."
+
 // Options configures a Harness.
 type Options struct {
 	Model Model
@@ -25,10 +29,14 @@ type Options struct {
 	LeaseTTL time.Duration
 	// MaxTurns caps model calls per submission. Default 50.
 	MaxTurns int
-	// ModelAttempts caps tries per model call before the submission fails. Default 4.
+	// ModelAttempts caps tries per model call for errors marked with Transient;
+	// after that Run returns the error and the submission stays running. Default 4.
 	ModelAttempts int
-	// ModelBackoff is the first retry delay, doubling each retry. Default 1s.
+	// ModelBackoff is the first retry delay for transient errors, doubling each retry. Default 1s.
 	ModelBackoff time.Duration
+	// Approve, if set, is asked before a pending tool call starts. Returning
+	// false records Declined; an error leaves the call pending for the next Run.
+	Approve func(ctx context.Context, call ToolCall) (bool, error)
 }
 
 // Harness drives one durable session stored in one SQLite database.
@@ -189,9 +197,10 @@ func (h *Harness) Prompt(ctx context.Context, requestID, text string) (Submissio
 // Call it right after Open to resume whatever a crashed process left behind.
 //
 // It returns early on context cancellation or a lost lease (ErrLeaseLost, which
-// also cancels the context passed to tools). Model errors do not cause an early
-// return: after ModelAttempts tries the submission is marked failed and Run
-// moves on. Nothing is lost on an early return: calling Run again (in this
+// also cancels the context passed to tools). A model error not marked Transient
+// fails its submission at once and Run moves on. A Transient error is retried
+// up to ModelAttempts times, then Run returns it and the submission stays
+// running, so an outage pauses work. Nothing is lost on an early return: calling Run again (in this
 // process or another) continues from the last commit.
 func (h *Harness) Run(ctx context.Context) error {
 	select {
@@ -335,11 +344,14 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if attempt >= h.opts.ModelAttempts {
+		if !isTransient(err) {
 			return h.commit(ctx, func(tx *sql.Tx) error {
 				return setSubmission(ctx, tx, sub.Seq, StatusFailed, "",
-					fmt.Sprintf("model failed after %d attempts: %v", attempt, err))
+					fmt.Sprintf("model failed: %v", err))
 			})
+		}
+		if attempt >= h.opts.ModelAttempts {
+			return fmt.Errorf("failed to call model after %d attempts: %w", attempt, err)
 		}
 		select {
 		case <-ctx.Done():
@@ -383,6 +395,18 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 	case c.Status == callStarted && tool.Replay() != ReplaySafe:
 		return h.finishCall(ctx, sub, c, UnknownOutcome, true)
 	case c.Status == callPending:
+		if h.opts.Approve != nil {
+			ok, err := h.opts.Approve(ctx, c.ToolCall)
+			if err != nil {
+				return fmt.Errorf("failed to approve tool call %q: %w", c.ID, err)
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if !ok {
+				return h.finishCall(ctx, sub, c, Declined, true)
+			}
+		}
 		err := h.commit(ctx, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx,
 				`UPDATE tool_calls SET status = 'started' WHERE message_seq = ? AND position = ?`,

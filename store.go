@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -224,10 +225,14 @@ func lastAssistantCalls(ctx context.Context, q querier, submissionSeq int64) (ca
 // --- writes (always inside commit) ------------------------------------
 
 func appendMessage(ctx context.Context, tx *sql.Tx, submissionSeq int64, m Message) (int64, error) {
-	body, err := json.Marshal(m)
-	if err != nil {
-		return 0, err
+	// HTML escaping would rewrite Raw, which must replay byte for byte.
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(m); err != nil {
+		return 0, fmt.Errorf("failed to encode message: %w", err)
 	}
+	body := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO messages (submission_seq, role, body) VALUES (?, ?, ?)`,
 		submissionSeq, string(m.Role), string(body))
