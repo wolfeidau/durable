@@ -1,13 +1,14 @@
 package durable
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/wolfeidau/durable/internal/rawjson"
 )
 
 // ErrLeaseLost means another process took over this session. Whatever this
@@ -57,8 +58,10 @@ const (
 )
 
 func migrate(ctx context.Context, db *sql.DB) error {
-	_, err := db.ExecContext(ctx, schema)
-	return err
+	if _, err := db.ExecContext(ctx, schema); err != nil {
+		return fmt.Errorf("failed to apply schema: %w", err)
+	}
+	return nil
 }
 
 func nowMillis() int64 { return time.Now().UnixMilli() }
@@ -73,18 +76,26 @@ func acquireLease(ctx context.Context, db *sql.DB, owner string, ttl time.Durati
 		WHERE lease.expires_at < ? OR lease.owner = excluded.owner`,
 		owner, now+ttl.Milliseconds(), now)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("failed to acquire lease: %w", err)
 	}
 	n, err := res.RowsAffected()
-	return n == 1, err
+	if err != nil {
+		return false, fmt.Errorf("failed to count acquired lease rows: %w", err)
+	}
+	return n == 1, nil
 }
 
-func renewLease(ctx context.Context, db *sql.DB, owner string, ttl time.Duration) error {
-	res, err := db.ExecContext(ctx,
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// extendLease is the fence: it matches only while owner still holds the lease.
+func extendLease(ctx context.Context, e execer, owner string, ttl time.Duration) error {
+	res, err := e.ExecContext(ctx,
 		`UPDATE lease SET expires_at = ? WHERE id = 1 AND owner = ?`,
 		nowMillis()+ttl.Milliseconds(), owner)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to extend lease: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n != 1 {
 		return ErrLeaseLost
@@ -93,8 +104,10 @@ func renewLease(ctx context.Context, db *sql.DB, owner string, ttl time.Duration
 }
 
 func releaseLease(ctx context.Context, db *sql.DB, owner string) error {
-	_, err := db.ExecContext(ctx, `DELETE FROM lease WHERE id = 1 AND owner = ?`, owner)
-	return err
+	if _, err := db.ExecContext(ctx, `DELETE FROM lease WHERE id = 1 AND owner = ?`, owner); err != nil {
+		return fmt.Errorf("failed to release lease: %w", err)
+	}
+	return nil
 }
 
 // commit runs fn in a write transaction fenced by the lease: the first
@@ -104,23 +117,20 @@ func releaseLease(ctx context.Context, db *sql.DB, owner string) error {
 func (h *Harness) commit(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	tx, err := h.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit
 
-	res, err := tx.ExecContext(ctx,
-		`UPDATE lease SET expires_at = ? WHERE id = 1 AND owner = ?`,
-		nowMillis()+h.opts.LeaseTTL.Milliseconds(), h.owner)
-	if err != nil {
+	if err := extendLease(ctx, tx, h.owner, h.opts.LeaseTTL); err != nil {
 		return err
-	}
-	if n, _ := res.RowsAffected(); n != 1 {
-		return ErrLeaseLost
 	}
 	if err := fn(tx); err != nil {
 		return err
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
 }
 
 // --- reads -------------------------------------------------------------
@@ -132,12 +142,10 @@ type querier interface {
 
 func scanSubmission(row interface{ Scan(...any) error }) (Submission, error) {
 	var s Submission
-	var status string
 	var result, errText sql.NullString
-	if err := row.Scan(&s.Seq, &s.RequestID, &s.Text, &status, &result, &errText); err != nil {
+	if err := row.Scan(&s.Seq, &s.RequestID, &s.Text, &s.Status, &result, &errText); err != nil {
 		return s, err
 	}
-	s.Status = SubmissionStatus(status)
 	s.Result = result.String
 	s.Error = errText.String
 	return s, nil
@@ -146,8 +154,12 @@ func scanSubmission(row interface{ Scan(...any) error }) (Submission, error) {
 const submissionCols = `seq, request_id, text, status, result, error`
 
 func getSubmission(ctx context.Context, q querier, requestID string) (Submission, error) {
-	return scanSubmission(q.QueryRowContext(ctx,
+	s, err := scanSubmission(q.QueryRowContext(ctx,
 		`SELECT `+submissionCols+` FROM submissions WHERE request_id = ?`, requestID))
+	if err != nil {
+		return s, fmt.Errorf("failed to get submission: %w", err)
+	}
+	return s, nil
 }
 
 // nextUnfinished returns the oldest submission that still needs work.
@@ -159,7 +171,10 @@ func nextUnfinished(ctx context.Context, q querier) (Submission, bool, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return s, false, nil
 	}
-	return s, err == nil, err
+	if err != nil {
+		return s, false, fmt.Errorf("failed to get next submission: %w", err)
+	}
+	return s, true, nil
 }
 
 func listUnfinished(ctx context.Context, q querier) ([]Submission, error) {
@@ -178,20 +193,23 @@ func listUnfinished(ctx context.Context, q querier) ([]Submission, error) {
 		}
 		out = append(out, s)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read submissions: %w", err)
+	}
+	return out, nil
 }
 
 func loadHistory(ctx context.Context, q querier) ([]Message, error) {
 	rows, err := q.QueryContext(ctx, `SELECT body FROM messages ORDER BY seq`)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query messages: %w", err)
 	}
 	defer rows.Close()
 	var out []Message
 	for rows.Next() {
 		var body string
 		if err := rows.Scan(&body); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to read message: %w", err)
 		}
 		var m Message
 		if err := json.Unmarshal([]byte(body), &m); err != nil {
@@ -199,7 +217,10 @@ func loadHistory(ctx context.Context, q querier) ([]Message, error) {
 		}
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read messages: %w", err)
+	}
+	return out, nil
 }
 
 type storedCall struct {
@@ -220,50 +241,56 @@ func lastAssistantCalls(ctx context.Context, q querier, submissionSeq int64) (ca
 		return nil, false, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("failed to find last assistant message: %w", err)
 	}
 	rows, err := q.QueryContext(ctx,
 		`SELECT call_id, position, name, input, status FROM tool_calls
 		 WHERE message_seq = ? ORDER BY position`, msgSeq)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("failed to query tool calls: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		c := storedCall{MessageSeq: msgSeq}
 		var input string
 		if err := rows.Scan(&c.ID, &c.Position, &c.Name, &input, &c.Status); err != nil {
-			return nil, false, err
+			return nil, false, fmt.Errorf("failed to read tool call: %w", err)
 		}
 		c.Input = json.RawMessage(input)
 		calls = append(calls, c)
 	}
-	return calls, true, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, fmt.Errorf("failed to read tool calls: %w", err)
+	}
+	return calls, true, nil
 }
 
 // --- writes (always inside commit) ------------------------------------
 
 func appendMessage(ctx context.Context, tx *sql.Tx, submissionSeq int64, m Message) (int64, error) {
 	// HTML escaping would rewrite Raw, which must replay byte for byte.
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(m); err != nil {
+	body, err := rawjson.Marshal(m)
+	if err != nil {
 		return 0, fmt.Errorf("failed to encode message: %w", err)
 	}
-	body := bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO messages (submission_seq, role, body) VALUES (?, ?, ?)`,
-		submissionSeq, string(m.Role), string(body))
+		submissionSeq, m.Role, string(body))
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to insert message: %w", err)
 	}
-	return res.LastInsertId()
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to read message id: %w", err)
+	}
+	return id, nil
 }
 
 func setSubmission(ctx context.Context, tx *sql.Tx, seq int64, status SubmissionStatus, result, errText string) error {
-	_, err := tx.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE submissions SET status = ?, result = NULLIF(?, ''), error = NULLIF(?, '') WHERE seq = ?`,
-		string(status), result, errText, seq)
-	return err
+		status, result, errText, seq); err != nil {
+		return fmt.Errorf("failed to update submission: %w", err)
+	}
+	return nil
 }

@@ -22,6 +22,18 @@ func readOnlyTools(tools []durable.Tool) map[string]bool {
 	return names
 }
 
+// approvedTools lists the tools the approver prints, which are those not read-only.
+func approvedTools(tools []durable.Tool) map[string]bool {
+	ro := readOnlyTools(tools)
+	names := map[string]bool{}
+	for _, t := range tools {
+		if n := t.Spec().Name; !ro[n] {
+			names[n] = true
+		}
+	}
+	return names
+}
+
 // newApprover asks on lines for every tool not listed in readOnly, so a new tool asks by default.
 func newApprover(lines <-chan string, out io.Writer, readOnly map[string]bool) func(context.Context, durable.ToolCall) (bool, error) {
 	return func(ctx context.Context, call durable.ToolCall) (bool, error) {

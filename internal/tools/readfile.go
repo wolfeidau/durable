@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/wolfeidau/durable"
 )
@@ -105,18 +106,35 @@ func readLines(ctx context.Context, path string, offset, limit int) (string, err
 	return sb.String(), nil
 }
 
+// trimPartialRune drops a multi-byte character that a cut left incomplete at the end.
+func trimPartialRune(s string) string {
+	for i := len(s) - 1; i >= 0 && i >= len(s)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(s[i]) {
+			if !utf8.FullRuneInString(s[i:]) {
+				return s[:i]
+			}
+			break
+		}
+	}
+	return s
+}
+
 // readLine returns one line cut to maxLineChars, discarding the rest of an overlong line.
 func readLine(r *bufio.Reader) (string, error) {
 	var sb strings.Builder
+	cut := false
 	for {
 		chunk, more, err := r.ReadLine()
 		if err != nil {
 			return "", err
 		}
-		if room := maxLineChars - sb.Len(); room > 0 {
+		if room := maxLineChars - sb.Len(); room > 0 && !cut {
 			if len(chunk) > room {
-				chunk = chunk[:room]
-				sb.Write(chunk)
+				cut = true
+				sb.Write(chunk[:room])
+				s := trimPartialRune(sb.String())
+				sb.Reset()
+				sb.WriteString(s)
 				sb.WriteString("... [line truncated]")
 			} else {
 				sb.Write(chunk)

@@ -22,33 +22,21 @@ import (
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/fakeapi"
 	"github.com/wolfeidau/durable/internal/tools"
 )
 
 const testTimeout = 90 * time.Second
 
-func sse(name, data string) string { return "event: " + name + "\ndata: " + data + "\n\n" }
-
-func sseReply(stop string, blocks ...string) string {
-	s := sse("message_start", `{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-opus-5-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`)
-	s += strings.Join(blocks, "")
-	s += sse("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null,"stop_details":null},"usage":{"output_tokens":5}}`, stop))
-	return s + sse("message_stop", `{"type":"message_stop"}`)
-}
+const apiModel = "claude-opus-5-5"
 
 func bashReply(command string) string {
 	input, _ := json.Marshal(map[string]any{"command": command, "timeout_seconds": nil})
-	return sseReply("tool_use",
-		sse("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"bash","input":{}}}`)+
-			sse("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":%q}}`, input))+
-			sse("content_block_stop", `{"type":"content_block_stop","index":0}`))
+	return fakeapi.Stream(apiModel, "tool_use", "null", fakeapi.ToolBlock(0, "toolu_1", "bash", string(input)))
 }
 
 func textReply(text string) string {
-	return sseReply("end_turn",
-		sse("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`)+
-			sse("content_block_delta", fmt.Sprintf(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":%q}}`, text))+
-			sse("content_block_stop", `{"type":"content_block_stop","index":0}`))
+	return fakeapi.Stream(apiModel, "end_turn", "null", fakeapi.TextBlock(0, text))
 }
 
 // fakeAPI answers the first request with a bash tool call and every later one with end_turn text.
@@ -143,11 +131,7 @@ func (a *agent) kill(t *testing.T) {
 
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(testTimeout)
-	for !cond() {
-		require.False(t, time.Now().After(deadline), "timed out waiting for %s", what)
-		time.Sleep(20 * time.Millisecond)
-	}
+	require.Eventually(t, cond, testTimeout, 20*time.Millisecond, "timed out waiting for %s", what)
 }
 
 func readLinesOf(t *testing.T, path string) []string {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -93,7 +92,7 @@ func OpenDB(ctx context.Context, db *sql.DB, opts Options) (*Harness, error) {
 		return nil, fmt.Errorf("durable: migrate: %w", err)
 	}
 
-	h := &Harness{db: db, opts: opts, tools: map[string]Tool{}, owner: newOwnerID(),
+	h := &Harness{db: db, opts: opts, tools: map[string]Tool{}, owner: rand.Text(),
 		leaseLost: make(chan struct{}), runSem: make(chan struct{}, 1)}
 	for _, t := range opts.Tools {
 		spec := t.Spec()
@@ -135,7 +134,7 @@ func (h *Harness) renewLoop(ctx context.Context) {
 		case <-t.C:
 			// A lost lease is also caught by the fence in every commit;
 			// stopping here just avoids pointless writes.
-			if errors.Is(renewLease(ctx, h.db, h.owner, h.opts.LeaseTTL), ErrLeaseLost) {
+			if errors.Is(extendLease(ctx, h.db, h.owner, h.opts.LeaseTTL), ErrLeaseLost) {
 				close(h.leaseLost)
 				return
 			}
@@ -186,7 +185,7 @@ func (h *Harness) Submit(ctx context.Context, requestID, text string) (Submissio
 			`INSERT INTO submissions (request_id, text, status, created_at) VALUES (?, ?, 'queued', ?)`,
 			requestID, text, nowMillis())
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to insert submission: %w", err)
 		}
 		seq, _ := res.LastInsertId()
 		sub = Submission{Seq: seq, RequestID: requestID, Text: text, Status: StatusQueued}
@@ -343,7 +342,10 @@ func (h *Harness) assistantTurns(ctx context.Context, submissionSeq int64) (int,
 	err := h.db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM messages WHERE submission_seq = ? AND role = 'assistant'`,
 		submissionSeq).Scan(&n)
-	return n, err
+	if err != nil {
+		return 0, fmt.Errorf("failed to count assistant turns: %w", err)
+	}
+	return n, nil
 }
 
 // modelStep calls the model and commits its reply together with the intent of
@@ -378,7 +380,7 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission) (bool, error) {
 				`INSERT INTO tool_calls (call_id, message_seq, position, name, input, status)
 				 VALUES (?, ?, ?, ?, ?, 'pending')`,
 				c.ID, msgSeq, i, c.Name, string(c.Input)); err != nil {
-				return fmt.Errorf("durable: record tool call %q: %w", c.ID, err)
+				return fmt.Errorf("failed to record tool call %q: %w", c.ID, err)
 			}
 		}
 		if len(reply.ToolCalls) == 0 {
@@ -447,10 +449,12 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 			}
 		}
 		err := h.commit(ctx, func(tx *sql.Tx) error {
-			_, err := tx.ExecContext(ctx,
+			if _, err := tx.ExecContext(ctx,
 				`UPDATE tool_calls SET status = 'started' WHERE message_seq = ? AND position = ?`,
-				c.MessageSeq, c.Position)
-			return err
+				c.MessageSeq, c.Position); err != nil {
+				return fmt.Errorf("failed to mark tool call started: %w", err)
+			}
+			return nil
 		})
 		if err != nil {
 			return err
@@ -496,7 +500,7 @@ func recordResult(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall,
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE tool_calls SET status = 'done', result = ?, is_error = ? WHERE message_seq = ? AND position = ?`,
 		out, isErr, c.MessageSeq, c.Position); err != nil {
-		return err
+		return fmt.Errorf("failed to record tool result: %w", err)
 	}
 	_, err := appendMessage(ctx, tx, sub.Seq, Message{
 		Role: RoleTool, ToolCallID: c.ID, Text: out, IsError: isErr,
@@ -584,10 +588,4 @@ func (h *Harness) commitCancel(ctx context.Context, requestID string, notes map[
 		return Submission{}, err
 	}
 	return sub, nil
-}
-
-func newOwnerID() string {
-	var b [8]byte
-	_, _ = rand.Read(b[:])
-	return hex.EncodeToString(b[:])
 }

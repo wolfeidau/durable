@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -80,7 +81,7 @@ func run(t *testing.T, model durable.Model, tool durable.Tool, yes bool, input s
 	out := &bytes.Buffer{}
 	opts := durable.Options{
 		Model:         model,
-		Tools:         withDisplay([]durable.Tool{tool}, out),
+		Tools:         withDisplay([]durable.Tool{tool}, out, nil),
 		LeaseTTL:      300 * time.Millisecond,
 		ModelAttempts: 1,
 		ModelBackoff:  time.Millisecond,
@@ -326,7 +327,7 @@ func startSigRepl(t *testing.T, model durable.Model, tool durable.Tool, yes bool
 	out := &lockedBuffer{}
 	opts := durable.Options{
 		Model:         model,
-		Tools:         withDisplay([]durable.Tool{tool}, out),
+		Tools:         withDisplay([]durable.Tool{tool}, out, nil),
 		LeaseTTL:      300 * time.Millisecond,
 		ModelAttempts: 1,
 		ModelBackoff:  time.Millisecond,
@@ -511,7 +512,7 @@ func TestDisplayToolPreservesOrderSpecAndReplay(t *testing.T) {
 		&fakeTool{name: "bash", replay: durable.ReplayNever},
 	}
 	out := &bytes.Buffer{}
-	wrapped := withDisplay(inner, out)
+	wrapped := withDisplay(inner, out, nil)
 	require.Len(t, wrapped, 2)
 	for i := range inner {
 		require.Equal(t, inner[i].Spec(), wrapped[i].Spec())
@@ -531,7 +532,7 @@ func (recoverTool) Recover(_ context.Context, call durable.ToolCall) string {
 }
 
 func TestDisplayToolForwardsRecover(t *testing.T) {
-	wrapped := withDisplay([]durable.Tool{recoverTool{&fakeTool{name: "bash"}}, &fakeTool{name: "read_file"}}, &bytes.Buffer{})
+	wrapped := withDisplay([]durable.Tool{recoverTool{&fakeTool{name: "bash"}}, &fakeTool{name: "read_file"}}, &bytes.Buffer{}, nil)
 	r, ok := wrapped[0].(durable.Recoverer)
 	require.True(t, ok)
 	require.Equal(t, "recovered c1", r.Recover(context.Background(), durable.ToolCall{ID: "c1"}))
@@ -572,4 +573,30 @@ func TestSecondInterruptKeepsLease(t *testing.T) {
 	var leases int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM lease`).Scan(&leases))
 	require.Equal(t, 1, leases)
+}
+
+func TestReadLinesLongLineAndFinalLine(t *testing.T) {
+	long := strings.Repeat("x", 5<<20)
+	var got []string
+	for l := range readLines(strings.NewReader(long + "\r\nsecond\nlast")) {
+		got = append(got, l)
+	}
+	require.Equal(t, []string{long, "second", "last"}, got)
+}
+
+func TestDisplayToolQuietSkipsHeader(t *testing.T) {
+	out := &bytes.Buffer{}
+	wrapped := withDisplay([]durable.Tool{&fakeTool{name: "bash"}, &fakeTool{name: "read_file"}}, out, map[string]bool{"bash": true})
+	_, err := wrapped[0].Execute(context.Background(), durable.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"ls"}`)})
+	require.NoError(t, err)
+	require.Empty(t, out.String())
+	_, err = wrapped[1].Execute(context.Background(), durable.ToolCall{Name: "read_file", Input: json.RawMessage(`{"path":"a"}`)})
+	require.NoError(t, err)
+	require.Contains(t, out.String(), "[read_file] a")
+}
+
+func TestTruncateKeepsUTF8(t *testing.T) {
+	got := truncate("aé", 2)
+	require.Equal(t, "a...", got)
+	require.True(t, utf8.ValidString(got))
 }

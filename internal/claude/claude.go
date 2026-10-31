@@ -2,7 +2,6 @@
 package claude
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/v2/packages/param"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/rawjson"
 )
 
 // With tools defined the summarizer can call one instead of writing a summary.
@@ -151,13 +151,10 @@ func toResult(acc anthropic.BetaMessage) (durable.Message, error) {
 		}
 	}
 	// HTML escaping would rewrite <, > and & inside signed thinking text.
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(raw); err != nil {
+	rawJSON, err := rawjson.Marshal(raw)
+	if err != nil {
 		return durable.Message{}, fmt.Errorf("failed to marshal assistant content: %w", err)
 	}
-	rawJSON := bytes.TrimSpace(buf.Bytes())
 	return durable.Message{Role: durable.RoleAssistant, Text: text.String(), ToolCalls: calls, Raw: rawJSON}, nil
 }
 
@@ -179,8 +176,7 @@ func classify(ctx context.Context, err error) error {
 		}
 		return wrapped
 	}
-	switch s := apiErr.StatusCode; {
-	case s == 408, s == 409, s == 429, s >= 500:
+	if s := apiErr.StatusCode; s == 408 || s == 409 || s == 429 || s >= 500 {
 		return durable.Transient(wrapped)
 	}
 	return wrapped

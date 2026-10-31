@@ -77,7 +77,7 @@ func runBash(ctx context.Context, root, state, command string, timeout time.Dura
 	cmd.ExtraFiles = []*os.File{lock.f}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		return killGroup(cmd.Process.Pid)
 	}
 	// Bounds Wait when a surviving child keeps the output pipes open.
 	cmd.WaitDelay = waitDelay
@@ -86,7 +86,7 @@ func runBash(ctx context.Context, root, state, command string, timeout time.Dura
 	if err == nil {
 		// Setpgid makes the pid the group ID.
 		if werr := lock.writeGroup(cmd.Process.Pid); werr != nil {
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = killGroup(cmd.Process.Pid)
 			_ = cmd.Wait()
 			return "", fmt.Errorf("failed to record process group: %w", werr)
 		}
