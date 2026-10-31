@@ -34,74 +34,64 @@ func newGrep(root string) durable.Tool {
 		},
 		replay:   durable.ReplaySafe,
 		readOnly: true,
-		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
-			var in struct {
-				Pattern string  `json:"pattern"`
-				Path    *string `json:"path"`
-				Glob    *string `json:"glob"`
-			}
-			if err := decode(call.Input, &in); err != nil {
-				return "", err
-			}
-			re, err := regexp.Compile(in.Pattern)
-			if err != nil {
-				return "", fmt.Errorf("invalid pattern: %w", err)
-			}
-			if in.Glob != nil {
-				if _, err := filepath.Match(*in.Glob, ""); err != nil {
-					return "", fmt.Errorf("invalid glob: %w", err)
-				}
-			}
-			dir := "."
-			if in.Path != nil {
-				dir = *in.Path
-			}
-			p, err := resolve(root, dir)
-			if err != nil {
-				return "", err
-			}
-
-			var sb strings.Builder
-			count := 0
-			errCapped := errors.New("capped")
-			err = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return err
-				}
-				if cerr := ctx.Err(); cerr != nil {
-					return cerr
-				}
-				if d.IsDir() {
-					if d.Name() == ".git" {
-						return filepath.SkipDir
-					}
-					return nil
-				}
-				if !d.Type().IsRegular() {
-					return nil
-				}
-				if in.Glob != nil {
-					if ok, _ := filepath.Match(*in.Glob, d.Name()); !ok {
-						return nil
-					}
-				}
-				return grepFile(path, relPath(root, path), re, &sb, &count, errCapped)
-			})
-			if err != nil && !errors.Is(err, errCapped) {
-				if ctx.Err() != nil {
-					return "", ctx.Err()
-				}
-				return "", fmt.Errorf("failed to search files: %w", err)
-			}
-			if count == 0 {
-				return "no matches", nil
-			}
-			return sb.String(), nil
-		},
+		run:      func(ctx context.Context, call durable.ToolCall) (string, error) { return runGrep(ctx, root, call) },
 	}
 }
 
-func grepFile(path, rel string, re *regexp.Regexp, sb *strings.Builder, count *int, errCapped error) error {
+// grepState accumulates matches across the files of one search.
+type grepState struct {
+	re    *regexp.Regexp
+	sb    strings.Builder
+	count int
+}
+
+func runGrep(ctx context.Context, root string, call durable.ToolCall) (string, error) {
+	var in struct {
+		Pattern string  `json:"pattern"`
+		Path    *string `json:"path"`
+		Glob    *string `json:"glob"`
+	}
+	if err := decode(call.Input, &in); err != nil {
+		return "", err
+	}
+	re, err := regexp.Compile(in.Pattern)
+	if err != nil {
+		return "", fmt.Errorf("invalid pattern: %w", err)
+	}
+	glob := orDefault(in.Glob, "*")
+	if _, err := filepath.Match(glob, ""); err != nil {
+		return "", fmt.Errorf("invalid glob: %w", err)
+	}
+	p, err := resolve(root, orDefault(in.Path, "."))
+	if err != nil {
+		return "", err
+	}
+
+	st := &grepState{re: re}
+	err = walk(ctx, p, "failed to search files", func(path string, d fs.DirEntry) error {
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		if ok, _ := filepath.Match(glob, d.Name()); !ok {
+			return nil
+		}
+		err := st.file(ctx, path, relPath(root, path))
+		// An unreadable file below the search path is skipped; the path itself must be readable.
+		if err != nil && path != p && !errors.Is(err, errCapped) && ctx.Err() == nil {
+			return nil
+		}
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	if st.count == 0 {
+		return "no matches", nil
+	}
+	return st.sb.String(), nil
+}
+
+func (st *grepState) file(ctx context.Context, path, rel string) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -122,19 +112,24 @@ func grepFile(path, rel string, re *regexp.Regexp, sb *strings.Builder, count *i
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for n := 1; sc.Scan(); n++ {
+		if n%ctxCheckEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+		}
 		line := sc.Text()
-		if !re.MatchString(line) {
+		if !st.re.MatchString(line) {
 			continue
 		}
-		if *count == maxGrepMatches {
-			fmt.Fprintf(sb, "[truncated: more than %d matches; narrow the pattern, path or glob]\n", maxGrepMatches)
+		if st.count == maxGrepMatches {
+			fmt.Fprintf(&st.sb, "[truncated: more than %d matches; narrow the pattern, path or glob]\n", maxGrepMatches)
 			return errCapped
 		}
-		*count++
+		st.count++
 		if len(line) > maxGrepLine {
 			line = line[:maxGrepLine] + "..."
 		}
-		fmt.Fprintf(sb, "%s:%d:%s\n", rel, n, line)
+		fmt.Fprintf(&st.sb, "%s:%d:%s\n", rel, n, line)
 	}
 	// A line over the scanner limit just ends the scan of this file.
 	if err := sc.Err(); err != nil && !errors.Is(err, bufio.ErrTooLong) {

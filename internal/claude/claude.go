@@ -70,16 +70,12 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 	if err != nil {
 		return durable.Message{}, err
 	}
-	toolParams, err := toTools(tools)
-	if err != nil {
-		return durable.Message{}, err
-	}
 
 	params := anthropic.BetaMessageNewParams{
 		Model:     m.cfg.Model,
 		MaxTokens: m.cfg.MaxTokens,
 		Messages:  msgs,
-		Tools:     toolParams,
+		Tools:     toTools(tools),
 		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
 		Fallbacks: anthropic.BetaFallbacksParamOfDefault(),
 		// Top-level cache control caches tools, system and history together.
@@ -190,36 +186,12 @@ func classify(ctx context.Context, err error) error {
 	return wrapped
 }
 
-func toTools(specs []durable.ToolSpec) ([]anthropic.BetaToolUnionParam, error) {
+func toTools(specs []durable.ToolSpec) []anthropic.BetaToolUnionParam {
 	out := make([]anthropic.BetaToolUnionParam, 0, len(specs))
 	for _, s := range specs {
 		schema := anthropic.BetaToolInputSchemaParam{Properties: map[string]any{}}
 		if len(s.Schema) > 0 {
-			var fields map[string]json.RawMessage
-			if err := json.Unmarshal(s.Schema, &fields); err != nil {
-				return nil, fmt.Errorf("failed to decode schema for tool %q: %w", s.Name, err)
-			}
-			extra := map[string]any{}
-			for k, v := range fields {
-				switch k {
-				case "type":
-				case "properties":
-					var props any
-					if err := json.Unmarshal(v, &props); err != nil {
-						return nil, fmt.Errorf("failed to decode properties for tool %q: %w", s.Name, err)
-					}
-					schema.Properties = props
-				case "required":
-					if err := json.Unmarshal(v, &schema.Required); err != nil {
-						return nil, fmt.Errorf("failed to decode required for tool %q: %w", s.Name, err)
-					}
-				default:
-					extra[k] = v
-				}
-			}
-			if len(extra) > 0 {
-				schema.ExtraFields = extra
-			}
+			schema = param.Override[anthropic.BetaToolInputSchemaParam](s.Schema)
 		}
 		out = append(out, anthropic.BetaToolUnionParam{OfTool: &anthropic.BetaToolParam{
 			Name:        s.Name,
@@ -228,7 +200,7 @@ func toTools(specs []durable.ToolSpec) ([]anthropic.BetaToolUnionParam, error) {
 			Strict:      anthropic.Bool(true),
 		}})
 	}
-	return out, nil
+	return out
 }
 
 func toMessages(history []durable.Message) ([]anthropic.BetaMessageParam, error) {

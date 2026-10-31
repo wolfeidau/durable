@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -237,6 +238,72 @@ func TestGrepHonoursContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := e.runCtx(t, ctx, "grep", map[string]any{"pattern": "foo", "path": nil, "glob": nil})
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// denyAccess makes p unreadable for the test; chmod does not bind root.
+func denyAccess(t *testing.T, p string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("permission checks do not apply to root")
+	}
+	require.NoError(t, os.Chmod(p, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(p, 0o755) })
+}
+
+func TestGrepSkipsUnreadable(t *testing.T) {
+	e := newEnv(t)
+	e.write(t, "a.txt", "foo\n")
+	denyAccess(t, e.write(t, "b.txt", "foo\n"))
+	e.write(t, "locked/c.txt", "foo\n")
+	denyAccess(t, filepath.Join(e.root, "locked"))
+
+	out, err := e.run(t, "grep", map[string]any{"pattern": "foo", "path": nil, "glob": nil})
+	require.NoError(t, err)
+	require.Equal(t, "a.txt:1:foo\n", out)
+
+	_, err = e.run(t, "grep", map[string]any{"pattern": "foo", "path": "b.txt", "glob": nil})
+	require.Error(t, err)
+	_, err = e.run(t, "grep", map[string]any{"pattern": "foo", "path": "locked", "glob": nil})
+	require.Error(t, err)
+}
+
+func TestListFilesSkipsUnreadable(t *testing.T) {
+	e := newEnv(t)
+	e.write(t, "a.txt", "")
+	e.write(t, "locked/c.txt", "")
+	denyAccess(t, filepath.Join(e.root, "locked"))
+
+	out, err := e.run(t, "list_files", map[string]any{"path": nil})
+	require.NoError(t, err)
+	require.Equal(t, "a.txt\nlocked/\n", out)
+
+	_, err = e.run(t, "list_files", map[string]any{"path": "locked"})
+	require.Error(t, err)
+}
+
+func TestListFilesRejectsFile(t *testing.T) {
+	e := newEnv(t)
+	e.write(t, "a.txt", "")
+	_, err := e.run(t, "list_files", map[string]any{"path": "a.txt"})
+	require.ErrorContains(t, err, "not a directory")
+}
+
+func TestGrepFileHonoursContextMidFile(t *testing.T) {
+	e := newEnv(t)
+	p := e.write(t, "big.txt", strings.Repeat("foo\n", 3*ctxCheckEvery))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	st := &grepState{re: regexp.MustCompile("nomatch")}
+	require.ErrorIs(t, st.file(ctx, p, "big.txt"), context.Canceled)
+}
+
+func TestReadFileHonoursContext(t *testing.T) {
+	e := newEnv(t)
+	e.write(t, "big.txt", strings.Repeat("x\n", 3*ctxCheckEvery))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := e.runCtx(t, ctx, "read_file", map[string]any{"path": "big.txt", "offset": nil, "limit": nil})
 	require.ErrorIs(t, err, context.Canceled)
 }
 

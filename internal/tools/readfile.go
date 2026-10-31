@@ -32,7 +32,7 @@ func newReadFile(root string) durable.Tool {
 		},
 		replay:   durable.ReplaySafe,
 		readOnly: true,
-		run: func(_ context.Context, call durable.ToolCall) (string, error) {
+		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path   string `json:"path"`
 				Offset *int   `json:"offset"`
@@ -41,13 +41,7 @@ func newReadFile(root string) durable.Tool {
 			if err := decode(call.Input, &in); err != nil {
 				return "", err
 			}
-			offset, limit := 1, defaultReadLimit
-			if in.Offset != nil {
-				offset = *in.Offset
-			}
-			if in.Limit != nil {
-				limit = *in.Limit
-			}
+			offset, limit := orDefault(in.Offset, 1), orDefault(in.Limit, defaultReadLimit)
 			if offset < 1 || limit < 1 {
 				return "", errors.New("offset and limit must be at least 1")
 			}
@@ -55,12 +49,12 @@ func newReadFile(root string) durable.Tool {
 			if err != nil {
 				return "", err
 			}
-			return readLines(p, offset, limit)
+			return readLines(ctx, p, offset, limit)
 		},
 	}
 }
 
-func readLines(path string, offset, limit int) (string, error) {
+func readLines(ctx context.Context, path string, offset, limit int) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
@@ -82,6 +76,11 @@ func readLines(path string, offset, limit int) (string, error) {
 	var sb strings.Builder
 	n, emitted := 0, 0
 	for {
+		if n%ctxCheckEvery == 0 {
+			if err := ctx.Err(); err != nil {
+				return "", err
+			}
+		}
 		line, err := readLine(r)
 		if errors.Is(err, io.EOF) {
 			break
