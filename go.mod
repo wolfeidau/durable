@@ -7,6 +7,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go/v2 v2.4.0
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/stretchr/testify v1.11.1
+	golang.org/x/term v0.47.0
 )
 
 require (
@@ -29,5 +30,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.33.0 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

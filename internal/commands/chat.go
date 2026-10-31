@@ -11,6 +11,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
 	"github.com/anthropics/anthropic-sdk-go/v2/option"
+	"golang.org/x/term"
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/claude"
@@ -96,7 +97,7 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	}
 	defer h.Close()
 
-	r := &repl{h: h, lines: lines, sigs: sigs, out: out}
+	r := &repl{h: h, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
 	return r.run(ctx)
 }
 
