@@ -1,0 +1,5 @@
+pre-commit:
+  commands:
+    tidy:
+      glob: "*.{go,mod,sum}"
+      run: mise run check:tidy
