@@ -232,12 +232,11 @@ func (h *Harness) Prompt(ctx context.Context, requestID, text string) (Submissio
 // running, so an outage pauses work. Nothing is lost on an early return: calling Run again (in this
 // process or another) continues from the last commit.
 func (h *Harness) Run(ctx context.Context) error {
-	select {
-	case h.runSem <- struct{}{}:
-		defer func() { <-h.runSem }()
-	case <-ctx.Done():
-		return ctx.Err()
+	release, err := h.acquire(ctx)
+	if err != nil {
+		return err
 	}
+	defer release()
 
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
@@ -249,12 +248,22 @@ func (h *Harness) Run(ctx context.Context) error {
 		}
 	}()
 
-	err := h.runQueue(ctx)
+	err = h.runQueue(ctx)
 	if err != nil && ctx.Err() != nil {
 		// Surface ErrLeaseLost rather than the context.Canceled it caused.
 		return context.Cause(ctx)
 	}
 	return err
+}
+
+// acquire takes the single-runner slot, giving up if ctx ends first.
+func (h *Harness) acquire(ctx context.Context) (func(), error) {
+	select {
+	case h.runSem <- struct{}{}:
+		return func() { <-h.runSem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (h *Harness) runQueue(ctx context.Context) error {
@@ -302,15 +311,6 @@ func (h *Harness) drive(ctx context.Context, sub Submission) error {
 			continue
 		}
 
-		// A final assistant message (no tool calls) marks the submission done
-		// in the same commit, so reaching here with one means "done" was lost
-		// only if the row was edited by hand. Treat it as done anyway.
-		if hasAssistant && len(calls) == 0 {
-			return h.commit(ctx, func(tx *sql.Tx) error {
-				return setSubmission(ctx, tx, sub.Seq, StatusDone, "", "")
-			})
-		}
-
 		// Step: call the model.
 		turns, err := h.assistantTurns(ctx, sub.Seq)
 		if err != nil {
@@ -322,15 +322,8 @@ func (h *Harness) drive(ctx context.Context, sub Submission) error {
 					fmt.Sprintf("stopped after %d model turns", turns))
 			})
 		}
-		if err := h.modelStep(ctx, sub); err != nil {
+		if done, err := h.modelStep(ctx, sub); err != nil || done {
 			return err
-		}
-		var status string
-		if err := h.db.QueryRowContext(ctx, `SELECT status FROM submissions WHERE seq = ?`, sub.Seq).Scan(&status); err != nil {
-			return err
-		}
-		if s := SubmissionStatus(status); s == StatusDone || s == StatusFailed {
-			return nil
 		}
 	}
 }
@@ -355,43 +348,27 @@ func (h *Harness) assistantTurns(ctx context.Context, submissionSeq int64) (int,
 
 // modelStep calls the model and commits its reply together with the intent of
 // every tool call it asked for. If the process dies during the call, nothing
-// was committed and the next attempt calls the model again.
-func (h *Harness) modelStep(ctx context.Context, sub Submission) error {
+// was committed and the next attempt calls the model again. It reports done
+// when it committed a terminal status.
+func (h *Harness) modelStep(ctx context.Context, sub Submission) (bool, error) {
 	history, err := loadHistory(ctx, h.db)
 	if err != nil {
-		return err
+		return false, err
 	}
-	var reply Message
-	backoff := h.opts.ModelBackoff
-	for attempt := 1; ; attempt++ {
-		var err error
-		reply, err = h.opts.Model.Generate(ctx, history, h.specs)
-		if err == nil {
-			break
+	reply, err := h.generate(ctx, history)
+	if err != nil {
+		if ctx.Err() != nil || isTransient(err) {
+			return false, err
 		}
-		// Cancellation is the process going away, never a model failure.
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if !isTransient(err) {
-			return h.commit(ctx, func(tx *sql.Tx) error {
-				return setSubmission(ctx, tx, sub.Seq, StatusFailed, "",
-					fmt.Sprintf("model failed: %v", err))
-			})
-		}
-		if attempt >= h.opts.ModelAttempts {
-			return fmt.Errorf("failed to call model after %d attempts: %w", attempt, err)
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(backoff):
-		}
-		backoff *= 2
+		err = h.commit(ctx, func(tx *sql.Tx) error {
+			return setSubmission(ctx, tx, sub.Seq, StatusFailed, "",
+				fmt.Sprintf("model failed: %v", err))
+		})
+		return err == nil, err
 	}
 	reply.Role = RoleAssistant
 
-	return h.commit(ctx, func(tx *sql.Tx) error {
+	err = h.commit(ctx, func(tx *sql.Tx) error {
 		msgSeq, err := appendMessage(ctx, tx, sub.Seq, reply)
 		if err != nil {
 			return err
@@ -409,6 +386,35 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission) error {
 		}
 		return nil
 	})
+	return err == nil && len(reply.ToolCalls) == 0, err
+}
+
+// generate retries transient model errors with backoff. It returns the last
+// error as is; the caller decides whether it is transient.
+func (h *Harness) generate(ctx context.Context, history []Message) (Message, error) {
+	backoff := h.opts.ModelBackoff
+	for attempt := 1; ; attempt++ {
+		reply, err := h.opts.Model.Generate(ctx, history, h.specs)
+		if err == nil {
+			return reply, nil
+		}
+		// Cancellation is the process going away, never a model failure.
+		if ctx.Err() != nil {
+			return Message{}, ctx.Err()
+		}
+		if !isTransient(err) {
+			return Message{}, err
+		}
+		if attempt >= h.opts.ModelAttempts {
+			return Message{}, fmt.Errorf("failed to call model after %d attempts: %w", attempt, err)
+		}
+		select {
+		case <-ctx.Done():
+			return Message{}, ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
 }
 
 // runCall takes one tool call one committed step forward:
@@ -504,30 +510,44 @@ func recordResult(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall,
 // for an in-progress Run to stop first, so cancel that Run's context before
 // calling it. Done, failed and cancelled submissions are returned unchanged.
 func (h *Harness) Cancel(ctx context.Context, requestID string) (Submission, error) {
-	select {
-	case h.runSem <- struct{}{}:
-		defer func() { <-h.runSem }()
-	case <-ctx.Done():
-		return Submission{}, ctx.Err()
+	release, err := h.acquire(ctx)
+	if err != nil {
+		return Submission{}, err
 	}
+	defer release()
 
-	// Stop orphaned processes before the commit so no process I/O runs in the transaction.
+	notes, err := h.recoverStarted(ctx, requestID)
+	if err != nil {
+		return Submission{}, err
+	}
+	return h.commitCancel(ctx, requestID, notes)
+}
+
+// recoverStarted stops orphaned processes before the commit so no process I/O
+// runs in the transaction. It returns recovery notes keyed by call position.
+func (h *Harness) recoverStarted(ctx context.Context, requestID string) (map[int]string, error) {
 	notes := map[int]string{}
-	if cur, err := getSubmission(ctx, h.db, requestID); err == nil && cur.Status == StatusRunning {
-		calls, _, err := lastAssistantCalls(ctx, h.db, cur.Seq)
-		if err != nil {
-			return Submission{}, err
-		}
-		for _, c := range unfinished(calls) {
-			if c.Status == callStarted {
-				notes[c.Position] = h.recoverCall(ctx, c)
-			}
-		}
-		if ctx.Err() != nil {
-			return Submission{}, ctx.Err()
+	// A missing submission surfaces from the commit.
+	cur, err := getSubmission(ctx, h.db, requestID)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && cur.Status != StatusRunning) {
+		return notes, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	calls, _, err := lastAssistantCalls(ctx, h.db, cur.Seq)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range unfinished(calls) {
+		if c.Status == callStarted {
+			notes[c.Position] = h.recoverCall(ctx, c)
 		}
 	}
+	return notes, ctx.Err()
+}
 
+func (h *Harness) commitCancel(ctx context.Context, requestID string, notes map[int]string) (Submission, error) {
 	var sub Submission
 	err := h.commit(ctx, func(tx *sql.Tx) error {
 		cur, err := getSubmission(ctx, tx, requestID)

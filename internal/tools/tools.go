@@ -16,7 +16,14 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
-const binarySniffBytes = 8192
+const (
+	binarySniffBytes = 8192
+	// ctxCheckEvery bounds how many lines are processed between context checks.
+	ctxCheckEvery = 1024
+)
+
+// errCapped stops a walk early once a tool has hit its output cap.
+var errCapped = errors.New("capped")
 
 type tool struct {
 	spec     durable.ToolSpec
@@ -120,6 +127,39 @@ func relPath(root, p string) string {
 		return p
 	}
 	return filepath.ToSlash(rel)
+}
+
+func orDefault[T any](p *T, def T) T {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
+// walk visits every entry under start except .git; unreadable entries below start are skipped, and fn may return errCapped to stop early.
+func walk(ctx context.Context, start, failMsg string, fn func(path string, d fs.DirEntry) error) error {
+	err := filepath.WalkDir(start, func(path string, d fs.DirEntry, err error) error {
+		if cerr := ctx.Err(); cerr != nil {
+			return cerr
+		}
+		if err != nil {
+			if path == start {
+				return err
+			}
+			return nil
+		}
+		if path != start && d.IsDir() && d.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		return fn(path, d)
+	})
+	if err == nil || errors.Is(err, errCapped) {
+		return nil
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	return fmt.Errorf("%s: %w", failMsg, err)
 }
 
 func isBinary(r io.Reader) (bool, error) {

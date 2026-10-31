@@ -49,10 +49,7 @@ func newBash(root, stateDir string) durable.Tool {
 			if in.Command == "" {
 				return "", errors.New("command must not be empty")
 			}
-			secs := defaultTimeoutSeconds
-			if in.TimeoutSeconds != nil {
-				secs = *in.TimeoutSeconds
-			}
+			secs := orDefault(in.TimeoutSeconds, defaultTimeoutSeconds)
 			if secs < 1 || secs > maxTimeoutSeconds {
 				return "", fmt.Errorf("timeout_seconds must be between 1 and %d, got %d", maxTimeoutSeconds, secs)
 			}

@@ -44,8 +44,7 @@ linters:
         - pattern: ^slog\.(Default|Debug|Info|Warn|Error)(Context)?$
           msg: pass the logger via Globals.Logger
     gocognit:
-      # Ratchet: lower to 25 once newGrep, newListFiles, Cancel, drive and toTools are refactored.
-      min-complexity: 45
+      min-complexity: 25
     nolintlint:
       require-explanation: true
       require-specific: true
