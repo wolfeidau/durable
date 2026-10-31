@@ -3,7 +3,9 @@ steps:
     key: quality_checks
     steps:
       - label: ":golangci-lint: lint"
-        command: golangci-lint run --verbose --timeout 3m
+        commands:
+          - mise run check:tidy
+          - golangci-lint run --verbose --timeout 3m
         plugins:
           - mise#v1.1.5: ~
 
