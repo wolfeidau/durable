@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/tools"
@@ -120,7 +121,7 @@ type agent struct {
 func startAgent(t *testing.T, bin, workspace, home, apiURL string, args ...string) *agent {
 	t.Helper()
 	args = append(args, "--lease-ttl", "500ms")
-	cmd := exec.Command(bin, args...) //nolint:gosec // binary built by this test
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = workspace
 	cmd.Env = append(os.Environ(), "HOME="+home, "ANTHROPIC_BASE_URL="+apiURL, "ANTHROPIC_API_KEY=dummy", "ANTHROPIC_AUTH_TOKEN=")
 	out := &syncBuffer{}
@@ -160,7 +161,7 @@ func readLinesOf(t *testing.T, path string) []string {
 }
 
 // restart runs the agent again with stdin closed and expects a clean exit.
-func restart(t *testing.T, bin, workspace, home, apiURL string, args ...string) string {
+func restart(t *testing.T, bin, workspace, home, apiURL string, args ...string) {
 	t.Helper()
 	a := startAgent(t, bin, workspace, home, apiURL, args...)
 	require.NoError(t, a.stdin.Close())
@@ -172,7 +173,6 @@ func restart(t *testing.T, bin, workspace, home, apiURL string, args ...string) 
 	case <-time.After(testTimeout):
 		t.Fatalf("restarted agent did not exit: %s", a.out.String())
 	}
-	return a.out.String()
 }
 
 type failModel struct{ t *testing.T }

@@ -25,7 +25,7 @@ func Open(ctx context.Context, path string, opts Options) (*Harness, error) {
 	db.SetMaxOpenConns(1)
 	h, err := OpenDB(ctx, db, opts)
 	if err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, err
 	}
 	return h, nil

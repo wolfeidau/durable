@@ -130,8 +130,8 @@ type boundedWriter struct {
 	omitted int
 }
 
-func newBoundedWriter(max int) *boundedWriter {
-	return &boundedWriter{half: max / 2}
+func newBoundedWriter(limit int) *boundedWriter {
+	return &boundedWriter{half: limit / 2}
 }
 
 func (w *boundedWriter) Write(p []byte) (int, error) {

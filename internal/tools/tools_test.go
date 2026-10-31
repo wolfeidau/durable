@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/wolfeidau/durable"
 )
 
@@ -32,9 +33,9 @@ func newEnv(t *testing.T) env {
 	for _, tl := range all {
 		m[tl.Spec().Name] = tl
 	}
-	real, err := filepath.EvalSymlinks(root)
+	resolved, err := filepath.EvalSymlinks(root)
 	require.NoError(t, err)
-	return env{root: real, state: state, tools: m}
+	return env{root: resolved, state: state, tools: m}
 }
 
 func (e env) run(t *testing.T, name string, in map[string]any) (string, error) {
@@ -189,7 +190,7 @@ func TestListFiles(t *testing.T) {
 
 func TestListFilesCap(t *testing.T) {
 	e := newEnv(t)
-	for i := 0; i < maxListEntries+5; i++ {
+	for i := range maxListEntries + 5 {
 		e.write(t, fmt.Sprintf("d/f%05d", i), "")
 	}
 	out, err := e.run(t, "list_files", map[string]any{"path": "d"})

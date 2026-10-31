@@ -13,7 +13,7 @@ steps:
         artifact_paths:
           - coverage.out
           - tests.json
-        command: go test -json -coverprofile=coverage.out -coverpkg=./... ./... > tests.json
+        command: go test -race -json -coverprofile=coverage.out -coverpkg=./... ./... > tests.json
         plugins:
           - mise#v1.1.5: ~
           - wolfeidau/go-test-annotate#v1.0.0:

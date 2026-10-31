@@ -45,8 +45,7 @@ func fetchTokenFrom1Password(ctx context.Context, ref string) (string, error) {
 }
 
 func expandExecErr(err error) error {
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 		return fmt.Errorf("op failed: %s", strings.TrimSpace(string(exitErr.Stderr)))
 	}
 	return err

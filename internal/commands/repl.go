@@ -81,7 +81,7 @@ func (r *repl) finish(ctx context.Context, res turnResult) (bool, error) {
 	case errors.Is(res.err, durable.ErrLeaseLost):
 		return true, fmt.Errorf("session lease lost: %w", res.err)
 	case res.terminated || ctx.Err() != nil:
-		return true, nil
+		return true, nil //nolint:nilerr // a stopping process has no one to report the turn's error to
 	case errors.Is(res.err, context.Canceled):
 		if err := r.cancelUnfinished(ctx); err != nil {
 			return true, fmt.Errorf("failed to cancel the task: %w", err)
