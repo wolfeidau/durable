@@ -38,6 +38,10 @@ type repl struct {
 	lines <-chan string
 	sigs  <-chan os.Signal
 	out   io.Writer
+	// piped reports turn failures in the exit status, because a script cannot read the transcript.
+	piped      bool
+	failed     bool  // a submission failed; later turns do not undo that
+	unfinished error // the last turn stopped early; a later turn can still finish the work
 }
 
 type turnResult struct {
@@ -90,15 +94,33 @@ func (r *repl) finish(ctx context.Context, res turnResult) (bool, error) {
 		if err := r.cancelUnfinished(ctx); err != nil {
 			return true, fmt.Errorf("failed to cancel the task: %w", err)
 		}
+		r.unfinished = nil
 		fmt.Fprintln(r.out, "\ncancelled")
 	case res.err != nil:
+		r.unfinished = res.err
 		fmt.Fprintf(r.out, "\nerror: %v\n", res.err)
 	case res.sub.Status == durable.StatusFailed:
+		r.failed = true
+		r.unfinished = nil
 		fmt.Fprintf(r.out, "\nfailed: %s\n", res.sub.Error)
 	default:
+		r.unfinished = nil
 		fmt.Fprintln(r.out)
 	}
 	return false, nil
+}
+
+// exitErr is what run returns when input ends, so piped callers see failed turns.
+func (r *repl) exitErr() error {
+	switch {
+	case !r.piped:
+		return nil
+	case r.unfinished != nil:
+		return fmt.Errorf("input ended before the turn finished: %w", r.unfinished)
+	case r.failed:
+		return errors.New("one or more submissions failed")
+	}
+	return nil
 }
 
 func (r *repl) cancelUnfinished(ctx context.Context) error {
@@ -125,14 +147,14 @@ func (r *repl) run(ctx context.Context) error {
 		var line string
 		select {
 		case <-ctx.Done():
-			return nil
+			return r.exitErr()
 		case <-r.sigs:
 			fmt.Fprintln(r.out)
-			return nil
+			return r.exitErr()
 		case l, ok := <-r.lines:
 			if !ok {
 				fmt.Fprintln(r.out)
-				return nil
+				return r.exitErr()
 			}
 			line = l
 		}
@@ -157,6 +179,7 @@ func (r *repl) work(ctx context.Context, fn func(context.Context) (durable.Submi
 	if !res.forced {
 		for _, s := range resumed {
 			if cur, err := r.h.Get(ctx, s.RequestID); err == nil && cur.Status == durable.StatusFailed {
+				r.failed = true
 				fmt.Fprintf(r.out, "\nfailed: %s\n", cur.Error)
 			}
 		}

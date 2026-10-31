@@ -77,6 +77,11 @@ func textMsg(s string) durable.Message {
 // run drives a repl over input to EOF and returns the output.
 func run(t *testing.T, model durable.Model, tool durable.Tool, yes bool, input string) (*durable.Harness, string, error) {
 	t.Helper()
+	return runREPL(t, model, tool, yes, false, input)
+}
+
+func runREPL(t *testing.T, model durable.Model, tool durable.Tool, yes, piped bool, input string) (*durable.Harness, string, error) {
+	t.Helper()
 	lines := readLines(strings.NewReader(input))
 	out := &bytes.Buffer{}
 	opts := durable.Options{
@@ -95,7 +100,7 @@ func run(t *testing.T, model durable.Model, tool durable.Tool, yes bool, input s
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = h.Close() })
 
-	r := &repl{h: h, lines: lines, sigs: make(chan os.Signal), out: out}
+	r := &repl{h: h, lines: lines, sigs: make(chan os.Signal), out: out, piped: piped}
 	err = r.run(ctx)
 	return h, out.String(), err
 }
@@ -266,6 +271,60 @@ func TestTransientPauseResumesOnNextInput(t *testing.T) {
 		got = append(got, string(msg.Role)+":"+msg.Text)
 	}
 	require.Equal(t, []string{"user:first", "assistant:reply", "user:second", "assistant:reply"}, got)
+}
+
+func TestPipedExitStatus(t *testing.T) {
+	bad := func(fail int) func(int) (durable.Message, error) {
+		return func(n int) (durable.Message, error) {
+			if n == fail {
+				return durable.Message{}, errors.New("bad request")
+			}
+			return textMsg("fine"), nil
+		}
+	}
+	overloadedOnce := func(n int) (durable.Message, error) {
+		if n == 1 {
+			return durable.Message{}, durable.Transient(errors.New("overloaded"))
+		}
+		return textMsg("fine"), nil
+	}
+	tests := []struct {
+		name    string
+		fn      func(int) (durable.Message, error)
+		yes     bool
+		input   string
+		wantErr string
+	}{
+		{name: "success", fn: bad(0), yes: true, input: "one\n"},
+		{name: "failed submission", fn: bad(1), yes: true, input: "one\n", wantErr: "submissions failed"},
+		{name: "failure outlives a later success", fn: bad(1), yes: true, input: "one\ntwo\n", wantErr: "submissions failed"},
+		{name: "stdin closed at approval", fn: toolThenText, input: "go\n", wantErr: "stdin closed"},
+		{name: "pause left unfinished", fn: overloadedOnce, yes: true, input: "one\n", wantErr: "overloaded"},
+		{name: "pause finished by next turn", fn: overloadedOnce, yes: true, input: "one\ntwo\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := runREPL(t, &fakeModel{fn: tt.fn}, &fakeTool{name: "bash"}, tt.yes, true, tt.input)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestResumedFailureFailsPipedExit(t *testing.T) {
+	ctx := context.Background()
+	m := &fakeModel{fn: func(int) (durable.Message, error) { return durable.Message{}, errors.New("bad request") }}
+	h, err := durable.Open(ctx, filepath.Join(t.TempDir(), "session.sqlite"), durable.Options{Model: m})
+	require.NoError(t, err)
+	defer h.Close()
+	_, err = h.Submit(ctx, "left-over", "from a previous process")
+	require.NoError(t, err)
+
+	r := &repl{h: h, lines: readLines(strings.NewReader("")), out: &bytes.Buffer{}, piped: true}
+	require.ErrorContains(t, r.run(ctx), "submissions failed")
 }
 
 type lockedBuffer struct {
