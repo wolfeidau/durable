@@ -26,13 +26,13 @@ func newEditFile(root string) durable.Tool {
 				`"required":["path","old_string","new_string"],"additionalProperties":false}`),
 		},
 		replay: durable.ReplayNever,
-		run: func(_ context.Context, input json.RawMessage) (string, error) {
+		run: func(_ context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path      string `json:"path"`
 				OldString string `json:"old_string"`
 				NewString string `json:"new_string"`
 			}
-			if err := decode(input, &in); err != nil {
+			if err := decode(call.Input, &in); err != nil {
 				return "", err
 			}
 			p, err := resolve(root, in.Path)

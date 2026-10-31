@@ -22,7 +22,7 @@ const (
 	waitDelay             = 2 * time.Second
 )
 
-func newBash(root string) durable.Tool {
+func newBash(root, stateDir string) durable.Tool {
 	return tool{
 		spec: durable.ToolSpec{
 			Name: "bash",
@@ -35,12 +35,15 @@ func newBash(root string) durable.Tool {
 				`"required":["command","timeout_seconds"],"additionalProperties":false}`),
 		},
 		replay: durable.ReplayNever,
-		run: func(ctx context.Context, input json.RawMessage) (string, error) {
+		recover: func(ctx context.Context, call durable.ToolCall) string {
+			return recoverBash(ctx, statePath(stateDir, call.ID))
+		},
+		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Command        string `json:"command"`
 				TimeoutSeconds *int   `json:"timeout_seconds"`
 			}
-			if err := decode(input, &in); err != nil {
+			if err := decode(call.Input, &in); err != nil {
 				return "", err
 			}
 			if in.Command == "" {
@@ -53,14 +56,20 @@ func newBash(root string) durable.Tool {
 			if secs < 1 || secs > maxTimeoutSeconds {
 				return "", fmt.Errorf("timeout_seconds must be between 1 and %d, got %d", maxTimeoutSeconds, secs)
 			}
-			return runBash(ctx, root, in.Command, time.Duration(secs)*time.Second)
+			return runBash(ctx, root, statePath(stateDir, call.ID), in.Command, time.Duration(secs)*time.Second)
 		},
 	}
 }
 
-func runBash(ctx context.Context, root, command string, timeout time.Duration) (string, error) {
+func runBash(ctx context.Context, root, state, command string, timeout time.Duration) (string, error) {
 	tctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	lock, err := openLock(state)
+	if err != nil {
+		return "", err
+	}
+	defer lock.release()
 
 	out := newBoundedWriter(maxOutputBytes)
 	cmd := exec.CommandContext(tctx, "bash", "-c", command)
@@ -68,6 +77,7 @@ func runBash(ctx context.Context, root, command string, timeout time.Duration) (
 	cmd.Env = scrubEnv(os.Environ())
 	cmd.Stdout = out
 	cmd.Stderr = out
+	cmd.ExtraFiles = []*os.File{lock.f}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
 		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
@@ -75,7 +85,16 @@ func runBash(ctx context.Context, root, command string, timeout time.Duration) (
 	// Bounds Wait when a surviving child keeps the output pipes open.
 	cmd.WaitDelay = waitDelay
 
-	err := cmd.Run()
+	err = cmd.Start()
+	if err == nil {
+		// Setpgid makes the pid the group ID.
+		if werr := lock.writeGroup(cmd.Process.Pid); werr != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			_ = cmd.Wait()
+			return "", fmt.Errorf("failed to record process group: %w", werr)
+		}
+		err = cmd.Wait()
+	}
 
 	// Parent cancellation means the process is going away; it is not a tool result.
 	if ctx.Err() != nil {

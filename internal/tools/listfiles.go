@@ -25,11 +25,11 @@ func newListFiles(root string) durable.Tool {
 				`"required":["path"],"additionalProperties":false}`),
 		},
 		replay: durable.ReplaySafe,
-		run: func(ctx context.Context, input json.RawMessage) (string, error) {
+		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path *string `json:"path"`
 			}
-			if err := decode(input, &in); err != nil {
+			if err := decode(call.Input, &in); err != nil {
 				return "", err
 			}
 			dir := "."

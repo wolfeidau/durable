@@ -497,6 +497,23 @@ func TestDisplayToolPreservesOrderSpecAndReplay(t *testing.T) {
 	require.Contains(t, out.String(), "[bash] ls -la")
 }
 
+type recoverTool struct{ *fakeTool }
+
+func (recoverTool) Recover(_ context.Context, call durable.ToolCall) string {
+	return "recovered " + call.ID
+}
+
+func TestDisplayToolForwardsRecover(t *testing.T) {
+	wrapped := withDisplay([]durable.Tool{recoverTool{&fakeTool{name: "bash"}}, &fakeTool{name: "read_file"}}, &bytes.Buffer{})
+	r, ok := wrapped[0].(durable.Recoverer)
+	require.True(t, ok)
+	require.Equal(t, "recovered c1", r.Recover(context.Background(), durable.ToolCall{ID: "c1"}))
+
+	r, ok = wrapped[1].(durable.Recoverer)
+	require.True(t, ok)
+	require.Empty(t, r.Recover(context.Background(), durable.ToolCall{ID: "c1"}))
+}
+
 // stuckTool ignores cancellation until released, like a tool slow to stop.
 type stuckTool struct {
 	started chan struct{}

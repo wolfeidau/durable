@@ -112,6 +112,14 @@ type Tool interface {
 	Execute(ctx context.Context, call ToolCall) (string, error)
 }
 
+// Recoverer is an optional Tool extension for calls whose process outlived a crash.
+type Recoverer interface {
+	// Recover stops anything left from a started call and returns text to add
+	// to its result. It must be idempotent: a crash can happen after it runs
+	// but before the result commits, so it may run again for the same call.
+	Recover(ctx context.Context, call ToolCall) string
+}
+
 // SubmissionStatus is where a submission is in its lifecycle.
 type SubmissionStatus string
 
