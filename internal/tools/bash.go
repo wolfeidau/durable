@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -62,6 +65,7 @@ func runBash(ctx context.Context, root, command string, timeout time.Duration) (
 	out := newBoundedWriter(maxOutputBytes)
 	cmd := exec.CommandContext(tctx, "bash", "-c", command)
 	cmd.Dir = root
+	cmd.Env = scrubEnv(os.Environ())
 	cmd.Stdout = out
 	cmd.Stderr = out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -89,6 +93,14 @@ func runBash(ctx context.Context, root, command string, timeout time.Duration) (
 	default:
 		return "", fmt.Errorf("failed to run command: %w", err)
 	}
+}
+
+// scrubEnv drops credentials, because command output reaches the model and the session database.
+func scrubEnv(env []string) []string {
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "OP_")
+	})
 }
 
 // boundedWriter keeps the first and last max/2 bytes written and counts the rest.

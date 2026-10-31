@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go/v2"
+	"github.com/anthropics/anthropic-sdk-go/v2/option"
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/claude"
+	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/tools"
 )
 
@@ -29,6 +31,9 @@ type ChatCmd struct {
 	Yes      bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
 	Session  string        `default:"default" help:"Session name; sessions are per directory."`
 	LeaseTTL time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
+
+	APIToken              string `name:"api-token" help:"Claude API key. Visible in the process list and shell history; prefer --api-token-from-1password."`
+	APITokenFrom1Password string `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the Claude API key."`
 }
 
 // Run opens the session, resumes unfinished work and reads prompts until EOF or interrupt.
@@ -48,6 +53,14 @@ func (c *ChatCmd) Run(ctx context.Context, g *Globals) error {
 	if err != nil {
 		return fmt.Errorf("failed to build tools: %w", err)
 	}
+	token, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
+	if err != nil {
+		return fmt.Errorf("failed to resolve API token: %w", err)
+	}
+	var clientOpts []option.RequestOption
+	if token != "" {
+		clientOpts = append(clientOpts, option.WithAPIKey(token))
+	}
 
 	out := os.Stdout
 	sigs := make(chan os.Signal, 2)
@@ -56,7 +69,7 @@ func (c *ChatCmd) Run(ctx context.Context, g *Globals) error {
 	lines := readLines(os.Stdin)
 
 	opts := durable.Options{
-		Model: claude.New(anthropic.NewClient(), claude.Config{
+		Model: claude.New(anthropic.NewClient(clientOpts...), claude.Config{
 			Model:  c.Model,
 			System: systemPrompt,
 			Effort: c.Effort,

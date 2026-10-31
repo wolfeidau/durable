@@ -1,3 +1,9 @@
+## Public repository
+
+This repository is public. Keep secrets and private details out of commits, code, tests, issues and pull requests, including API keys, 1Password references (vault, item or field names), account details and private paths. Use placeholders such as `op://<vault>/<item>/<field>`.
+
+When running something that needs a credential, keep it out of command output and logs: pass it to the one command that needs it, and never print, write or commit it.
+
 ## Code conventions
 
 ### Errors

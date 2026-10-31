@@ -203,6 +203,21 @@ func TestFailedSubmissionKeepsLooping(t *testing.T) {
 	require.Equal(t, "fine", hist[len(hist)-1].Text)
 }
 
+func TestResumedFailureIsReported(t *testing.T) {
+	ctx := context.Background()
+	m := &fakeModel{fn: func(int) (durable.Message, error) { return durable.Message{}, errors.New("bad request") }}
+	h, err := durable.Open(ctx, filepath.Join(t.TempDir(), "session.sqlite"), durable.Options{Model: m})
+	require.NoError(t, err)
+	defer h.Close()
+	_, err = h.Submit(ctx, "left-over", "from a previous process")
+	require.NoError(t, err)
+
+	out := &bytes.Buffer{}
+	r := &repl{h: h, lines: readLines(strings.NewReader("")), out: out}
+	require.NoError(t, r.run(ctx))
+	require.Contains(t, out.String(), "failed: model failed: bad request")
+}
+
 func TestTransientPauseResumesOnNextInput(t *testing.T) {
 	m := &fakeModel{fn: func(n int) (durable.Message, error) {
 		if n == 1 {

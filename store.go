@@ -162,6 +162,25 @@ func nextUnfinished(ctx context.Context, q querier) (Submission, bool, error) {
 	return s, err == nil, err
 }
 
+func listUnfinished(ctx context.Context, q querier) ([]Submission, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT `+submissionCols+` FROM submissions
+		 WHERE status IN ('queued', 'running') ORDER BY seq`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list unfinished submissions: %w", err)
+	}
+	defer rows.Close()
+	var out []Submission
+	for rows.Next() {
+		s, err := scanSubmission(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read submission: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
 func loadHistory(ctx context.Context, q querier) ([]Message, error) {
 	rows, err := q.QueryContext(ctx, `SELECT body FROM messages ORDER BY seq`)
 	if err != nil {

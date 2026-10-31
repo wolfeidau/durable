@@ -93,8 +93,7 @@ func (r *repl) finish(ctx context.Context, res turnResult) (bool, error) {
 
 func (r *repl) run(ctx context.Context) error {
 	// Resume unfinished work before the first prompt.
-	res := r.turn(ctx, func(c context.Context) (durable.Submission, error) { return durable.Submission{}, r.h.Run(c) })
-	if stop, err := r.finish(ctx, res); stop {
+	if stop, err := r.work(ctx, func(c context.Context) (durable.Submission, error) { return durable.Submission{}, r.h.Run(c) }); stop {
 		return err
 	}
 
@@ -119,11 +118,27 @@ func (r *repl) run(ctx context.Context) error {
 		}
 
 		id := randomID()
-		res := r.turn(ctx, func(c context.Context) (durable.Submission, error) { return r.h.Prompt(c, id, line) })
-		if stop, err := r.finish(ctx, res); stop {
+		if stop, err := r.work(ctx, func(c context.Context) (durable.Submission, error) { return r.h.Prompt(c, id, line) }); stop {
 			return err
 		}
 	}
+}
+
+// work runs a turn and reports earlier submissions it resumed that failed, which no caller waits on.
+func (r *repl) work(ctx context.Context, fn func(context.Context) (durable.Submission, error)) (bool, error) {
+	resumed, err := r.h.Unfinished(ctx)
+	if err != nil {
+		return true, err
+	}
+	res := r.turn(ctx, fn)
+	if !res.forced {
+		for _, s := range resumed {
+			if cur, err := r.h.Get(ctx, s.RequestID); err == nil && cur.Status == durable.StatusFailed {
+				fmt.Fprintf(r.out, "\nfailed: %s\n", cur.Error)
+			}
+		}
+	}
+	return r.finish(ctx, res)
 }
 
 func randomID() string {

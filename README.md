@@ -11,13 +11,17 @@ tools (`read_file`, `list_files`, `grep`, `edit_file`, `bash`).
 
 ```sh
 go build -o durable ./cmd/durable
-export ANTHROPIC_API_KEY=...   # or sign in with `ant auth login`
-./durable                      # same as `./durable chat`
+./durable --api-token-from-1password 'op://<vault>/<item>/<field>'
 ```
 
 Flags: `--model` (default `claude-opus-5-5`), `--effort` (default `high`),
-`--session` (default `default`) and `--yes`.
+`--session` (default `default`), `--yes`, `--api-token` and `--api-token-from-1password`.
 
+- **Credentials:** `--api-token-from-1password` reads the key with the `op` CLI when the
+  agent starts. `--api-token` also works, but the key is then visible in the process list
+  and shell history. With neither flag, the SDK's defaults apply (`ANTHROPIC_API_KEY`, or
+  `ant auth login`). `bash` commands don't inherit `ANTHROPIC_*` or `OP_*` variables, but
+  `bash` isn't sandboxed, so an approved command can still reach anything you can.
 - **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers
   the working directory and `--session`. To resume after a crash or a quit, run the agent
   again in the same directory. Unfinished work continues before the first prompt.
