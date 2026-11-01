@@ -1179,6 +1179,12 @@ func TestRewrittenResultCarriesNote(t *testing.T) {
 	require.Contains(t, hist[2].Text, Rewritten)
 }
 
+func TestJoinNote(t *testing.T) {
+	require.Equal(t, "out", joinNote("out", ""))
+	require.Equal(t, "note", joinNote("", "note"))
+	require.Equal(t, "out note", joinNote("out", "note"))
+}
+
 func TestUnchangedRewriteCarriesNoNote(t *testing.T) {
 	ctx := context.Background()
 	h := openWith(t, ctx, Options{Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl, Gate: rewriteGate(` { } `)})

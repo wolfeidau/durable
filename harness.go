@@ -505,6 +505,9 @@ func joinNote(out, note string) string {
 	if note == "" {
 		return out
 	}
+	if out == "" {
+		return note
+	}
 	return out + " " + note
 }
 
