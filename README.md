@@ -15,7 +15,8 @@ go build -o durable ./cmd/durable
 ```
 
 Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
-`--session` (default `default`), `--yes`, `--api-token` and `--api-token-from-1password`.
+`--session` (default `default`), `--yes`, `--no-context`, `--api-token` and
+`--api-token-from-1password`.
 
 - **Credentials:** `--api-token-from-1password` reads the key with the `op` CLI when the
   agent starts. `--api-token` also works, but the key is then visible in the process list
@@ -25,6 +26,18 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
 - **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers
   the working directory and `--session`. To resume after a crash or a quit, run the agent
   again in the same directory. Unfinished work continues before the first prompt.
+- **Project instructions:** a new session loads `AGENTS.md` files into the system prompt, in
+  this order: `~/.durable/AGENTS.md`, then each `AGENTS.md` from the repository root (the
+  nearest ancestor with a `.git` entry) down to the working directory. The walk stops at the
+  root, and with no repository only the working directory is read. `CLAUDE.md` isn't read, and
+  `@path` imports stay as literal text. Files are limited to 32 KiB each and 64 KiB in total;
+  anything over is cut, marked `[truncated]` and reported at startup. A project `AGENTS.md`
+  symlink that resolves outside the repository is refused, as is anything that isn't a regular
+  file; the `~/.durable` file may be a symlink. The text is pinned in `instructions.md` next to
+  the session database when the session starts, so a resume uses the same prompt and edits don't
+  apply until you start a new `--session`. `--no-context` skips loading for a new session.
+  **A cloned repository's `AGENTS.md` goes into the system prompt, so treat it as untrusted
+  input, especially with `--yes`.**
 - **Approval:** every tool shows the call and asks `y/N`, except tools that declare
   themselves read-only (`read_file`, `list_files`, `grep`).
 - **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so
@@ -249,6 +262,12 @@ holders outside the recorded group, unusable IDs (`0`, `1`, `-1`, empty) never b
 signalled, and idempotence. `recover_test.go` covers `Recover` running once before the
 result commits, not for `pending` or `ReplaySafe` calls, cancellation during `Recover`,
 and `Cancel` recovering `started` calls only.
+
+Instruction tests cover discovery order, stopping at the repository root, ignoring `CLAUDE.md`,
+literal `@path` text, symlinks outside the repository, FIFOs and directories, the size limits
+keeping valid UTF-8, and pinning (a changed file, older sessions, `--no-context` and concurrent
+starts). A real-binary test checks a restart sends a byte-identical system prompt after
+`AGENTS.md` changes.
 
 Claude adapter tests cover compaction blocks surviving a streamed round trip through
 `Raw` unchanged, arriving alongside a tool call, and not being sent to older models.

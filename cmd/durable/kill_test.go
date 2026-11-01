@@ -341,3 +341,53 @@ func TestKillStopsOrphanedCommand(t *testing.T) {
 	time.Sleep(6*time.Second - time.Since(killedAt))
 	require.Empty(t, readLinesOf(t, marker), "the orphan must not finish its command")
 }
+
+// systemOf returns the raw system field of a request body, whether the SDK sent a string or blocks.
+func systemOf(t *testing.T, body string) string {
+	t.Helper()
+	var req struct {
+		System json.RawMessage `json:"system"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return string(req.System)
+}
+
+// runPrompt sends one prompt, waits for the API to see want requests in total, then closes stdin and expects a clean exit.
+func runPrompt(t *testing.T, api *fakeAPI, want int, a *agent, prompt string) {
+	t.Helper()
+	_, err := io.WriteString(a.stdin, prompt+"\n")
+	require.NoError(t, err)
+	eventually(t, "API requests", func() bool { return len(api.requests()) == want })
+	require.NoError(t, a.stdin.Close())
+	done := make(chan error, 1)
+	go func() { done <- a.cmd.Wait() }()
+	select {
+	case err := <-done:
+		require.NoError(t, err, a.out.String())
+	case <-time.After(testTimeout):
+		t.Fatalf("agent did not exit: %s", a.out.String())
+	}
+}
+
+func TestInstructionsArePinnedAcrossRestart(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	agents := filepath.Join(ws, "AGENTS.md")
+	require.NoError(t, os.WriteFile(agents, []byte("marker ALPHA-ONE"), 0o644))
+	api := newFakeAPI(t, "true")
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 2, a, "first")
+	require.Contains(t, a.out.String(), "[context] AGENTS.md")
+
+	require.NoError(t, os.WriteFile(agents, []byte("marker BETA-TWO"), 0o644))
+	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 3, b, "second")
+	require.NotContains(t, b.out.String(), "[context]")
+
+	reqs := api.requests()
+	first := systemOf(t, reqs[0])
+	require.Contains(t, first, "ALPHA-ONE")
+	require.NotContains(t, first, "BETA-TWO")
+	require.Equal(t, first, systemOf(t, reqs[2]))
+}

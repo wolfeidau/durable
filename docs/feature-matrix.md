@@ -38,13 +38,13 @@ writers across processes, and bash orphans are stopped on recovery.
 | Deferred tools, tool search | No | Yes | Yes | Yes: on by default |
 | Skills | No | Yes: Agent Skills spec | n/d | Yes |
 | Slash commands, prompt templates | No | Yes | n/a: library | Yes: skills |
-| Context files | No | Yes: `AGENTS.md`, `CLAUDE.md` | Ext: prompt sections | Yes: `CLAUDE.md`, `.claude/rules/` |
+| Context files | Yes: `AGENTS.md` | Yes: `AGENTS.md`, `CLAUDE.md` | Ext: prompt sections | Yes: `CLAUDE.md`, `.claude/rules/` |
 | Replace or append system prompt | Part: library only | Yes: `SYSTEM.md`, `APPEND_SYSTEM.md` | Yes: sections | Yes: output styles, SDK |
 | Plugin packaging | No | Yes: npm, git, local | Part: extension registry | Yes: plugins, marketplaces |
 | Custom model providers | Part: `Model` interface | Yes: `registerProvider` | Yes: `pi-ai` | Part: Claude on several clouds |
 | Custom commands, flags, shortcuts | No | Yes | n/a: library | Part: commands, keybindings |
 | Custom terminal UI | No | Yes: renderers, widgets | n/a: library | Part: status line, mods |
-| Project trust gate | n/a: nothing to load | Yes | n/a: library | Yes |
+| Project trust gate | No | Yes | n/a: library | Yes |
 
 ## Agent loop and context
 
@@ -118,7 +118,7 @@ prerequisites for a modular harness. Items 5 to 9 are features on top.
 | 1 | Done: `tools` and `claude` are public packages | Other modules can reuse them | S |
 | 2 | Done: `ToolGate` can allow, deny, ask or rewrite | Replaces `Approve`; rules, hooks and plan mode all build on it | M |
 | 3 | Done: `Options.Observer` and `Events` expose every commit | Enables JSON output, telemetry, UI and usage tracking; the CLI doesn't use it yet | M |
-| 4 | Load `AGENTS.md` and `CLAUDE.md`, and pin them per session | Cheapest large gain; config for hooks and MCP also needs a loader | S |
+| 4 | Done: `AGENTS.md` only, pinned per session in the CLI | Cheapest large gain; config for hooks and MCP also needs a loader | S |
 | 5 | Add MCP client tools | Opens up the existing tool ecosystem | M |
 | 6 | Add skills using the Agent Skills spec | The same skills work in Pi and Claude Code | S |
 | 7 | Add subprocess hooks using Claude Code's JSON contract | The only practical runtime extension in Go, and existing hooks may carry over | M |
@@ -145,7 +145,8 @@ Modularity here has to keep the crash guarantees, which sets four rules.
    server read-only hints don't skip approval, because the server is making that claim.
 4. **Pin the prefix per session.** Context files, skill listings and tool order all feed the
    prompt cache and stored thinking blocks. Snapshot them when the session starts, and don't
-   reread them on resume.
+   reread them on resume. The CLI does this for `AGENTS.md`, pinning it in
+   `instructions.md` beside the session database.
 
 Go also changes the extension model. Pi loads TypeScript into its process, which Go can't do
 well, because `plugin` is fragile and needs matching builds. So use three tiers: Go interfaces
