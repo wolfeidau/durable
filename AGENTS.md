@@ -31,6 +31,8 @@ mise run check:tidy
 - The provider, protocol and OpenRouter model are pinned per session in `provider.json`, because stored `Raw` content is specific to its protocol.
 - Hook failures must deny or withhold, never return a gate error, because an error leaves the call pending and blocks the queue.
 - The skill catalog is pinned per session, for the same reason as the tool order: it feeds the `skill` tool's description and so the prompt prefix.
+- A model request is built from `loadContext`, never `loadHistory`.
+- Compaction never rewrites `messages`, and `History` stays the full transcript.
 
 ## Code conventions
 

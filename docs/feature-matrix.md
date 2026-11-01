@@ -57,7 +57,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Subagents | No | Ext: example extension | Ext: ownership primitives | Yes |
 | Background tasks, sleep | No | Ext | Yes: stored sleep | Yes |
 | Scripted tool calls | No | Yes: codemode | Yes: code mode | Part: dynamic workflows |
-| Compaction | Yes: server-side, Claude 5+, direct Anthropic provider only | Yes | Yes | Yes |
+| Compaction | Yes: server-side on direct Anthropic (Claude 5+), client-side on OpenRouter | Yes | Yes | Yes |
 | Manual or guided compaction | No | Yes | Yes | Yes: `/compact` |
 | Plan mode | No | Ext: example extension | Ext | Yes |
 | Long-term memory | No | Ext | Yes: documents | Yes: auto memory |

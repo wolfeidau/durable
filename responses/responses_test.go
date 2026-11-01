@@ -512,3 +512,81 @@ func TestAPIKeyNeverInErrors(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), key)
 }
+
+func isOverflow(err error) bool {
+	return reflect.TypeOf(err) == reflect.TypeOf(durable.ContextOverflow(errors.New("x")))
+}
+
+func TestUsageContextTokens(t *testing.T) {
+	item := fakeapi.ResponsesMessageItem("msg_1", "hi")
+	cases := []struct {
+		name  string
+		usage string
+		want  int64
+	}{
+		{"input includes cached", `{"input_tokens":100,"input_tokens_details":{"cached_tokens":40},"output_tokens":50,"total_tokens":150}`, 150},
+		{"null", `null`, 0},
+		{"malformed", `"lots"`, 0},
+		{"wrong field types", `{"input_tokens":"many","output_tokens":[]}`, 0},
+		{"empty object", `{}`, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			msg, err := generate(t, newServer(t, ok(fakeapi.ResponsesCompletedUsage("["+item+"]", c.usage))), Config{})
+			require.NoError(t, err)
+			require.Equal(t, "hi", msg.Text)
+			require.Equal(t, c.want, msg.ContextTokens)
+		})
+	}
+
+	msg, err := generate(t, newServer(t, ok(completed(item))), Config{})
+	require.NoError(t, err)
+	require.Zero(t, msg.ContextTokens)
+}
+
+func TestContextOverflowDetection(t *testing.T) {
+	const openRouter = `{"error":{"message":"This endpoint's maximum context length is 8192 tokens. However, you requested about 9000 tokens."}}`
+	cases := []struct {
+		name     string
+		reply    reply
+		overflow bool
+		trans    bool
+	}{
+		{"http 400 openrouter text", reply{400, openRouter}, true, false},
+		{"http 413", reply{413, `{"error":{"message":"too big"}}`}, true, false},
+		{"http 429 too many tokens", reply{429, `{"error":{"message":"too many tokens"}}`}, false, true},
+		{"http 500 overflow text", reply{500, `{"error":{"message":"maximum context length is 8192 tokens"}}`}, false, true},
+		{"http 400 unrelated", reply{400, `{"error":{"message":"bad thing"}}`}, false, false},
+		{"error event code", ok(fakeapi.ResponsesError("context_length_exceeded", "too long")), true, false},
+		{"failed code", ok(fakeapi.ResponsesFailed("context_length_exceeded", "too long")), true, false},
+		{"failed message", ok(fakeapi.ResponsesFailed("invalid_prompt", "maximum context length is 8192 tokens")), true, false},
+		{"numeric 413", ok(fakeapi.ResponsesError("413", "payload")), true, false},
+		{"numeric 400 overflow text", ok(fakeapi.ResponsesError("400", "prompt is too long")), true, false},
+		{"rate limit text stays transient", ok(fakeapi.ResponsesError("rate_limit_exceeded", "too many tokens")), false, true},
+		{"server error stays transient", ok(fakeapi.ResponsesFailed("server_error", "context window exceeded")), false, true},
+		{"numeric 429 stays transient", ok(fakeapi.ResponsesError("429", "too many tokens")), false, true},
+		{"unrelated failure", ok(fakeapi.ResponsesFailed("invalid_prompt", "nope")), false, false},
+		{"incomplete max tokens", ok(fakeapi.ResponsesIncomplete("max_output_tokens")), false, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := generate(t, newServer(t, c.reply), Config{})
+			require.Error(t, err)
+			require.Equal(t, c.overflow, isOverflow(err), err.Error())
+			require.Equal(t, c.trans, isTransient(err), err.Error())
+		})
+	}
+}
+
+func TestOverflowErrorIsRedacted(t *testing.T) {
+	const key = "sk-secret-key-123"
+	_, err := generate(t, newServer(t, reply{400, `{"error":{"message":"prompt is too long for key ` + key + `"}}`}), Config{APIKey: key})
+	require.Error(t, err)
+	require.True(t, isOverflow(err))
+	require.NotContains(t, err.Error(), key)
+
+	_, err = generate(t, newServer(t, ok(fakeapi.ResponsesFailed("context_length_exceeded", "key "+key))), Config{APIKey: key})
+	require.Error(t, err)
+	require.True(t, isOverflow(err))
+	require.NotContains(t, err.Error(), key)
+}

@@ -43,10 +43,28 @@ wrote them.
 - Changing any of them needs a new `--session`, and a mismatched flag is an error.
 - Sessions that predate this feature stay `anthropic`.
 
+## Compaction
+
+The direct `anthropic` provider uses server-side compaction. On OpenRouter, durable compacts on the
+client for both protocols, so it works on any model.
+
+- It reads the model's `context_length` from `GET /v1/models` once at startup, and compacts before a
+  request when the context would exceed that window minus 16,384 tokens, or half the window if that's
+  larger. It also compacts and retries
+  once when the provider reports a context overflow.
+- It keeps about the last 20,000 tokens and summarises everything older with the session's own model,
+  so each compaction costs one extra model call. A later compaction folds the previous summary in.
+- Later requests send the summary and the kept messages in place of the older ones. The stored
+  history is never rewritten, so `History` still returns the full transcript.
+- The window isn't pinned. If the model list can't be fetched, or doesn't list the model, the agent
+  prints `[compaction] warning: ...` and compacts only on a reported overflow.
+- A summary failure doesn't fail the prompt: the agent prints a warning and carries on, since the
+  request may still fit. A transient failure pauses the session like any model error.
+- OpenRouter's `/messages` schema accepts `compact_20260112`, which could move Claude models to the
+  server. It is untested and unused here.
+
 ## Limits on OpenRouter
 
-- Server-side compaction exists only on the direct `anthropic` provider, so a long session fails at
-  the model's context limit.
 - `anthropic-messages` via OpenRouter also leaves out server-side fallbacks, and sends thinking
   block binding only to Claude models, because OpenRouter rejects it on other models.
 - `--effort` is sent to `openai-responses` only when set, and a value the model doesn't support

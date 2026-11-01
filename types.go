@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 )
 
 // Role is who produced a message in the transcript.
@@ -51,6 +52,8 @@ type Message struct {
 	IsError    bool       `json:"is_error,omitempty"`
 	// Raw is provider-specific content replayed verbatim to the same provider.
 	Raw json.RawMessage `json:"raw,omitempty"`
+	// ContextTokens is the provider-reported context size after this reply; 0 means unknown.
+	ContextTokens int64 `json:"context_tokens,omitempty"`
 }
 
 // ToolSpec describes a tool to the model.
@@ -86,6 +89,91 @@ func Transient(err error) error {
 func isTransient(err error) bool {
 	var t transientError
 	return errors.As(err, &t)
+}
+
+type overflowError struct{ err error }
+
+func (e overflowError) Error() string { return e.err.Error() }
+func (e overflowError) Unwrap() error { return e.err }
+
+// ContextOverflow marks a model error as the request exceeding the context window,
+// which a Compactor may fix. Unmarked errors fail the submission at once.
+func ContextOverflow(err error) error {
+	if err == nil {
+		return nil
+	}
+	return overflowError{err}
+}
+
+func isOverflow(err error) bool {
+	var o overflowError
+	return errors.As(err, &o)
+}
+
+var overflowExclusions = compilePatterns(
+	`^(?:Throttling error|Service unavailable):`,
+	`rate limit`,
+	`too many requests`,
+)
+
+var overflowPatterns = compilePatterns(
+	`prompt (?:is )?too long`,
+	`request_too_large`,
+	`input is too long for requested model`,
+	`exceeds the context window`,
+	`exceeds (?:the )?(?:model'?s )?maximum context length`,
+	`context window exceeded`,
+	`input token count.*exceeds the maximum`,
+	`maximum prompt length is \d+`,
+	`reduce the length of the messages`,
+	`maximum context length is \d+ tokens`,
+	`exceeds (?:the )?maximum allowed input length of [\d,]+ tokens?`,
+	`too large for model with \d+ maximum context length`,
+	`context[_ ]length[_ ]exceeded`,
+	`too many tokens`,
+	`token limit exceeded`,
+)
+
+func compilePatterns(patterns ...string) []*regexp.Regexp {
+	out := make([]*regexp.Regexp, len(patterns))
+	for i, p := range patterns {
+		out[i] = regexp.MustCompile(`(?i)` + p)
+	}
+	return out
+}
+
+// IsOverflowText reports whether a provider error message says the request exceeded the context window.
+func IsOverflowText(s string) bool {
+	for _, re := range overflowExclusions {
+		if re.MatchString(s) {
+			return false
+		}
+	}
+	for _, re := range overflowPatterns {
+		if re.MatchString(s) {
+			return true
+		}
+	}
+	return false
+}
+
+// Compactor shrinks the context the model sees. Options.Compactor is optional.
+type Compactor interface {
+	// Compact returns ok=false when nothing should change.
+	Compact(ctx context.Context, req CompactRequest) (Compaction, bool, error)
+}
+
+// CompactRequest is the context the model currently sees.
+type CompactRequest struct {
+	Previous string    // summary from the last compaction
+	Messages []Message // messages after that summary, not including it
+	Force    bool      // the provider reported overflow, so skip any threshold
+}
+
+// Compaction replaces the messages before FirstKept with Summary in what the model sees.
+type Compaction struct {
+	Summary   string
+	FirstKept int // index into CompactRequest.Messages; 0 < FirstKept < len(Messages)
 }
 
 // Replay says what to do with a tool call that started before a crash but

@@ -27,8 +27,37 @@ const (
 	routerModel     = "openai/test-model"
 )
 
+// modelsStub serves GET /v1/models; it is handled before requests are recorded, so it never counts as one.
+type modelsStub struct {
+	mu            sync.Mutex
+	contextLength int64
+	fail          bool
+	hits          int
+}
+
+func (m *modelsStub) serve(w http.ResponseWriter, r *http.Request) bool {
+	if r.URL.Path != "/v1/models" {
+		return false
+	}
+	m.mu.Lock()
+	m.hits++
+	n, fail := m.contextLength, m.fail
+	m.mu.Unlock()
+	if fail {
+		w.WriteHeader(http.StatusInternalServerError)
+		return true
+	}
+	if n == 0 {
+		n = 1_000_000
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": routerModel, "context_length": n}, {"id": "anthropic/claude-sonnet-5-5", "context_length": n}}})
+	return true
+}
+
 // routerAPI plays OpenRouter: a bash call on the first request of either protocol, then text.
 type routerAPI struct {
+	modelsStub
 	srv     *httptest.Server
 	command string
 
@@ -42,6 +71,9 @@ func newRouterAPI(t *testing.T, command string) *routerAPI {
 	t.Helper()
 	f := &routerAPI{command: command}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if f.serve(w, r) {
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		f.mu.Lock()
 		f.paths = append(f.paths, r.URL.Path)

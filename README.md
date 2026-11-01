@@ -264,12 +264,19 @@ handling. The whole transcript is still sent, so tokens drop but request size ke
 later request must enable compaction, so a session that has compacted can't continue on an older
 `--model`.
 
+On OpenRouter the agent compacts on the client instead: when the
+context nears the model's window (from `/v1/models`) or the provider reports an overflow, it
+summarises older messages with the session's model and keeps the recent ones. The transcript is not
+rewritten; see [Providers](docs/providers.md#compaction).
+
 **Events.** Every state change inserts a row into `events` in the same transaction, so an
 event exists only if its change committed. Kinds are `submission` (queued, then each
 status change, with `Error` when failed), `message` (a transcript entry, without `Raw`),
 `call_started` (the input that actually runs, with `Rewritten` set when a gate changed
-it), `call_replayed` (a `ReplaySafe` call running again after a crash) and `call_done` (a
-call's result, whether it ran or not, with the text in the `message` event before it).
+it), `call_replayed` (a `ReplaySafe` call running again after a crash), `call_done` (a
+call's result, whether it ran or not, with the text in the `message` event before it),
+`compacted` (a client-side compaction, with the summary in the database rather than the event) and
+`compaction_failed` (a compactor error that didn't stop the run, in `Error`).
 
 `Options.Observer` is called after each commit with the new events in `Seq` order. It is live only:
 events from before `Open` are not replayed. To catch up, call `Events(ctx, after, limit)` after

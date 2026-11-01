@@ -50,6 +50,14 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	is_error    INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (message_seq, position)
 );
+CREATE TABLE IF NOT EXISTS compactions (
+	seq            INTEGER PRIMARY KEY AUTOINCREMENT,
+	submission_seq INTEGER NOT NULL REFERENCES submissions(seq),
+	first_kept_seq INTEGER NOT NULL REFERENCES messages(seq),
+	through_seq    INTEGER NOT NULL,      -- newest message when it ran
+	summary        TEXT    NOT NULL,
+	created_at     INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS events (
 	seq  INTEGER PRIMARY KEY AUTOINCREMENT,
 	body TEXT    NOT NULL                 -- JSON Event without Seq
@@ -229,6 +237,64 @@ func loadHistory(ctx context.Context, q querier) ([]Message, error) {
 	return out, nil
 }
 
+// CompactionSummaryPrefix frames a summary as a checkpoint so the model doesn't treat it as a new request.
+const CompactionSummaryPrefix = "The conversation so far was compacted. " +
+	"This is a checkpoint summary of the earlier work, not a new request:\n\n"
+
+// modelContext is what the model sees, plus what a Compactor needs.
+type modelContext struct {
+	Previous string    // raw summary of the newest compaction, or ""
+	Messages []Message // messages from the first kept one, with stale ContextTokens zeroed
+	Seqs     []int64   // Seqs[i] is the messages seq of Messages[i]
+}
+
+// Request is the history to send the model: the summary as a leading user message, then Messages.
+func (c modelContext) Request() []Message {
+	if c.Previous == "" {
+		return c.Messages
+	}
+	return append([]Message{{Role: RoleUser, Text: CompactionSummaryPrefix + c.Previous}}, c.Messages...)
+}
+
+// loadContext reads the newest compaction, then the messages from its first kept one. It closes each
+// cursor before the next query.
+func loadContext(ctx context.Context, q querier) (modelContext, error) {
+	var mc modelContext
+	var firstKept, through int64
+	err := q.QueryRowContext(ctx,
+		`SELECT first_kept_seq, through_seq, summary FROM compactions ORDER BY seq DESC LIMIT 1`).
+		Scan(&firstKept, &through, &mc.Previous)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return modelContext{}, fmt.Errorf("failed to query compactions: %w", err)
+	}
+	rows, err := q.QueryContext(ctx, `SELECT seq, body FROM messages WHERE seq >= ? ORDER BY seq`, firstKept)
+	if err != nil {
+		return modelContext{}, fmt.Errorf("failed to query messages: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int64
+		var body string
+		if err := rows.Scan(&seq, &body); err != nil {
+			return modelContext{}, fmt.Errorf("failed to read message: %w", err)
+		}
+		var m Message
+		if err := json.Unmarshal([]byte(body), &m); err != nil {
+			return modelContext{}, fmt.Errorf("durable: corrupt message: %w", err)
+		}
+		// Those figures describe the context before the compaction.
+		if seq <= through {
+			m.ContextTokens = 0
+		}
+		mc.Messages = append(mc.Messages, m)
+		mc.Seqs = append(mc.Seqs, seq)
+	}
+	if err := rows.Err(); err != nil {
+		return modelContext{}, fmt.Errorf("failed to read messages: %w", err)
+	}
+	return mc, nil
+}
+
 type storedCall struct {
 	ToolCall
 	MessageSeq int64
@@ -312,6 +378,16 @@ func appendMessage(ctx context.Context, tx *sql.Tx, submissionSeq int64, m Messa
 		return 0, err
 	}
 	return id, nil
+}
+
+func addCompaction(ctx context.Context, tx *sql.Tx, submissionSeq, firstKeptSeq, throughSeq int64, summary string) error {
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO compactions (submission_seq, first_kept_seq, through_seq, summary, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		submissionSeq, firstKeptSeq, throughSeq, summary, nowMillis()); err != nil {
+		return fmt.Errorf("failed to insert compaction: %w", err)
+	}
+	return addEvent(ctx, tx, Event{Kind: EventCompacted, Submission: submissionSeq})
 }
 
 func setSubmission(ctx context.Context, tx *sql.Tx, seq int64, status SubmissionStatus, result, errText string) error {

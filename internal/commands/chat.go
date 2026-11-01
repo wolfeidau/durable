@@ -7,6 +7,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/compaction"
 	"github.com/wolfeidau/durable/hooks"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/mcp"
@@ -150,18 +152,20 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	printHooks(out, hookCfg, hookWarnings, toolset)
 
 	shown := shownCalls{}
+	sessionID := filepath.Base(filepath.Dir(path))
 	opts := durable.Options{
 		Model: protocolModels[rt.Protocol](rt, spec, modelArgs{
 			Key:       key,
 			System:    buildPrompt(pinned.Text),
 			Effort:    c.Effort,
-			SessionID: filepath.Base(filepath.Dir(path)),
+			SessionID: sessionID,
 			OnText:    func(s string) { fmt.Fprint(out, s) },
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
 		}),
 		Tools:    withDisplay(toolset, out, shown),
 		LeaseTTL: c.LeaseTTL,
 	}
+	addCompaction(ctx, out, &opts, rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: c.Effort, SessionID: sessionID})
 	var base durable.ToolGate
 	if !c.Yes {
 		base = durable.ReadOnlyGate(toolset)
@@ -185,6 +189,32 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 
 	r := &repl{h: h, skills: skillsPinned.Skills, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
 	return r.run(ctx)
+}
+
+// addCompaction summarises with the session's own model, built without OnText so the summary stays off the terminal.
+func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt route, spec providerSpec, args modelArgs) {
+	// The direct anthropic route keeps server-side compaction.
+	if rt.Provider != providerOpenRouter {
+		return
+	}
+	// The window doesn't feed the prompt prefix, so it isn't pinned and a failed fetch doesn't block the session.
+	window, err := fetchContextWindow(ctx, &http.Client{}, baseURL(spec), args.Key, rt.Model)
+	if err != nil {
+		fmt.Fprintf(out, "[compaction] warning: %s; compaction runs only if the provider reports an overflow\n", err)
+		window = 0
+	} else {
+		fmt.Fprintf(out, "[compaction] context window %d tokens\n", window)
+	}
+	opts.Compactor = compaction.New(compaction.Config{Model: protocolModels[rt.Protocol](rt, spec, args), ContextWindow: window})
+	opts.Observer = func(e durable.Event) {
+		switch e.Kind {
+		case durable.EventCompacted:
+			fmt.Fprintln(out, "\n[compacting history]")
+		case durable.EventCompactionFailed:
+			fmt.Fprintf(out, "\n[compaction] warning: %s\n", e.Error)
+		default:
+		}
+	}
 }
 
 // resolveRoute validates the route and its key before any pin is written, so a failed start doesn't freeze the session.
