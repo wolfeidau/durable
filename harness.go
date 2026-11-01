@@ -70,6 +70,8 @@ type Options struct {
 	// It must not panic: the state has already committed, and the panic reaches the committing caller.
 	// Delivery isn't guaranteed: reconcile with Events if you need every event.
 	Observer func(Event)
+	// Compactor, if set, may shrink the context before each model call. Nil disables compaction.
+	Compactor Compactor
 }
 
 // Harness drives one durable session stored in one SQLite database.
@@ -331,6 +333,7 @@ func (h *Harness) drive(ctx context.Context, sub Submission) error {
 		}
 	}
 
+	forced := false // a forced compaction was tried since the last good model reply
 	for {
 		calls, hasAssistant, err := lastAssistantCalls(ctx, h.db, sub.Seq)
 		if err != nil {
@@ -356,10 +359,73 @@ func (h *Harness) drive(ctx context.Context, sub Submission) error {
 					fmt.Sprintf("stopped after %d model turns", turns))
 			})
 		}
-		if done, err := h.modelStep(ctx, sub); err != nil || done {
+
+		if done, err := h.modelTurn(ctx, sub, &forced); err != nil || done {
 			return err
 		}
 	}
+}
+
+// modelTurn compacts if the Compactor wants to, then calls the model. On a context overflow it
+// forces one compaction and retries the turn on the next loop; forced stops that repeating.
+func (h *Harness) modelTurn(ctx context.Context, sub Submission, forced *bool) (bool, error) {
+	if h.opts.Compactor != nil {
+		if _, err := h.compactStep(ctx, sub, false); err != nil {
+			return false, err
+		}
+	}
+	done, err := h.modelStep(ctx, sub, h.opts.Compactor != nil && !*forced)
+	if overflow, ok := errors.AsType[overflowError](err); ok {
+		*forced = true
+		compacted, cerr := h.compactStep(ctx, sub, true)
+		if cerr != nil || compacted {
+			return false, cerr
+		}
+		return true, h.failModel(ctx, sub, overflow)
+	}
+	if err == nil {
+		*forced = false
+	}
+	return done, err
+}
+
+func (h *Harness) failModel(ctx context.Context, sub Submission, err error) error {
+	return h.commit(ctx, func(tx *sql.Tx) error {
+		return setSubmission(ctx, tx, sub.Seq, StatusFailed, "", fmt.Sprintf("model failed: %v", err))
+	})
+}
+
+// compactStep asks the Compactor for a cut and commits it with its event. A transient error that
+// persists is returned, so the submission stays running. Any other failure is recorded and the run
+// goes on, since the request may still fit.
+func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (bool, error) {
+	mc, err := loadContext(ctx, h.db)
+	if err != nil {
+		return false, err
+	}
+	req := CompactRequest{Previous: mc.Previous, Messages: mc.Messages, Force: force}
+	c, ok, err := retryTransient(ctx, h, "compactor", func() (Compaction, bool, error) {
+		return h.opts.Compactor.Compact(ctx, req)
+	})
+	if err == nil && ok && (c.FirstKept <= 0 || c.FirstKept >= len(mc.Messages) || c.Summary == "") {
+		err = fmt.Errorf("compactor returned an invalid compaction (first kept %d of %d messages, summary %d bytes)",
+			c.FirstKept, len(mc.Messages), len(c.Summary))
+	}
+	if err != nil {
+		if ctx.Err() != nil || isTransient(err) {
+			return false, err
+		}
+		return false, h.commit(ctx, func(tx *sql.Tx) error {
+			return addEvent(ctx, tx, Event{Kind: EventCompactionFailed, Submission: sub.Seq, Error: err.Error()})
+		})
+	}
+	if !ok {
+		return false, nil
+	}
+	err = h.commit(ctx, func(tx *sql.Tx) error {
+		return addCompaction(ctx, tx, sub.Seq, mc.Seqs[c.FirstKept], mc.Seqs[len(mc.Seqs)-1], c.Summary)
+	})
+	return err == nil, err
 }
 
 func unfinished(calls []storedCall) []storedCall {
@@ -387,20 +453,23 @@ func (h *Harness) assistantTurns(ctx context.Context, submissionSeq int64) (int,
 // every tool call it asked for. If the process dies during the call, nothing
 // was committed and the next attempt calls the model again. It reports done
 // when it committed a terminal status.
-func (h *Harness) modelStep(ctx context.Context, sub Submission) (bool, error) {
-	history, err := loadHistory(ctx, h.db)
+//
+// With surfaceOverflow, a context overflow is returned for drive to compact and retry instead of
+// failing the submission.
+func (h *Harness) modelStep(ctx context.Context, sub Submission, surfaceOverflow bool) (bool, error) {
+	mc, err := loadContext(ctx, h.db)
 	if err != nil {
 		return false, err
 	}
-	reply, err := h.generate(ctx, history)
+	reply, err := h.generate(ctx, mc.Request())
 	if err != nil {
 		if ctx.Err() != nil || isTransient(err) {
 			return false, err
 		}
-		err = h.commit(ctx, func(tx *sql.Tx) error {
-			return setSubmission(ctx, tx, sub.Seq, StatusFailed, "",
-				fmt.Sprintf("model failed: %v", err))
-		})
+		if surfaceOverflow && isOverflow(err) {
+			return false, err
+		}
+		err = h.failModel(ctx, sub, err)
 		return err == nil, err
 	}
 	reply.Role = RoleAssistant
@@ -429,25 +498,35 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission) (bool, error) {
 // generate retries transient model errors with backoff. It returns the last
 // error as is; the caller decides whether it is transient.
 func (h *Harness) generate(ctx context.Context, history []Message) (Message, error) {
+	reply, _, err := retryTransient(ctx, h, "model", func() (Message, bool, error) {
+		reply, err := h.opts.Model.Generate(ctx, history, h.specs)
+		return reply, true, err
+	})
+	return reply, err
+}
+
+// retryTransient calls fn up to ModelAttempts times while it returns transient errors.
+func retryTransient[T any](ctx context.Context, h *Harness, what string, fn func() (T, bool, error)) (T, bool, error) {
+	var zero T
 	backoff := h.opts.ModelBackoff
 	for attempt := 1; ; attempt++ {
-		reply, err := h.opts.Model.Generate(ctx, history, h.specs)
+		v, ok, err := fn()
 		if err == nil {
-			return reply, nil
+			return v, ok, nil
 		}
-		// Cancellation is the process going away, never a model failure.
+		// Cancellation is the process going away, never a failure of the call.
 		if ctx.Err() != nil {
-			return Message{}, ctx.Err()
+			return zero, false, ctx.Err()
 		}
 		if !isTransient(err) {
-			return Message{}, err
+			return zero, false, err
 		}
 		if attempt >= h.opts.ModelAttempts {
-			return Message{}, fmt.Errorf("failed to call model after %d attempts: %w", attempt, err)
+			return zero, false, fmt.Errorf("failed to call %s after %d attempts: %w", what, attempt, err)
 		}
 		select {
 		case <-ctx.Done():
-			return Message{}, ctx.Err()
+			return zero, false, ctx.Err()
 		case <-time.After(backoff):
 		}
 		backoff *= 2

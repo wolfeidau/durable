@@ -20,6 +20,10 @@ const (
 	EventCallReplayed EventKind = "call_replayed"
 	// EventCallDone is a call's result, whether it ran or not; the message event before it has the text.
 	EventCallDone EventKind = "call_done"
+	// EventCompacted records a compaction; the summary is in the session database, not the event.
+	EventCompacted EventKind = "compacted"
+	// EventCompactionFailed records a compactor error that did not stop the run; Error has the text.
+	EventCompactionFailed EventKind = "compaction_failed"
 )
 
 // Event is one committed state change. Events are append-only and written in
@@ -30,7 +34,7 @@ type Event struct {
 	Submission int64     `json:"submission"` // submission seq, set on every event
 
 	Status SubmissionStatus `json:"status,omitempty"` // submission events
-	Error  string           `json:"error,omitempty"`  // submission events, when failed
+	Error  string           `json:"error,omitempty"`  // submission events when failed, and compaction_failed
 
 	Message *Message `json:"message,omitempty"` // message events; Raw is omitted, History has it
 	// Call is the input that actually runs, so it can contain secrets a gate added.
