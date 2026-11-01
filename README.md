@@ -98,15 +98,30 @@ rows for its calls commit together. Before executing, the call is marked `starte
 the result and the tool message commit together afterwards. A call found in
 `started` on resume crashed mid-flight, so its outcome is unknown:
 
-If `Options.Approve` is set, it is asked before a `pending` call is marked
-`started`. `false` records a `Declined` error result and the model carries on; an
-error or cancellation of `Run` leaves the call `pending`, so the next `Run` asks again
-unless `Cancel` records its result. It is never asked for calls already `started`.
-
 - `ReplaySafe` tools run again.
 - `ReplayNever` tools get an error result (`UnknownOutcome`) telling the model to
   check the current state before retrying. The model is good at this: it'll
   `git status` or re-read the file.
+
+`Options.Gate` decides each `pending` call before it is marked `started`: allow, deny
+(recording its `Reason`, or `Denied`), or ask, and it may rewrite the input. `Options.Ask`
+is the human yes/no. With no `Gate`, every call goes to `Ask`, and runs if `Ask` is also nil.
+`false` from `Ask` records a `Declined` error result and the model carries on.
+
+A `Gate` that asks while `Ask` is nil, or returns an unknown `Action`, denies the call (fail
+closed), and the zero `Decision` asks. A rewrite that isn't valid JSON denies the call with
+`InvalidRewrite`, because retrying can't fix it. Any other gate error, or a cancelled `Run`,
+leaves the call `pending`, so the next `Run` decides again unless `Cancel` records its result.
+Neither `Gate` nor `Ask` runs for calls already `started`.
+
+Rewritten input is committed with `started`, so replay and `Recover` use it. The stored
+assistant message keeps the model's original arguments, because provider content must replay
+verbatim. The call's result therefore carries the `Rewritten` note, including after a crash or
+`Cancel`. The note leaves out the new input, because a gate may have added secrets.
+
+`ReadOnlyGate` allows tools that implement the optional `ReadOnlyTool` interface
+(`ReadOnly() bool`) and asks for the rest. Wrappers around a tool must forward `ReadOnly`, as
+with `Recover`. `OpenDB` rejects duplicate tool names.
 
 Tool call IDs are stable once committed, so tools that hit external APIs can pass
 `call.ID` as an idempotency key.
@@ -200,6 +215,9 @@ reopen. The REPL tests check that Ctrl-C during a tool or at an approval prompt 
 without resuming, and that SIGTERM leaves the task running. A real-binary test
 (`TestInterruptCancelsAndDoesNotResume`) sends SIGINT and checks a restart doesn't
 re-run the task.
+
+Gate tests cover allow, deny, ask and rewrite, failing closed, invalid rewrites not blocking
+the queue, and rewritten input reaching replay and `Recover` with the `Rewritten` note.
 
 `TestKillStopsOrphanedCommand` kills the agent mid-`bash`, checks the command is still
 alive, restarts, and checks it was stopped, never finished, and reported with the

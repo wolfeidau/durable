@@ -25,6 +25,8 @@ const (
 // errCapped stops a walk early once a tool has hit its output cap.
 var errCapped = errors.New("capped")
 
+var _ durable.ReadOnlyTool = tool{}
+
 type tool struct {
 	spec     durable.ToolSpec
 	replay   durable.Replay

@@ -1,6 +1,7 @@
 package durable
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -228,20 +229,33 @@ type storedCall struct {
 	MessageSeq int64
 	Position   int
 	Status     string
+	Rewritten  bool // a gate changed Input, so it differs from the assistant message
+}
+
+// sameInput compares in the form the assistant message stores, which is compacted.
+func sameInput(a, b json.RawMessage) bool {
+	x, errA := rawjson.Marshal(a)
+	y, errB := rawjson.Marshal(b)
+	return errA == nil && errB == nil && bytes.Equal(x, y)
 }
 
 // lastAssistantCalls returns the tool calls of the newest assistant message in
 // a submission, or ok=false if the submission has no assistant message yet.
 func lastAssistantCalls(ctx context.Context, q querier, submissionSeq int64) (calls []storedCall, ok bool, err error) {
 	var msgSeq int64
+	var body string
 	err = q.QueryRowContext(ctx,
-		`SELECT seq FROM messages WHERE submission_seq = ? AND role = 'assistant'
-		 ORDER BY seq DESC LIMIT 1`, submissionSeq).Scan(&msgSeq)
+		`SELECT seq, body FROM messages WHERE submission_seq = ? AND role = 'assistant'
+		 ORDER BY seq DESC LIMIT 1`, submissionSeq).Scan(&msgSeq, &body)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, false, nil
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to find last assistant message: %w", err)
+	}
+	var msg Message
+	if err := json.Unmarshal([]byte(body), &msg); err != nil {
+		return nil, false, fmt.Errorf("failed to decode assistant message: %w", err)
 	}
 	rows, err := q.QueryContext(ctx,
 		`SELECT call_id, position, name, input, status FROM tool_calls
@@ -257,6 +271,7 @@ func lastAssistantCalls(ctx context.Context, q querier, submissionSeq int64) (ca
 			return nil, false, fmt.Errorf("failed to read tool call: %w", err)
 		}
 		c.Input = json.RawMessage(input)
+		c.Rewritten = !sameInput(msg.ToolCalls[c.Position].Input, c.Input)
 		calls = append(calls, c)
 	}
 	if err := rows.Err(); err != nil {

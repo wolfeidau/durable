@@ -11,35 +11,13 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
-// readOnlyTools uses an explicit declaration because ReplaySafe also covers idempotent writes.
-func readOnlyTools(tools []durable.Tool) map[string]bool {
-	names := map[string]bool{}
-	for _, t := range tools {
-		if r, ok := t.(interface{ ReadOnly() bool }); ok && r.ReadOnly() {
-			names[t.Spec().Name] = true
-		}
-	}
-	return names
-}
+// shownCalls holds approved call IDs, so displayTool doesn't repeat what the approver printed.
+// Tool calls run one at a time, so it needs no lock.
+type shownCalls map[string]bool
 
-// approvedTools lists the tools the approver prints, which are those not read-only.
-func approvedTools(tools []durable.Tool) map[string]bool {
-	ro := readOnlyTools(tools)
-	names := map[string]bool{}
-	for _, t := range tools {
-		if n := t.Spec().Name; !ro[n] {
-			names[n] = true
-		}
-	}
-	return names
-}
-
-// newApprover asks on lines for every tool not listed in readOnly, so a new tool asks by default.
-func newApprover(lines <-chan string, out io.Writer, readOnly map[string]bool) func(context.Context, durable.ToolCall) (bool, error) {
+// newApprover asks on lines for every call it is given; durable.ReadOnlyGate keeps read-only tools away from it.
+func newApprover(lines <-chan string, out io.Writer, shown shownCalls) func(context.Context, durable.ToolCall) (bool, error) {
 	return func(ctx context.Context, call durable.ToolCall) (bool, error) {
-		if readOnly[call.Name] {
-			return true, nil
-		}
 		var in callInput
 		_ = json.Unmarshal(call.Input, &in)
 		switch call.Name {
@@ -66,6 +44,7 @@ func newApprover(lines <-chan string, out io.Writer, readOnly map[string]bool) f
 			}
 			switch strings.ToLower(strings.TrimSpace(line)) {
 			case "y", "yes":
+				shown[call.ID] = true
 				return true, nil
 			}
 			return false, nil

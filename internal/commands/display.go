@@ -10,26 +10,29 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
+var _ durable.ReadOnlyTool = displayTool{}
+
 // displayTool prints each call before it runs; Spec and Replay come from the wrapped tool.
 type displayTool struct {
 	durable.Tool
 	out   io.Writer
-	quiet bool
+	shown shownCalls
 }
 
-// withDisplay skips the header for tools in quiet, because the approver already shows them.
-func withDisplay(tools []durable.Tool, out io.Writer, quiet map[string]bool) []durable.Tool {
+// withDisplay skips the header for calls in shown, because the approver already printed them.
+func withDisplay(tools []durable.Tool, out io.Writer, shown shownCalls) []durable.Tool {
 	wrapped := make([]durable.Tool, len(tools))
 	for i, t := range tools {
-		wrapped[i] = displayTool{Tool: t, out: out, quiet: quiet[t.Spec().Name]}
+		wrapped[i] = displayTool{Tool: t, out: out, shown: shown}
 	}
 	return wrapped
 }
 
 func (d displayTool) Execute(ctx context.Context, call durable.ToolCall) (string, error) {
-	if !d.quiet {
+	if !d.shown[call.ID] {
 		fmt.Fprintf(d.out, "\n[%s] %s\n", call.Name, summarize(call.Input))
 	}
+	delete(d.shown, call.ID)
 	return d.Tool.Execute(ctx, call)
 }
 
@@ -39,6 +42,12 @@ func (d displayTool) Recover(ctx context.Context, call durable.ToolCall) string 
 		return r.Recover(ctx, call)
 	}
 	return ""
+}
+
+// ReadOnly forwards to the wrapped tool for the same reason as Recover.
+func (d displayTool) ReadOnly() bool {
+	r, ok := d.Tool.(durable.ReadOnlyTool)
+	return ok && r.ReadOnly()
 }
 
 type callInput struct {
