@@ -39,7 +39,7 @@ type ChatCmd struct {
 	Protocol  string        `help:"Wire protocol: anthropic-messages or openai-responses. Empty uses the session's pin, else the provider's default (anthropic: anthropic-messages, openrouter: openai-responses)."`
 	Model     string        `help:"Model name. Required for a new openrouter session, which pins it. For anthropic, empty uses the built-in default."`
 	Effort    string        `help:"Reasoning effort. Empty uses the built-in default on anthropic-messages and the model's own default on openai-responses."`
-	Yes       bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
+	Yes       bool          `help:"Run every tool that would ask, including edit_file, bash and MCP tools, without asking. Bash is not sandboxed."`
 	NoContext bool          `name:"no-context" help:"Do not load AGENTS.md files or skills. Applies only when a session starts; resumed sessions keep their pinned instructions and skills."`
 	Session   string        `default:"default" help:"Session name; sessions are per directory."`
 	LeaseTTL  time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
