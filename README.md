@@ -77,8 +77,8 @@ model := claude.New(anthropic.NewClient(), claude.Config{System: systemPrompt})
 
 ## How it works
 
-Four tables in one database file per session: `submissions`, `messages`,
-`tool_calls`, and a one-row `lease`.
+Five tables in one database file per session: `submissions`, `messages`,
+`tool_calls`, an append-only `events` log, and a one-row `lease`.
 
 **One loop, no recovery path.** `drive` reads the current state, takes exactly
 one committed step, and repeats:
@@ -195,6 +195,19 @@ and a crash needs no special handling. The whole transcript is still sent, so to
 drop but request size keeps growing. Every later request must enable compaction, so a
 session that has compacted can't continue on an older `--model`.
 
+**Events.** Every state change inserts a row into `events` in the same transaction, so an
+event exists only if its change committed. Kinds are `submission` (queued, then each
+status change, with `Error` when failed), `message` (a transcript entry, without `Raw`)
+and `call_started` (the input that actually runs, with `Rewritten` set when a gate
+changed it). `Options.Observer` is called after each commit with the new events in `Seq`
+order. It is live only: events from before `Open` are not replayed. To catch up, call
+`Events(ctx, after, limit)` after `Open` and before `Run`, then drop any `Seq` you have
+already seen. A crash between commit and delivery loses only the callback, so delivery is
+at-least-once across restarts. `Observer` runs synchronously on the committing goroutine,
+so a slow one slows the agent. It may call `Events` or `History`, but not `Submit`, `Run`
+or `Cancel`, which deadlock. `Event.Call.Input` is the effective input and can hold
+secrets a gate added; treat the log accordingly.
+
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
 
@@ -219,6 +232,11 @@ re-run the task.
 Gate tests cover allow, deny, ask and rewrite, failing closed, invalid rewrites not blocking
 the queue, and rewritten input reaching replay and `Recover` with the `Rewritten` note.
 
+Event tests cover commit order, `Seq` ordering, rewritten inputs, `Raw` being omitted, `Events`
+paging and catch-up after a crash, live-only delivery, `Cancel`, failed models, duplicate
+request IDs, stale-owner commits adding nothing, sessions that predate the `events` table,
+an `Observer` calling `History`, and `Submit` racing `Run`.
+
 `TestKillStopsOrphanedCommand` kills the agent mid-`bash`, checks the command is still
 alive, restarts, and checks it was stopped, never finished, and reported with the
 stopped note. `Orphan`/`Recover` tests in `tools` cover a live orphan,
@@ -233,20 +251,16 @@ Claude adapter tests cover compaction blocks surviving a streamed round trip thr
 
 ## Next steps, roughly in order of payoff
 
-1. **Streaming to clients.** Add an observer called after each commit (or have
-   clients poll `messages` by `seq`). Because commits are the only state changes,
-   "send everything after seq N" gives any number of clients a consistent, resumable
-   view: terminal, web, phone.
-2. **Bash replay.** Most of a coding agent's risk is in `bash`. Keep it
+1. **Bash replay.** Most of a coding agent's risk is in `bash`. Keep it
    `ReplayNever` (orphaned commands are already stopped on recovery), and consider
    recording the command's working-tree state (e.g. a `git stash create` hash) in the
    `started` commit so the unknown-outcome message can say exactly what changed.
-3. **Steering.** Let `Submit` arrive while a run is in progress and have the loop
+2. **Steering.** Let `Submit` arrive while a run is in progress and have the loop
    check for queued input between tool calls (Pi's "queue modes").
-4. **Durable subagents / tasks.** Model a subagent as another submission (or another
+3. **Durable subagents / tasks.** Model a subagent as another submission (or another
    session file) that the parent tool call waits on; the parent's call ID owns it,
    so cancelling one cancels the other.
-5. **Persisting partial streams.** Only worth it if you want clients to see partial
+4. **Persisting partial streams.** Only worth it if you want clients to see partial
    output after a reconnect; commit partials to a separate table and discard them
    when the final message commits.
 

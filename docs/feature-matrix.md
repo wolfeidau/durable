@@ -102,7 +102,7 @@ writers across processes, and bash orphans are stopped on recovery.
 |---|---|---|---|---|
 | Interactive terminal | Part: line REPL | Yes: TUI | n/a: library | Yes |
 | Non-interactive run | Part: piped stdin | Yes: `-p` | n/a: library | Yes: `-p` |
-| Structured event output | No | Yes: JSON mode | Yes: `watch` | Yes: stream JSON |
+| Structured event output | Part: `Observer`, library only | Yes: JSON mode | Yes: `watch` | Yes: stream JSON |
 | RPC over stdio | No | Yes | n/a: library | Part: SDK |
 | Embeddable library | Yes: harness, tools, Claude adapter | Yes: SDK | Yes | Yes: Agent SDK |
 | Multiple clients on one session | No | n/d | Yes: read-only opens, `watch` | Part: Remote Control |
@@ -117,12 +117,12 @@ prerequisites for a modular harness. Items 5 to 9 are features on top.
 |---|---|---|---|
 | 1 | Done: `tools` and `claude` are public packages | Other modules can reuse them | S |
 | 2 | Done: `ToolGate` can allow, deny, ask or rewrite | Replaces `Approve`; rules, hooks and plan mode all build on it | M |
-| 3 | Add a commit observer | Enables JSON output, telemetry, UI and usage tracking. Already next step 1 in the README | M |
+| 3 | Done: `Options.Observer` and `Events` expose every commit | Enables JSON output, telemetry, UI and usage tracking; the CLI doesn't use it yet | M |
 | 4 | Load `AGENTS.md` and `CLAUDE.md`, and pin them per session | Cheapest large gain; config for hooks and MCP also needs a loader | S |
 | 5 | Add MCP client tools | Opens up the existing tool ecosystem | M |
 | 6 | Add skills using the Agent Skills spec | The same skills work in Pi and Claude Code | S |
 | 7 | Add subprocess hooks using Claude Code's JSON contract | The only practical runtime extension in Go, and existing hooks may carry over | M |
-| 8 | Add steering and durable subagents | README next steps 3 and 4. Subagents need multiple conversations per store first | L |
+| 8 | Add steering and durable subagents | README next steps 2 and 3. Subagents need multiple conversations per store first | L |
 | 9 | Add a package format | Wait until items 5 to 7 give it something to bundle | M |
 
 Leave out for now: a TUI, multiple providers (`Model` already allows them), codemode and the

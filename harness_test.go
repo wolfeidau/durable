@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1294,4 +1295,400 @@ func TestReadOnlyGate(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, want, d.Action, name)
 	}
+}
+
+type collector struct {
+	mu  sync.Mutex
+	evs []Event
+}
+
+func (c *collector) observe(e Event) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.evs = append(c.evs, e)
+}
+
+func (c *collector) all() []Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return slices.Clone(c.evs)
+}
+
+func eventSummary(evs []Event) []string {
+	var out []string
+	for _, e := range evs {
+		switch e.Kind {
+		case EventSubmission:
+			out = append(out, "submission:"+string(e.Status))
+		case EventMessage:
+			out = append(out, "message:"+string(e.Message.Role))
+		default:
+			out = append(out, string(e.Kind))
+		}
+	}
+	return out
+}
+
+func requireIncreasing(t *testing.T, evs []Event) {
+	t.Helper()
+	for i := 1; i < len(evs); i++ {
+		require.Greater(t, evs[i].Seq, evs[i-1].Seq)
+	}
+}
+
+func observed(t *testing.T, gate ToolGate) (*Harness, *collector) {
+	t.Helper()
+	c := &collector{}
+	h := openWith(t, context.Background(), Options{
+		Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl,
+		Gate: gate, Observer: c.observe,
+	})
+	t.Cleanup(func() { _ = h.Close() })
+	return h, c
+}
+
+func TestEventsFollowCommitOrder(t *testing.T) {
+	ctx := context.Background()
+	h, c := observed(t, nil)
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+
+	want := []string{
+		"submission:queued", "message:user", "submission:running", "message:assistant",
+		"call_started", "message:tool", "message:assistant", "submission:done",
+	}
+	got := c.all()
+	require.Equal(t, want, eventSummary(got))
+	requireIncreasing(t, got)
+	for _, e := range got {
+		require.EqualValues(t, 1, e.Submission)
+	}
+	stored, err := h.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, stored, got)
+}
+
+func TestCallStartedCarriesRewrittenInput(t *testing.T) {
+	ctx := context.Background()
+	h, c := observed(t, rewriteGate(`{"x":1}`))
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+
+	var started, assistant *Event
+	for _, e := range c.all() {
+		switch {
+		case e.Kind == EventCallStarted:
+			started = &e
+		case e.Kind == EventMessage && e.Message.Role == RoleAssistant && assistant == nil:
+			assistant = &e
+		}
+	}
+	require.NotNil(t, started)
+	require.True(t, started.Rewritten)
+	require.Equal(t, "c1", started.Call.ID)
+	require.Equal(t, "write_file", started.Call.Name)
+	require.JSONEq(t, `{"x":1}`, string(started.Call.Input))
+	require.JSONEq(t, `{}`, string(assistant.Message.ToolCalls[0].Input))
+}
+
+func TestUnchangedCallStartedIsNotRewritten(t *testing.T) {
+	ctx := context.Background()
+	h, c := observed(t, nil)
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	for _, e := range c.all() {
+		if e.Kind == EventCallStarted {
+			require.False(t, e.Rewritten)
+		}
+	}
+}
+
+func TestEventsOmitRawButHistoryKeepsIt(t *testing.T) {
+	ctx := context.Background()
+	c := &collector{}
+	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		return Message{Role: RoleAssistant, Text: "hi", Raw: json.RawMessage(`{"provider":"x"}`)}, nil
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, Observer: c.observe})
+	defer h.Close()
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+
+	for _, e := range c.all() {
+		if e.Message != nil {
+			require.Empty(t, e.Message.Raw)
+		}
+	}
+	stored, err := h.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	for _, e := range stored {
+		if e.Message != nil {
+			require.Empty(t, e.Message.Raw)
+		}
+	}
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"provider":"x"}`, string(hist[1].Raw))
+}
+
+func TestEventsHonourAfterAndLimit(t *testing.T) {
+	ctx := context.Background()
+	h, _ := observed(t, nil)
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+
+	all, err := h.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all, 8)
+
+	page, err := h.Events(ctx, all[1].Seq, 3)
+	require.NoError(t, err)
+	require.Equal(t, all[2:5], page)
+
+	none, err := h.Events(ctx, all[7].Seq, 10)
+	require.NoError(t, err)
+	require.Empty(t, none)
+}
+
+func TestEventsCatchUpAfterCrashWithoutDuplicates(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	ctx := context.Background()
+	c1 := &collector{}
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Observer: c1.observe})
+	require.NoError(t, err)
+	_, err = h1.Prompt(crashCtx, "a", "go")
+	require.ErrorIs(t, err, context.Canceled)
+	h1.abandon()
+	seen := c1.all()
+	require.NotEmpty(t, seen)
+	last := seen[len(seen)-1].Seq
+
+	c2 := &collector{}
+	h2, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Observer: c2.observe})
+	require.NoError(t, err)
+	defer h2.Close()
+	missed, err := h2.Events(ctx, last, 0)
+	require.NoError(t, err)
+	require.NoError(t, h2.Run(ctx))
+
+	combined := slices.Concat(seen, missed, c2.all())
+	requireIncreasing(t, combined)
+	all, err := h2.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, all, combined)
+	require.Equal(t, "submission:done", eventSummary(all)[len(all)-1])
+}
+
+func TestObserverIsLiveOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	ctx := context.Background()
+	h1 := open(t, ctx, path, &scriptedModel{})
+	_, err := h1.Submit(ctx, "a", "hi")
+	require.NoError(t, err)
+	require.NoError(t, h1.Close())
+
+	c := &collector{}
+	h2, err := Open(ctx, path, Options{Model: &scriptedModel{}, LeaseTTL: ttl, Observer: c.observe})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.Empty(t, c.all())
+	_, err = h2.Submit(ctx, "b", "again")
+	require.NoError(t, err)
+	got := c.all()
+	require.Equal(t, []string{"submission:queued"}, eventSummary(got))
+	require.EqualValues(t, 2, got[0].Submission)
+}
+
+func TestCancelDeliversCancelledAfterRunContextIsDone(t *testing.T) {
+	ctx := context.Background()
+	c := &collector{}
+	entered := make(chan struct{}, 1)
+	model := modelFunc(func(ctx context.Context, _ []Message, _ []ToolSpec) (Message, error) {
+		entered <- struct{}{}
+		<-ctx.Done()
+		return Message{}, ctx.Err()
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, Observer: c.observe})
+	defer h.Close()
+
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+	stop := startRun(h)
+	<-entered
+	require.ErrorIs(t, stop(), context.Canceled)
+
+	_, err = h.Cancel(ctx, "a")
+	require.NoError(t, err)
+	evs := c.all()
+	require.Equal(t, []string{
+		"submission:queued", "message:user", "submission:running", "message:user", "submission:cancelled",
+	}, eventSummary(evs))
+}
+
+func TestFailedModelRecordsErrorOnEvent(t *testing.T) {
+	ctx := context.Background()
+	c := &collector{}
+	model := modelFunc(func(context.Context, []Message, []ToolSpec) (Message, error) {
+		return Message{}, errors.New("provider exploded")
+	})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, Observer: c.observe})
+	defer h.Close()
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+
+	evs := c.all()
+	last := evs[len(evs)-1]
+	require.Equal(t, EventSubmission, last.Kind)
+	require.Equal(t, StatusFailed, last.Status)
+	require.Contains(t, last.Error, "provider exploded")
+}
+
+func TestDuplicateRequestIDAddsNoEvent(t *testing.T) {
+	ctx := context.Background()
+	h, c := observed(t, nil)
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+	_, err = h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Len(t, c.all(), 1)
+	stored, err := h.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, stored, 1)
+}
+
+func TestStaleOwnerAddsAndDeliversNoEvent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	ctx := context.Background()
+	c := &collector{}
+	h1, err := Open(ctx, path, Options{Model: &scriptedModel{}, LeaseTTL: ttl, Observer: c.observe})
+	require.NoError(t, err)
+	h1.stopRenew()
+	<-h1.renewDone
+
+	h2 := open(t, ctx, path, &scriptedModel{})
+	defer h2.Close()
+
+	_, err = h1.Submit(ctx, "stale", "hi")
+	require.ErrorIs(t, err, ErrLeaseLost)
+	h1.db.Close()
+	require.Empty(t, c.all())
+	evs, err := h2.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Empty(t, evs)
+}
+
+// preEventsSchema is the schema before the events table existed.
+const preEventsSchema = `
+CREATE TABLE lease (id INTEGER PRIMARY KEY CHECK (id = 1), owner TEXT NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE submissions (seq INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, text TEXT NOT NULL,
+	status TEXT NOT NULL, result TEXT, error TEXT, created_at INTEGER NOT NULL);
+CREATE TABLE messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, submission_seq INTEGER NOT NULL REFERENCES submissions(seq),
+	role TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE tool_calls (message_seq INTEGER NOT NULL REFERENCES messages(seq), position INTEGER NOT NULL,
+	call_id TEXT NOT NULL, name TEXT NOT NULL, input TEXT NOT NULL, status TEXT NOT NULL, result TEXT,
+	is_error INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (message_seq, position));
+INSERT INTO submissions (request_id, text, status, created_at) VALUES ('old', 'hi', 'queued', 0);
+`
+
+func TestOldSessionWithoutEventsTableWorks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	ctx := context.Background()
+	db, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	_, err = db.Exec(preEventsSchema)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	c := &collector{}
+	h, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl, Observer: c.observe})
+	require.NoError(t, err)
+	defer h.Close()
+	evs, err := h.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Empty(t, evs)
+
+	require.NoError(t, h.Run(ctx))
+	sub, err := h.Get(ctx, "old")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.Equal(t, "submission:done", eventSummary(c.all())[len(c.all())-1])
+}
+
+func TestObserverMayCallHistoryAndEvents(t *testing.T) {
+	ctx := context.Background()
+	var h *Harness
+	var calls atomic.Int32
+	observer := func(e Event) {
+		if _, err := h.History(ctx); err == nil {
+			if _, err := h.Events(ctx, e.Seq-1, 1); err == nil {
+				calls.Add(1)
+			}
+		}
+	}
+	var err error
+	h, err = Open(ctx, filepath.Join(t.TempDir(), "session.sqlite"), Options{
+		Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl, Observer: observer,
+	})
+	require.NoError(t, err)
+	defer h.Close()
+
+	done := make(chan error, 1)
+	go func() { _, err := h.Prompt(ctx, "a", "go"); done <- err }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("deadlock: Observer calling History never returned")
+	}
+	require.EqualValues(t, 8, calls.Load())
+}
+
+func TestSubmitRacingRunDeliversInOrder(t *testing.T) {
+	ctx := context.Background()
+	h, c := observed(t, nil)
+
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for i := range 8 {
+		wg.Go(func() {
+			_, err := h.Submit(ctx, fmt.Sprintf("r%d", i), "go")
+			errs <- err
+		})
+	}
+	for range 3 {
+		require.NoError(t, h.Run(ctx))
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	require.NoError(t, h.Run(ctx))
+
+	got := c.all()
+	requireIncreasing(t, got)
+	stored, err := h.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, stored, got)
+}
+
+// A commit can return just as its context is cancelled, and the event must still be delivered.
+func TestDeliverIgnoresCancelledContext(t *testing.T) {
+	ctx := context.Background()
+	var got []Event
+	h := openWith(t, ctx, Options{Model: gateModel(), LeaseTTL: ttl, Observer: func(e Event) { got = append(got, e) }})
+	defer h.Close()
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+	got = nil
+
+	_, err = h.db.ExecContext(ctx, `INSERT INTO events (submission_seq, body) VALUES (1, '{"kind":"submission","submission":1,"status":"cancelled"}')`)
+	require.NoError(t, err)
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	h.deliver(cancelled)
+	require.Len(t, got, 1)
+	require.Equal(t, StatusCancelled, got[0].Status)
 }
