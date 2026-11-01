@@ -23,7 +23,7 @@ import (
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/fakeapi"
-	"github.com/wolfeidau/durable/internal/tools"
+	"github.com/wolfeidau/durable/tools"
 )
 
 const testTimeout = 90 * time.Second

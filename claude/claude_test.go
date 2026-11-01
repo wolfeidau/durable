@@ -20,7 +20,7 @@ import (
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/fakeapi"
-	"github.com/wolfeidau/durable/internal/tools"
+	"github.com/wolfeidau/durable/tools"
 )
 
 // reply is one scripted HTTP response.

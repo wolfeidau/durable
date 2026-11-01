@@ -14,9 +14,9 @@ import (
 	"golang.org/x/term"
 
 	"github.com/wolfeidau/durable"
-	"github.com/wolfeidau/durable/internal/claude"
+	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/internal/creds"
-	"github.com/wolfeidau/durable/internal/tools"
+	"github.com/wolfeidau/durable/tools"
 )
 
 // The prompt must stay fixed: any change invalidates the prompt cache and stored thinking blocks.

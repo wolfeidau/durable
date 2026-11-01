@@ -60,7 +60,7 @@ linters:
       - std-error-handling
     rules:
       # The agent's tools exist to run commands and open model-chosen paths; resolve() is the control.
-      - path: internal/tools/
+      - path: ^tools/
         linters: [gosec]
         text: "G204|G301|G304"
       - path: internal/creds/

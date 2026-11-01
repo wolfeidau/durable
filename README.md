@@ -66,6 +66,15 @@ h.Run(ctx) // finish anything a previous crashed process left behind
 sub, err := h.Prompt(ctx, requestID, userInput) // requestID: a UUID per input, or a webhook delivery ID
 ```
 
+The agent's own parts are public, so you can reuse them instead of writing your own.
+`claude.New` returns a `Model`, and `tools.All` returns the five coding tools scoped to a
+workspace root. Its `stateDir` holds crash bookkeeping, so keep it outside the workspace:
+
+```go
+toolset, err := tools.All(workspace, filepath.Dir(path))
+model := claude.New(anthropic.NewClient(), claude.Config{System: systemPrompt})
+```
+
 ## How it works
 
 Four tables in one database file per session: `submissions`, `messages`,
@@ -194,7 +203,7 @@ re-run the task.
 
 `TestKillStopsOrphanedCommand` kills the agent mid-`bash`, checks the command is still
 alive, restarts, and checks it was stopped, never finished, and reported with the
-stopped note. `Orphan`/`Recover` tests in `internal/tools` cover a live orphan,
+stopped note. `Orphan`/`Recover` tests in `tools` cover a live orphan,
 state-file cleanup after success, error, timeout and cancel, reused group IDs, lock
 holders outside the recorded group, unusable IDs (`0`, `1`, `-1`, empty) never being
 signalled, and idempotence. `recover_test.go` covers `Recover` running once before the
