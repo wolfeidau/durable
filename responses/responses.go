@@ -150,6 +150,9 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 		if retryableStatus(resp.StatusCode) {
 			return durable.Message{}, durable.Transient(err)
 		}
+		if resp.StatusCode == http.StatusRequestEntityTooLarge || durable.IsOverflowText(string(b)) {
+			return durable.Message{}, durable.ContextOverflow(err)
+		}
 		return durable.Message{}, err
 	}
 	return m.readStream(ctx, resp.Body)
@@ -198,6 +201,20 @@ type responseBody struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
 	Error *apiError `json:"error"`
+	// Raw so a malformed usage can't fail the whole event.
+	Usage json.RawMessage `json:"usage"`
+}
+
+// contextTokens is input plus output, because input_tokens already includes cached tokens.
+func contextTokens(usage json.RawMessage) int64 {
+	var u struct {
+		Input  int64 `json:"input_tokens"`
+		Output int64 `json:"output_tokens"`
+	}
+	if json.Unmarshal(usage, &u) != nil {
+		return 0
+	}
+	return u.Input + u.Output
 }
 
 type apiError struct {
@@ -334,8 +351,9 @@ func (st *streamState) complete(ev streamEvent) (*durable.Message, error) {
 		return nil, errors.New("response completed with a tool call that never finished")
 	}
 	var out []json.RawMessage
+	var usage json.RawMessage
 	if ev.Response != nil {
-		out = ev.Response.Output
+		out, usage = ev.Response.Output, ev.Response.Usage
 	}
 	items, err := collect(st.done, out)
 	if err != nil {
@@ -349,6 +367,7 @@ func (st *streamState) complete(ev streamEvent) (*durable.Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	msg.ContextTokens = contextTokens(usage)
 	return &msg, nil
 }
 
@@ -469,11 +488,17 @@ func (m *Model) classifyStream(code any, message string) error {
 		if retryableStatus(s) {
 			return durable.Transient(err)
 		}
+		if s == http.StatusRequestEntityTooLarge || durable.IsOverflowText(message) {
+			return durable.ContextOverflow(err)
+		}
 		return err
 	}
 	switch c {
 	case "server_error", "rate_limit_exceeded", "rate_limit_error", "overloaded", "overloaded_error", "api_error", "timeout", "service_unavailable":
 		return durable.Transient(err)
+	}
+	if durable.IsOverflowText(c) || durable.IsOverflowText(message) {
+		return durable.ContextOverflow(err)
 	}
 	return err
 }
