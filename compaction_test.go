@@ -2,6 +2,7 @@ package durable
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"sync"
@@ -324,6 +325,34 @@ func TestInvalidCompactionIsPermanentFailure(t *testing.T) {
 	}
 }
 
+func TestCompactionCutAtToolMessageIsRefused(t *testing.T) {
+	ctx := context.Background()
+	rec := &recorder{}
+	reply := func(n int, _ []Message) (Message, error) {
+		if n == 1 {
+			return Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "t", Input: json.RawMessage(`{}`)}}}, nil
+		}
+		return okReply(n, nil)
+	}
+	opts := fastOpts(rec.model(reply), rec.compactor(func(_ int, req CompactRequest) (Compaction, bool, error) {
+		for i, m := range req.Messages {
+			if m.Role == RoleTool {
+				return Compaction{Summary: "S", FirstKept: i}, true, nil
+			}
+		}
+		return Compaction{}, false, nil
+	}))
+	opts.Tools = []Tool{&fakeTool{name: "t"}}
+	h := openWith(t, ctx, opts)
+	defer h.Close()
+
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.Len(t, eventsOf(t, h, EventCompactionFailed), 1)
+	require.Zero(t, compactionRows(t, h))
+}
+
 func TestNilAndEmptyCompactionInputIsHandled(t *testing.T) {
 	ctx := context.Background()
 	rec := &recorder{}
@@ -474,7 +503,11 @@ func TestForcedResetsAfterSuccessfulModelStep(t *testing.T) {
 		if !req.Force || len(req.Messages) < 2 {
 			return Compaction{}, false, nil
 		}
-		return Compaction{Summary: "S", FirstKept: len(req.Messages) - 1}, true, nil
+		cut := len(req.Messages) - 1
+		for req.Messages[cut].Role == RoleTool {
+			cut--
+		}
+		return Compaction{Summary: "S", FirstKept: cut}, true, nil
 	}))
 	opts.Tools = []Tool{&fakeTool{name: "t"}}
 	h := openWith(t, ctx, opts)

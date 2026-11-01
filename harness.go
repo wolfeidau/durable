@@ -407,7 +407,7 @@ func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (
 	c, ok, err := retryTransient(ctx, h, "compactor", func() (Compaction, bool, error) {
 		return h.opts.Compactor.Compact(ctx, req)
 	})
-	if err == nil && ok && (c.FirstKept <= 0 || c.FirstKept >= len(mc.Messages) || c.Summary == "") {
+	if err == nil && ok && !validCompaction(c, mc.Messages) {
 		err = fmt.Errorf("compactor returned an invalid compaction (first kept %d of %d messages, summary %d bytes)",
 			c.FirstKept, len(mc.Messages), len(c.Summary))
 	}
@@ -426,6 +426,11 @@ func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (
 		return addCompaction(ctx, tx, sub.Seq, mc.Seqs[c.FirstKept], mc.Seqs[len(mc.Seqs)-1], c.Summary)
 	})
 	return err == nil, err
+}
+
+// validCompaction refuses a cut at a tool message, because a stored cut would orphan that result on every later request.
+func validCompaction(c Compaction, msgs []Message) bool {
+	return c.Summary != "" && c.FirstKept > 0 && c.FirstKept < len(msgs) && msgs[c.FirstKept].Role != RoleTool
 }
 
 func unfinished(calls []storedCall) []storedCall {
