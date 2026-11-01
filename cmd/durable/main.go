@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,6 +12,13 @@ import (
 	"github.com/alecthomas/kong"
 
 	"github.com/wolfeidau/durable/internal/commands"
+)
+
+// goreleaser sets these through -ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
 )
 
 func main() {
@@ -24,6 +32,7 @@ func main() {
 		kong.Description("A coding agent with a crash-safe session."),
 		kong.BindTo(ctx, (*context.Context)(nil)),
 		kong.Bind(&commands.Globals{Logger: logger}),
+		kong.Vars{"version": fmt.Sprintf("%s (%s, %s)", version, commit, date)},
 	)
 	err := k.Run()
 	stop()

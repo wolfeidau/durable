@@ -15,7 +15,7 @@ go build -o durable ./cmd/durable
 ```
 
 Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
-`--session` (default `default`), `--yes`, `--no-context`, `--api-token` and
+`--session` (default `default`), `--yes`, `--no-context`, `--version`, `--api-token` and
 `--api-token-from-1password`.
 
 - **Credentials:** `--api-token-from-1password` reads the key with the `op` CLI when the

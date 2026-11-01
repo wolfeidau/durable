@@ -1,3 +1,5 @@
 coverage.out
 coverage.html
 tests.json
+dist/
+/durable

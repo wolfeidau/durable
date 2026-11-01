@@ -464,3 +464,16 @@ func TestFailedTokenLookupDoesNotPin(t *testing.T) {
 	runPrompt(t, api, 2, a, "first")
 	require.Contains(t, systemOf(t, api.requests()[0]), "FINAL")
 }
+
+func TestVersionFlagReportsLinkedVersion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	bin := filepath.Join(t.TempDir(), "durable")
+	ldflags := "-X main.version=1.2.3 -X main.commit=abc -X main.date=2026-11-01"
+	out, err := exec.CommandContext(ctx, "go", "build", "-ldflags", ldflags, "-o", bin, ".").CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	out, err = exec.CommandContext(ctx, bin, "--version").CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.Equal(t, "1.2.3 (abc, 2026-11-01)\n", string(out))
+}
