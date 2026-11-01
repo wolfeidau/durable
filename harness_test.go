@@ -1783,3 +1783,45 @@ func TestCallDoneReportsRewriteAndSuccess(t *testing.T) {
 	}
 	require.Fail(t, "no call_done event")
 }
+
+func TestStartedCallWithVanishedToolRecordsUnknownOutcome(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	model := modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+		return approvalModel(hist, s)
+	})
+
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", replay: ReplaySafe, crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	h2, err := Open(ctx, path, Options{Model: model, LeaseTTL: ttl})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, UnknownOutcome, hist[2].Text)
+	require.True(t, hist[2].IsError)
+	require.EqualValues(t, 1, write.runs.Load())
+}
+
+func TestPendingCallWithUnknownToolRecordsUnknownTool(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, Options{
+		Model: modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+			return approvalModel(hist, s)
+		}),
+		LeaseTTL: ttl,
+	})
+	defer h.Close()
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, `unknown tool "write_file"`, hist[2].Text)
+	require.True(t, hist[2].IsError)
+}

@@ -71,7 +71,7 @@ func runBash(ctx context.Context, root, state, command string, timeout time.Dura
 	out := newBoundedWriter(maxOutputBytes)
 	cmd := exec.CommandContext(tctx, "bash", "-c", command)
 	cmd.Dir = root
-	cmd.Env = scrubEnv(os.Environ())
+	cmd.Env = ScrubEnv(os.Environ())
 	cmd.Stdout = out
 	cmd.Stderr = out
 	cmd.ExtraFiles = []*os.File{lock.f}
@@ -111,12 +111,19 @@ func runBash(ctx context.Context, root, state, command string, timeout time.Dura
 	}
 }
 
-// scrubEnv drops credentials, because command output reaches the model and the session database.
-func scrubEnv(env []string) []string {
+// ScrubEnv returns env without credentials, because command output reaches the model and the session database.
+func ScrubEnv(env []string) []string {
 	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
 		return strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "OP_")
 	})
+}
+
+// Truncate keeps the first and last limit/2 bytes of s with a marker for the omitted middle, as bash does.
+func Truncate(s string, limit int) string {
+	w := newBoundedWriter(limit)
+	_, _ = w.Write([]byte(s))
+	return w.String()
 }
 
 // boundedWriter keeps the first and last max/2 bytes written and counts the rest.
