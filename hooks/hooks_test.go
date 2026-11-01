@@ -596,6 +596,12 @@ func TestPostFailureWithholdsOutput(t *testing.T) {
 		"object no output": `echo '{"hookSpecificOutput":{"updatedToolOutput":{"text":"x"}}}'`,
 		"object extra key": `echo '{"hookSpecificOutput":{"updatedToolOutput":{"output":"x","y":1}}}'`,
 		"unknown decision": `echo '{"decision":"approve"}'`,
+		"continue false":   `echo '{"continue":false,"stopReason":"stop"}'`,
+		"mcp field":        `echo '{"hookSpecificOutput":{"updatedMCPToolOutput":"redacted"}}'`,
+		"typo":             `echo '{"hookSpecificOutput":{"updatedToolOutputs":"redacted"}}'`,
+		"unknown top":      `echo '{"redact":true}'`,
+		"wrong event":      `echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedToolOutput":"x"}}'`,
+		"trailing json":    `echo '{}{}'`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			out, err := postRun(t, postRunner(t, body, nil), fakeTool{name: "bash", out: "SECRET-ORIGINAL"})
@@ -603,6 +609,34 @@ func TestPostFailureWithholdsOutput(t *testing.T) {
 			require.Empty(t, out)
 		})
 	}
+}
+
+func TestPostAcceptsClaudeCodeFields(t *testing.T) {
+	body := `echo '{"continue":true,"suppressOutput":true,"systemMessage":"m","hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":"r"}}'`
+	out, err := postRun(t, postRunner(t, body, nil), fakeTool{name: "bash", out: "original"})
+	require.NoError(t, err)
+	require.Equal(t, "r", out)
+}
+
+func TestPreUnknownOutputBlocks(t *testing.T) {
+	for name, body := range map[string]string{
+		"continue false": `echo '{"continue":false,"stopReason":"stop"}'`,
+		"typo":           `echo '{"hookSpecificOutput":{"permissionDecisions":"deny"}}'`,
+		"unknown top":    `echo '{"deny":true}'`,
+		"wrong event":    `echo '{"hookSpecificOutput":{"hookEventName":"PostToolUse","permissionDecision":"allow"}}'`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r, logDir := loggedRunner(t, body)
+			requireBlocked(t, gate(t, r, nil, bashCall), logDir, "hook")
+		})
+	}
+}
+
+func TestPreAcceptsClaudeCodeFields(t *testing.T) {
+	r := preRunner(t, `echo '{"continue":true,"suppressOutput":false,"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"no","additionalContext":"ignored"}}'`)
+	d := gate(t, r, nil, bashCall)
+	require.Equal(t, durable.ActionDeny, d.Action)
+	require.Equal(t, "no", d.Reason)
 }
 
 func TestPostOnFailureContinueKeepsOriginal(t *testing.T) {

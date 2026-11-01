@@ -84,13 +84,41 @@ func startsObject(stdout []byte) ([]byte, bool) {
 	return s, len(s) > 0 && s[0] == '{'
 }
 
+// commonOutput lists Claude Code's universal fields, so strict decoding accepts them. The last three have no effect here.
+type commonOutput struct {
+	Continue       *bool  `json:"continue"`
+	StopReason     string `json:"stopReason"`
+	SuppressOutput bool   `json:"suppressOutput"`
+	SystemMessage  string `json:"systemMessage"`
+}
+
+// check rejects continue: false, which asks for a stop this harness can't honour, so ignoring it would run the call.
+func (c commonOutput) check() error {
+	if c.Continue != nil && !*c.Continue {
+		return errors.New("continue: false is not supported")
+	}
+	return nil
+}
+
+// checkEvent rejects output written for another event, whose fields would not apply.
+func checkEvent(got, want string) error {
+	if got != "" && got != want {
+		return fmt.Errorf("hookEventName %q does not match %s", got, want)
+	}
+	return nil
+}
+
 type preOutput struct {
+	commonOutput
 	// Decision is Claude Code's older top-level form; ignoring it would turn a deny into no decision.
 	Decision           string `json:"decision"`
+	Reason             string `json:"reason"`
 	HookSpecificOutput *struct {
+		HookEventName            string          `json:"hookEventName"`
 		PermissionDecision       string          `json:"permissionDecision"`
 		PermissionDecisionReason string          `json:"permissionDecisionReason"`
 		UpdatedInput             json.RawMessage `json:"updatedInput"`
+		AdditionalContext        string          `json:"additionalContext"`
 	} `json:"hookSpecificOutput"`
 }
 
@@ -101,8 +129,12 @@ func parsePre(stdout []byte) (string, string, json.RawMessage, error) {
 		return "", "", nil, nil
 	}
 	var out preOutput
-	if err := json.Unmarshal(s, &out); err != nil {
+	// Strict, because a field we don't understand could be a deny we would otherwise drop.
+	if err := strictDecode(s, &out); err != nil {
 		return "", "", nil, fmt.Errorf("invalid hook output: %w", err)
+	}
+	if err := out.check(); err != nil {
+		return "", "", nil, err
 	}
 	if out.Decision != "" {
 		return "", "", nil, fmt.Errorf("unsupported top-level decision %q; use hookSpecificOutput.permissionDecision", out.Decision)
@@ -110,6 +142,9 @@ func parsePre(stdout []byte) (string, string, json.RawMessage, error) {
 	h := out.HookSpecificOutput
 	if h == nil {
 		return "", "", nil, nil
+	}
+	if err := checkEvent(h.HookEventName, PreToolUse); err != nil {
+		return "", "", nil, err
 	}
 	switch h.PermissionDecision {
 	case "", "allow", "deny", "ask":
@@ -198,9 +233,11 @@ func (r *Runner) Gate(base durable.ToolGate) durable.ToolGate {
 }
 
 type postOutput struct {
+	commonOutput
 	Decision           string `json:"decision"`
 	Reason             string `json:"reason"`
 	HookSpecificOutput *struct {
+		HookEventName     string          `json:"hookEventName"`
 		UpdatedToolOutput json.RawMessage `json:"updatedToolOutput"`
 		AdditionalContext string          `json:"additionalContext"`
 	} `json:"hookSpecificOutput"`
@@ -213,8 +250,12 @@ func applyPost(text string, stdout []byte) (string, error) {
 		return text, nil
 	}
 	var out postOutput
-	if err := json.Unmarshal(s, &out); err != nil {
+	// Strict, because a field we don't understand could be a redaction we would otherwise drop.
+	if err := strictDecode(s, &out); err != nil {
 		return "", fmt.Errorf("invalid hook output: %w", err)
+	}
+	if err := out.check(); err != nil {
+		return "", err
 	}
 	var appended []string
 	switch out.Decision {
@@ -225,6 +266,9 @@ func applyPost(text string, stdout []byte) (string, error) {
 		return "", fmt.Errorf("unsupported decision %q", out.Decision)
 	}
 	if h := out.HookSpecificOutput; h != nil {
+		if err := checkEvent(h.HookEventName, PostToolUse); err != nil {
+			return "", err
+		}
 		if h.UpdatedToolOutput != nil {
 			updated, err := parseUpdatedOutput(h.UpdatedToolOutput)
 			if err != nil {

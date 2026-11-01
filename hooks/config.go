@@ -70,7 +70,7 @@ func (c Config) Counts() map[string]int {
 	return counts
 }
 
-// UnknownMatchers warns about each exact-name matcher entry that names none of tools.
+// UnknownMatchers warns about each matcher entry that matches none of tools.
 // A name copied from Claude Code, such as Bash, would otherwise never fire and quietly skip a policy.
 func (c Config) UnknownMatchers(tools []string) []string {
 	var warnings []string
@@ -80,6 +80,9 @@ func (c Config) UnknownMatchers(tools []string) []string {
 				if !slices.Contains(tools, name) {
 					warnings = append(warnings, fmt.Sprintf("%s matcher %q matches no tool", event, name))
 				}
+			}
+			if re := g.matcher.re; re != nil && !slices.ContainsFunc(tools, re.MatchString) {
+				warnings = append(warnings, fmt.Sprintf("%s matcher %q matches no tool in this session", event, re))
 			}
 		}
 	}
@@ -120,6 +123,10 @@ func LoadConfig(path string) (Config, []string, error) {
 	var warnings []string
 	for _, event := range events {
 		if event != PreToolUse && event != PostToolUse {
+			// A case slip is a misspelt safety hook, not a copied event we don't support.
+			if strings.EqualFold(event, PreToolUse) || strings.EqualFold(event, PostToolUse) {
+				return Config{}, nil, fmt.Errorf("hook event %q in %s is misspelt", event, path)
+			}
 			warnings = append(warnings, fmt.Sprintf("hook event %q is not supported and was ignored", event))
 			continue
 		}

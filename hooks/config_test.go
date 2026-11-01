@@ -58,6 +58,8 @@ func TestLoadConfigErrors(t *testing.T) {
 		"bad regexp":        `{"hooks":{"PreToolUse":[{"matcher":"mcp__(","hooks":[]}]}}`,
 		"groups not array":  `{"hooks":{"PreToolUse":{}}}`,
 		"misspelt top key":  `{"hook":{}}`,
+		"misspelt event":    `{"hooks":{"preToolUse":[]}}`,
+		"misspelt post":     `{"hooks":{"POSTTOOLUSE":[]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, _, err := LoadConfig(writeConfig(t, body))
@@ -85,6 +87,11 @@ func TestUnknownMatchers(t *testing.T) {
 		load(`{"hooks":{`+group("PreToolUse", "Bash")+`}}`).UnknownMatchers(tools))
 
 	require.Equal(t,
+		[]string{`PreToolUse matcher "^Bash$" matches no tool in this session`},
+		load(`{"hooks":{`+group("PreToolUse", "^Bash$")+`}}`).UnknownMatchers(tools))
+	require.Empty(t, load(`{"hooks":{`+group("PreToolUse", "^mcp__.*")+`}}`).UnknownMatchers(tools))
+
+	require.Equal(t,
 		[]string{`PostToolUse matcher "Edit" matches no tool`},
 		load(`{"hooks":{`+group("PostToolUse", "bash|Edit")+`}}`).UnknownMatchers(tools),
 		"only the unknown name warns")
@@ -94,8 +101,8 @@ func TestUnknownMatchers(t *testing.T) {
 		load(`{"hooks":{`+group("PostToolUse", "Write")+`,`+group("PreToolUse", "Bash")+`}}`).UnknownMatchers(tools),
 		"each warning keeps its event")
 
-	for _, m := range []string{"", "*", "Bash.*", `^(Bash)$`} {
-		require.Empty(t, load(`{"hooks":{`+group("PreToolUse", m)+`}}`).UnknownMatchers(tools), "matcher %q is not checked", m)
+	for _, m := range []string{"", "*", "ba.*", `^(bash)$`} {
+		require.Empty(t, load(`{"hooks":{`+group("PreToolUse", m)+`}}`).UnknownMatchers(tools), "matcher %q matches a tool", m)
 	}
 }
 

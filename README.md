@@ -131,15 +131,16 @@ Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default)
   }
   ```
 
-  The hook gets JSON on stdin (`session_id`, `cwd`, `permission_mode`, `hook_event_name`,
-  `tool_name`, `tool_input`, `tool_use_id`, plus `tool_response` for `PostToolUse`) and
-  answers with JSON on stdout. Handlers need `"type": "command"` and a `command`, which runs
+  The hook gets JSON on stdin (`hook_protocol`, currently 1, then `session_id`, `cwd`,
+  `permission_mode`, `hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`, plus
+  `tool_response` for `PostToolUse`) and answers with JSON on stdout. Unknown fields in a
+  JSON answer are a failure, and so is `"continue": false`. Handlers need `"type": "command"` and a `command`, which runs
   under `bash -c`; `"args"` (even `[]`) runs it directly with no shell. A `matcher` is empty
   or `*` for every tool, a name or `a|b` list, or a Go regexp.
   - **`PreToolUse`:** exit 2 denies with stderr as the reason. Under `hookSpecificOutput`,
     `permissionDecision` is `allow`, `deny` or `ask`, and `updatedInput` replaces the input.
-    Several hooks combine as deny, then ask, then allow, and with no decision the normal
-    approval applies. `additionalContext` is ignored. A top-level `decision` is a failure.
+    Several hooks combine as deny, then ask, then allow. A hook `allow` skips the approval
+    prompt, and with no decision the normal approval applies. `additionalContext` is ignored. A top-level `decision` is a failure.
   - **`PostToolUse`:** `hookSpecificOutput.updatedToolOutput` (a string or
     `{"output": "..."}`) replaces the result before it reaches the model and the session
     database, and `additionalContext` or a top-level `"decision": "block"` with `reason`
@@ -163,11 +164,16 @@ Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default)
   - Failures block by default, where Claude Code lets the call proceed.
   - Hooks run one after another in config order, not concurrently.
   - Only `type: "command"` works, and `if`, `async`, `http` and other fields are load errors.
+  - Fields we don't support in a hook's answer fail the hook instead of being ignored,
+    including `updatedMCPToolOutput` and `"continue": false`.
+  - An event name with the wrong case, such as `preToolUse`, is a load error. Other
+    unsupported events print a warning.
 
   Limits: a `PreToolUse` hook can run more than once after a crash, so it must be safe to
   repeat. `PostToolUse` doesn't run for a call a crash interrupted, which is recorded as an
   unknown outcome with no output. Nothing stops a running hook after `kill -9`. **Hooks run
-  as you and aren't sandboxed.**
+  as you and aren't sandboxed, and they aren't a security boundary:** an approved `bash`
+  command can edit `~/.durable/hooks.json`, and the change applies at the next start.
 - **Approval:** every tool shows the call and asks `y/N`, except built-in tools that declare
   themselves read-only (`read_file`, `list_files`, `grep`).
 - **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so
