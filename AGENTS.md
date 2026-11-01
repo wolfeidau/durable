@@ -27,6 +27,7 @@ mise run check:tidy
 - The database pool has one connection, so close a cursor before running another query or calling a callback.
 - Wrappers around a tool must forward the optional interfaces `Recoverer` and `ReadOnlyTool`, because embedding `Tool` doesn't promote them.
 - The system prompt and tool order must not change within a session. They feed the prompt cache and stored thinking blocks.
+- MCP tools are pinned per session, and server hints never change replay or approval, because a hint is only the server's claim.
 
 ## Code conventions
 

@@ -14,9 +14,9 @@ a no.
 
 ## Summary
 
-`durable` leads on crash semantics and has almost no extension surface. Its two seams,
-`Model` and `Tool`, are clean, but only Go code compiled into the binary can use them. The
-concrete tools and Claude adapter are public packages, so an embedder can reuse them.
+`durable` leads on crash semantics and has a small extension surface. Its two seams, `Model`
+and `Tool`, are clean, but apart from MCP tools only Go code compiled into the binary can use
+them. The concrete tools and Claude adapter are public packages, so an embedder can reuse them.
 
 Pi and Claude Code have converged on the same set of extension points: context files,
 skills, MCP, hooks, subagents and packages. Pi Durable shows how those fit a durable loop.
@@ -28,13 +28,13 @@ writers across processes, and bash orphans are stopped on recovery.
 
 | Capability | durable | Pi | Pi Durable | Claude Code |
 |---|---|---|---|---|
-| Custom tools | Part: Go, compiled in | Yes: TypeScript extensions | Yes: `defineTool` | Yes: MCP |
+| Custom tools | Yes: MCP, or Go compiled in | Yes: TypeScript extensions | Yes: `defineTool` | Yes: MCP |
 | Replace built-in tools | Part: library only | Yes | Yes: `wraps` | Part: hook `updatedInput`, deny rules |
 | Lifecycle hooks | No | Yes: in-process events | Yes: task hooks | Yes: 33 events |
 | Out-of-process hooks | No | Ext | Ext | Yes: command, HTTP, MCP, prompt, agent |
 | Hook can block or rewrite a tool call | Yes: `ToolGate`, Go only | Yes | Yes: `beforeTool` | Yes: `PreToolUse` |
 | Hook can replace a tool result | No | Yes: `tool_result` | Yes: `afterTool` | Yes: `updatedToolOutput` |
-| MCP client | No | Yes: stdio, HTTP | Ext: tool-based bridge | Yes |
+| MCP client | Yes: stdio, HTTP | Yes: stdio, HTTP | Ext: tool-based bridge | Yes |
 | Deferred tools, tool search | No | Yes | Yes | Yes: on by default |
 | Skills | No | Yes: Agent Skills spec | n/d | Yes |
 | Slash commands, prompt templates | No | Yes | n/a: library | Yes: skills |
@@ -119,7 +119,7 @@ prerequisites for a modular harness. Items 5 to 9 are features on top.
 | 2 | Done: `ToolGate` can allow, deny, ask or rewrite | Replaces `Approve`; rules, hooks and plan mode all build on it | M |
 | 3 | Done: `Options.Observer` and `Events` expose every commit | Enables JSON output, telemetry, UI and usage tracking; the CLI doesn't use it yet | M |
 | 4 | Done: `AGENTS.md` only, pinned per session in the CLI | Cheapest large gain; config for hooks and MCP also needs a loader | S |
-| 5 | Add MCP client tools | Opens up the existing tool ecosystem | M |
+| 5 | Done: `mcp` package and `~/.durable/mcp.json`, pinned per session | Opens up the existing tool ecosystem | M |
 | 6 | Add skills using the Agent Skills spec | The same skills work in Pi and Claude Code | S |
 | 7 | Add subprocess hooks using Claude Code's JSON contract | The only practical runtime extension in Go, and existing hooks may carry over | M |
 | 8 | Add steering and durable subagents | README next steps 2 and 3. Subagents need multiple conversations per store first | L |
@@ -139,14 +139,14 @@ Modularity here has to keep the crash guarantees, which sets four rules.
 2. **Run gates only on `pending` calls.** `Gate` and `Ask` never run for a `started` call, so a
    gate can be non-deterministic: a crash before `started` simply decides again. A gate's
    decision is not re-evaluated for a `started` call.
-3. **Treat a tool as able to disappear.** An MCP server can vanish between runs. Today a
-   `started` call for an unknown tool records `unknown tool`, which is wrong for a tool that
-   may have run. It should record `UnknownOutcome`. MCP tools default to `ReplayNever`, and
-   server read-only hints don't skip approval, because the server is making that claim.
+3. **Treat a tool as able to disappear.** An MCP server can vanish between runs, so a `started`
+   call for an unknown tool records `UnknownOutcome`, not `unknown tool`. MCP tools are always
+   `ReplayNever`, and server hints don't change replay or approval, because the server is
+   making that claim. A pinned tool whose server has gone stays in the list and returns an error.
 4. **Pin the prefix per session.** Context files, skill listings and tool order all feed the
    prompt cache and stored thinking blocks. Snapshot them when the session starts, and don't
-   reread them on resume. The CLI does this for `AGENTS.md`, pinning it in
-   `instructions.md` beside the session database.
+   reread them on resume. The CLI does this for `AGENTS.md` in `instructions.md` and for MCP
+   tools in `mcp-tools.json`, both beside the session database.
 
 Go also changes the extension model. Pi loads TypeScript into its process, which Go can't do
 well, because `plugin` is fragile and needs matching builds. So use three tiers: Go interfaces
