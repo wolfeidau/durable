@@ -33,7 +33,7 @@ var envVar = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // Entries that cannot be used are skipped with a warning. The returned Type is
 // always "stdio" or "http".
 func LoadConfig(path string) (map[string]Server, []string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the path is the user's config flag
+	data, err := os.ReadFile(path) //nolint:gosec // the path is the caller's trusted config file
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil
 	}

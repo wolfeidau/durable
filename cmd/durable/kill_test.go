@@ -39,7 +39,7 @@ func textReply(text string) string {
 	return fakeapi.Stream(apiModel, "end_turn", "null", fakeapi.TextBlock(0, text))
 }
 
-// fakeAPI answers the first request with a bash tool call and every later one with end_turn text.
+// fakeAPI answers the first request with a canned reply and every later one with end_turn text.
 type fakeAPI struct {
 	srv    *httptest.Server
 	mu     sync.Mutex
@@ -47,6 +47,11 @@ type fakeAPI struct {
 }
 
 func newFakeAPI(t *testing.T, command string) *fakeAPI {
+	t.Helper()
+	return newFakeAPIReply(t, bashReply(command))
+}
+
+func newFakeAPIReply(t *testing.T, firstReply string) *fakeAPI {
 	t.Helper()
 	f := &fakeAPI{}
 	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +63,7 @@ func newFakeAPI(t *testing.T, command string) *fakeAPI {
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		if first {
-			_, _ = io.WriteString(w, bashReply(command))
+			_, _ = io.WriteString(w, firstReply)
 			return
 		}
 		_, _ = io.WriteString(w, textReply("all done"))

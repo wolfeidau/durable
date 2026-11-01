@@ -190,32 +190,12 @@ func pinInstructions(dir string, existed, noContext bool, discover func() (instr
 		}
 	}
 
-	tmp, err := os.CreateTemp(dir, "instructions-*.tmp")
+	won, err := writePin(dir, pin, []byte(res.Text))
 	if err != nil {
-		return instructions{}, fmt.Errorf("failed to create pin file: %w", err)
+		return instructions{}, err
 	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return instructions{}, fmt.Errorf("failed to set pin file mode: %w", err)
-	}
-	if _, err := tmp.WriteString(res.Text); err != nil {
-		_ = tmp.Close()
-		return instructions{}, fmt.Errorf("failed to write pin file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return instructions{}, fmt.Errorf("failed to sync pin file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return instructions{}, fmt.Errorf("failed to close pin file: %w", err)
-	}
-
-	// Link fails if another process pinned first; its text wins so both agree.
-	if err := os.Link(tmp.Name(), pin); err != nil {
-		if !errors.Is(err, fs.ErrExist) {
-			return instructions{}, fmt.Errorf("failed to pin instructions: %w", err)
-		}
+	if !won {
+		// Another process pinned first; its text wins so both agree.
 		b, err := os.ReadFile(pin) //nolint:gosec // pin is a fixed name inside the session directory
 		if err != nil {
 			return instructions{}, fmt.Errorf("failed to read pinned instructions: %w", err)
@@ -224,4 +204,35 @@ func pinInstructions(dir string, existed, noContext bool, discover func() (instr
 	}
 	res.Pinned = existed
 	return res, nil
+}
+
+// writePin durably creates pin with content unless it already exists, in which case won is false.
+func writePin(dir, pin string, content []byte) (won bool, err error) {
+	tmp, err := os.CreateTemp(dir, "pin-*.tmp")
+	if err != nil {
+		return false, fmt.Errorf("failed to create pin file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return false, fmt.Errorf("failed to set pin file mode: %w", err)
+	}
+	if _, err := tmp.Write(content); err != nil {
+		_ = tmp.Close()
+		return false, fmt.Errorf("failed to write pin file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return false, fmt.Errorf("failed to sync pin file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return false, fmt.Errorf("failed to close pin file: %w", err)
+	}
+	if err := os.Link(tmp.Name(), pin); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to pin %s: %w", filepath.Base(pin), err)
+	}
+	return true, nil
 }
