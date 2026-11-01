@@ -161,3 +161,10 @@ func TestBashChildHoldingStdoutDoesNotHang(t *testing.T) {
 	require.Equal(t, "hi\n", out)
 	require.Less(t, time.Since(start), 10*time.Second)
 }
+
+func TestTruncate(t *testing.T) {
+	require.Equal(t, "short", Truncate("short", 10))
+
+	got := Truncate(strings.Repeat("a", 10)+strings.Repeat("b", 10), 10)
+	require.Equal(t, "aaaaa\n... [10 bytes omitted] ...\nbbbbb", got)
+}

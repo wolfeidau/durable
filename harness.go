@@ -462,6 +462,9 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 	tool, known := h.tools[c.Name]
 
 	switch {
+	case !known && c.Status == callStarted:
+		// The vanished tool may already have run, so don't claim it never did.
+		return h.finishCall(ctx, sub, c, UnknownOutcome, true)
 	case !known:
 		return h.finishCall(ctx, sub, c, fmt.Sprintf("unknown tool %q", c.Name), true)
 	case c.Status == callStarted && tool.Replay() != ReplaySafe:

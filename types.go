@@ -58,6 +58,8 @@ type ToolSpec struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Schema      json.RawMessage `json:"schema,omitempty"`
+	// The schema comes from outside (e.g. an MCP server) and may not meet strict tool rules.
+	NonStrict bool `json:"non_strict,omitempty"`
 }
 
 // Model is your provider adapter. It must not have side effects beyond the

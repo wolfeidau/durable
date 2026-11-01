@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -18,6 +22,7 @@ import (
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/mcp"
 	"github.com/wolfeidau/durable/tools"
 )
 
@@ -77,12 +82,29 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
 		return fmt.Errorf("failed to check session database: %w", statErr)
 	}
+	// Only the user's file: a repository must not be able to start commands.
+	servers, mcpWarnings, err := mcp.LoadConfig(filepath.Join(home, ".durable", "mcp.json"))
+	if err != nil {
+		// A new session fails before anything is pinned; an existing one must still resume.
+		if statErr != nil {
+			return err
+		}
+		mcpWarnings = append(mcpWarnings, strings.ReplaceAll(err.Error(), "\n", "; "))
+	}
 	pinned, err := pinInstructions(filepath.Dir(path), statErr == nil, c.NoContext, func() (instructions, error) {
 		return discoverInstructions(cwd, home)
 	})
 	if err != nil {
 		return err
 	}
+
+	pool := mcp.NewPool(servers, mcp.Options{Root: cwd, LogDir: filepath.Dir(path)})
+	defer pool.Close()
+	mcpPinned, err := pinMCPTools(ctx, filepath.Dir(path), statErr == nil, pool.Discover)
+	if err != nil {
+		return err
+	}
+	toolset = append(toolset, pool.Tools(mcpPinned.Tools)...)
 
 	out := os.Stdout
 	sigs := make(chan os.Signal, 2)
@@ -99,6 +121,8 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	if pinned.Pinned {
 		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(pinned.Text))
 	}
+
+	printMCP(out, servers, mcpWarnings, mcpPinned)
 
 	shown := shownCalls{}
 	opts := durable.Options{
@@ -127,6 +151,29 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 
 	r := &repl{h: h, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
 	return r.run(ctx)
+}
+
+func printMCP(out io.Writer, servers map[string]mcp.Server, configWarnings []string, p mcpTools) {
+	for _, w := range configWarnings {
+		fmt.Fprintf(out, "[mcp] warning: %s\n", w)
+	}
+	for _, w := range p.Warnings {
+		fmt.Fprintf(out, "[mcp] warning: %s\n", w)
+	}
+	switch {
+	case len(p.Tools) > 0 && p.Pinned:
+		fmt.Fprintf(out, "[mcp] using %d pinned tools; start a new --session to reload MCP servers\n", len(p.Tools))
+	case len(p.Tools) > 0:
+		counts := map[string]int{}
+		for _, t := range p.Tools {
+			counts[t.Server]++
+		}
+		for _, name := range slices.Sorted(maps.Keys(counts)) {
+			fmt.Fprintf(out, "[mcp] %s: %d tools\n", name, counts[name])
+		}
+	case p.Pinned && len(servers) > 0:
+		fmt.Fprintln(out, "[mcp] this session has no MCP tools pinned, so configured servers are not used; start a new --session to use them")
+	}
 }
 
 // openWithNotice lets Ctrl-C abandon a lease wait and calls notice if Open is slow.

@@ -523,3 +523,18 @@ func TestSmoke(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, strings.ToLower(second.Text), "pong")
 }
+
+func TestNonStrictToolOmitsStrict(t *testing.T) {
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
+	m := f.model(Config{})
+	specs := []durable.ToolSpec{
+		{Name: "strict_tool", Description: "d"},
+		{Name: "loose_tool", Description: "d", NonStrict: true},
+	}
+	_, err := gen(t, m, []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, specs)
+	require.NoError(t, err)
+
+	list := f.body(t, 0)["tools"].([]any)
+	require.Equal(t, true, list[0].(map[string]any)["strict"])
+	require.NotContains(t, list[1].(map[string]any), "strict")
+}

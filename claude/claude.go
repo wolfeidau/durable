@@ -189,12 +189,15 @@ func toTools(specs []durable.ToolSpec) []anthropic.BetaToolUnionParam {
 		if len(s.Schema) > 0 {
 			schema = param.Override[anthropic.BetaToolInputSchemaParam](s.Schema)
 		}
-		out = append(out, anthropic.BetaToolUnionParam{OfTool: &anthropic.BetaToolParam{
+		t := &anthropic.BetaToolParam{
 			Name:        s.Name,
 			Description: anthropic.String(s.Description),
 			InputSchema: schema,
-			Strict:      anthropic.Bool(true),
-		}})
+		}
+		if !s.NonStrict {
+			t.Strict = anthropic.Bool(true)
+		}
+		out = append(out, anthropic.BetaToolUnionParam{OfTool: t})
 	}
 	return out
 }
