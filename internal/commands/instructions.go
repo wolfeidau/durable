@@ -1,13 +1,16 @@
 package commands
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"syscall"
 )
 
 const (
@@ -25,6 +28,8 @@ type instructions struct {
 	Text     string
 	Files    []string
 	Warnings []string
+	// Pinned means the text came from an earlier pin rather than fresh discovery.
+	Pinned bool
 }
 
 // buildPrompt keeps the base prompt byte-identical when nothing is pinned.
@@ -35,22 +40,25 @@ func buildPrompt(pinned string) string {
 	return systemPrompt + "\n\n" + instructionsHeader + "\n\n" + pinned
 }
 
-// discoverInstructions reads the user file, then each AGENTS.md from the repository root down to cwd.
+// discoverInstructions reads cwd's AGENTS.md first, then its parents up to the repository root, then the user file.
 func discoverInstructions(cwd, home string) (instructions, error) {
 	resolved, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return instructions{}, fmt.Errorf("failed to resolve working directory: %w", err)
 	}
-	root, dirs := projectDirs(resolved)
+	root, dirs := projectDirs(resolved, uint32(os.Geteuid())) //nolint:gosec // uids fit in 32 bits
 
 	var (
 		res    instructions
 		blocks []string
 		total  int
 	)
+	// Callers add the most specific file first so it wins the budget; results are prepended to keep general-to-specific order.
 	add := func(path, shown string, trusted bool) {
 		if total >= maxTotalBytes {
-			res.Warnings = append(res.Warnings, fmt.Sprintf("%s skipped: total limit of %d KiB reached", shown, maxTotalBytes>>10))
+			if _, err := os.Lstat(path); err == nil {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s skipped: total limit of %d KiB reached", shown, maxTotalBytes>>10))
+			}
 			return
 		}
 		limit := min(maxFileBytes, maxTotalBytes-total)
@@ -60,6 +68,10 @@ func discoverInstructions(cwd, home string) (instructions, error) {
 			return
 		}
 		if strings.TrimSpace(content) == "" {
+			// A cut inside a multi-byte character can leave nothing of a real file.
+			if truncated {
+				res.Warnings = append(res.Warnings, fmt.Sprintf("%s skipped: total limit of %d KiB reached", shown, maxTotalBytes>>10))
+			}
 			return
 		}
 		total += len(content)
@@ -67,32 +79,40 @@ func discoverInstructions(cwd, home string) (instructions, error) {
 			content += truncationMarker
 			res.Warnings = append(res.Warnings, fmt.Sprintf("%s truncated to %.1f KiB", shown, float64(len(content))/1024))
 		}
-		blocks = append(blocks, fmt.Sprintf("<instructions path=%q>\n%s\n</instructions>", shown, strings.TrimSpace(content)))
-		res.Files = append(res.Files, fmt.Sprintf("%s (%d bytes)", shown, len(content)))
+		blocks = append([]string{fmt.Sprintf("<instructions path=%q>\n%s\n</instructions>", shown, strings.TrimSpace(content))}, blocks...)
+		res.Files = append([]string{fmt.Sprintf("%s (%d bytes)", shown, len(content))}, res.Files...)
 	}
 
-	if home != "" {
-		add(filepath.Join(home, ".durable", instructionsFile), "~/.durable/"+instructionsFile, true)
+	for _, d := range slices.Backward(dirs) {
+		add(filepath.Join(d, instructionsFile), filepath.ToSlash(relTo(root, filepath.Join(d, instructionsFile))), false)
 	}
-	for _, d := range dirs {
-		rel, err := filepath.Rel(root, d)
-		if err != nil {
-			return instructions{}, fmt.Errorf("failed to relate %q to the repository root: %w", d, err)
-		}
-		add(filepath.Join(d, instructionsFile), filepath.ToSlash(filepath.Join(rel, instructionsFile)), false)
-	}
+	add(filepath.Join(home, ".durable", instructionsFile), "~/.durable/"+instructionsFile, true)
 	res.Text = strings.Join(blocks, "\n\n")
 	return res, nil
 }
 
-// projectDirs returns the repository root (the nearest ancestor with .git) and the directories from it down to cwd.
-func projectDirs(cwd string) (string, []string) {
+// relTo can't fail here because both paths are absolute.
+func relTo(base, target string) string {
+	rel, _ := filepath.Rel(base, target)
+	return rel
+}
+
+// ownedBy reports whether info belongs to uid.
+func ownedBy(info fs.FileInfo, uid uint32) bool {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	return ok && st.Uid == uid
+}
+
+// projectDirs returns the repository root (the nearest ancestor with a .git owned by uid) and the directories from it down to cwd.
+func projectDirs(cwd string, uid uint32) (string, []string) {
 	dirs := []string{cwd}
 	for d := cwd; ; {
-		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
-			for i, j := 0, len(dirs)-1; i < j; i, j = i+1, j-1 {
-				dirs[i], dirs[j] = dirs[j], dirs[i]
+		if info, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			// Someone with write access to a shared parent could plant a .git and instructions.
+			if !ownedBy(info, uid) {
+				return cwd, []string{cwd}
 			}
+			slices.Reverse(dirs)
 			return d, dirs
 		}
 		parent := filepath.Dir(d)
@@ -104,37 +124,38 @@ func projectDirs(cwd string) (string, []string) {
 	}
 }
 
-// readInstructions returns the file text, whether it was cut at limit, and a reason if it must be skipped.
-// A missing file is normal and returns no reason.
+// readInstructions opens once and checks the handle, so a swap after the open can't redirect the read.
 func readInstructions(path, root string, trusted bool, limit int) (string, bool, string) {
-	resolved, err := filepath.EvalSymlinks(path)
+	const flags = os.O_RDONLY | syscall.O_NONBLOCK
+	var (
+		f   *os.File
+		err error
+	)
+	if trusted {
+		f, err = os.OpenFile(path, flags, 0) //nolint:gosec // the user file is trusted and may be a symlink
+	} else {
+		f, err = openInRoot(root, relTo(root, path), flags)
+	}
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", false, ""
 		}
 		return "", false, err.Error()
 	}
-	if !trusted {
-		rel, err := filepath.Rel(root, resolved)
-		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return "", false, "it resolves outside the repository"
-		}
-	}
-	info, err := os.Stat(resolved)
+	defer f.Close()
+	info, err := f.Stat()
 	if err != nil {
 		return "", false, err.Error()
 	}
 	if !info.Mode().IsRegular() {
 		return "", false, "not a regular file"
 	}
-	f, err := os.Open(resolved)
-	if err != nil {
-		return "", false, err.Error()
-	}
-	defer f.Close()
 	b, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
 	if err != nil {
 		return "", false, err.Error()
+	}
+	if bytes.IndexByte(b, 0) >= 0 {
+		return "", false, "binary file"
 	}
 	if len(b) > limit {
 		return strings.ToValidUTF8(string(b[:limit]), ""), true, ""
@@ -142,13 +163,21 @@ func readInstructions(path, root string, trusted bool, limit int) (string, bool,
 	return string(b), false, ""
 }
 
-// pinInstructions fixes the session's instruction text on first start; a later call returns the stored text.
-// existed says session.sqlite predates this run, so an older session is pinned empty.
+func openInRoot(root, rel string, flags int) (*os.File, error) {
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close()
+	return r.OpenFile(rel, flags, 0)
+}
+
+// pinInstructions pins the text on first start; existed (session.sqlite predates this run) pins an older session empty.
 func pinInstructions(dir string, existed, noContext bool, discover func() (instructions, error)) (instructions, error) {
 	pin := filepath.Join(dir, pinFile)
 	switch b, err := os.ReadFile(pin); { //nolint:gosec // pin is a fixed name inside the session directory
 	case err == nil:
-		return instructions{Text: string(b)}, nil
+		return instructions{Text: string(b), Pinned: true}, nil
 	case !errors.Is(err, fs.ErrNotExist):
 		return instructions{}, fmt.Errorf("failed to read pinned instructions: %w", err)
 	}
@@ -191,7 +220,8 @@ func pinInstructions(dir string, existed, noContext bool, discover func() (instr
 		if err != nil {
 			return instructions{}, fmt.Errorf("failed to read pinned instructions: %w", err)
 		}
-		return instructions{Text: string(b)}, nil
+		return instructions{Text: string(b), Pinned: true}, nil
 	}
+	res.Pinned = existed
 	return res, nil
 }

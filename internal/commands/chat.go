@@ -96,6 +96,9 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	for _, w := range pinned.Warnings {
 		fmt.Fprintf(out, "[context] warning: %s\n", w)
 	}
+	if pinned.Pinned {
+		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(pinned.Text))
+	}
 
 	shown := shownCalls{}
 	opts := durable.Options{

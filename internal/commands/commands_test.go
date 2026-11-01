@@ -764,7 +764,7 @@ func TestDiscoverProjectSymlinks(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, res.Text)
 	require.Len(t, res.Warnings, 1)
-	require.Contains(t, res.Warnings[0], "outside the repository")
+	require.Contains(t, res.Warnings[0], "escapes")
 
 	// A link that stays inside the repository is fine.
 	repo2, home2 := repoWithHome(t)
@@ -829,22 +829,123 @@ func TestDiscoverFileLimit(t *testing.T) {
 
 func TestDiscoverTotalLimit(t *testing.T) {
 	repo, home := repoWithHome(t)
-	chunk := strings.Repeat("é", maxFileBytes/2-1) // just under the per-file limit
+	chunk := strings.Repeat("a", maxFileBytes)
 	writeFile(t, filepath.Join(home, ".durable", "AGENTS.md"), chunk)
 	writeFile(t, filepath.Join(repo, "AGENTS.md"), chunk)
 	writeFile(t, filepath.Join(repo, "a", "AGENTS.md"), chunk)
-	writeFile(t, filepath.Join(repo, "a", "b", "AGENTS.md"), "never loaded")
+	writeFile(t, filepath.Join(repo, "a", "b", "AGENTS.md"), "nested kept")
 	res, err := discoverInstructions(filepath.Join(repo, "a", "b"), home)
 	require.NoError(t, err)
 	require.True(t, utf8.ValidString(res.Text))
 	require.LessOrEqual(t, len(res.Text), maxTotalBytes+600)
-	require.NotContains(t, res.Text, "never loaded")
-	require.NotEmpty(t, res.Warnings)
+	require.Contains(t, res.Text, "nested kept")
+	require.True(t, strings.HasSuffix(res.Text, "nested kept\n</instructions>"), "output stays general to specific")
+	require.Contains(t, res.Files[len(res.Files)-1], "a/b/AGENTS.md")
 	var skipped bool
 	for _, w := range res.Warnings {
-		skipped = skipped || strings.Contains(w, "skipped")
+		skipped = skipped || strings.Contains(w, "~/.durable/AGENTS.md skipped: total limit")
 	}
 	require.True(t, skipped, res.Warnings)
+}
+
+func TestDiscoverTotalLimitWarnsOnlyForExistingFiles(t *testing.T) {
+	repo, home := repoWithHome(t)
+	chunk := strings.Repeat("a", maxFileBytes)
+	writeFile(t, filepath.Join(repo, "AGENTS.md"), chunk)
+	writeFile(t, filepath.Join(repo, "a", "AGENTS.md"), chunk)
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "a", "b"), 0o755))
+	res, err := discoverInstructions(filepath.Join(repo, "a", "b"), home)
+	require.NoError(t, err)
+	require.Empty(t, res.Warnings, "missing files must not warn")
+
+	writeFile(t, filepath.Join(home, ".durable", "AGENTS.md"), "user")
+	res, err = discoverInstructions(filepath.Join(repo, "a", "b"), home)
+	require.NoError(t, err)
+	require.Len(t, res.Warnings, 1)
+	require.Contains(t, res.Warnings[0], "total limit")
+}
+
+func TestDiscoverFileLimitBoundary(t *testing.T) {
+	repo, home := repoWithHome(t)
+	writeFile(t, filepath.Join(repo, "AGENTS.md"), strings.Repeat("a", maxFileBytes))
+	res, err := discoverInstructions(repo, home)
+	require.NoError(t, err)
+	require.Empty(t, res.Warnings)
+	require.NotContains(t, res.Text, "[truncated]")
+
+	writeFile(t, filepath.Join(repo, "AGENTS.md"), strings.Repeat("a", maxFileBytes+1))
+	res, err = discoverInstructions(repo, home)
+	require.NoError(t, err)
+	require.Len(t, res.Warnings, 1)
+	require.Contains(t, res.Text, "[truncated]")
+}
+
+func TestDiscoverLoadsDirectoryNamedDotDotPrefix(t *testing.T) {
+	repo, home := repoWithHome(t)
+	writeFile(t, filepath.Join(repo, "..foo", "AGENTS.md"), "dotdot text")
+	res, err := discoverInstructions(filepath.Join(repo, "..foo"), home)
+	require.NoError(t, err)
+	require.Contains(t, res.Text, "dotdot text")
+	require.Empty(t, res.Warnings)
+}
+
+func TestDiscoverUnreadableFileWarns(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can read any file")
+	}
+	repo, home := repoWithHome(t)
+	path := filepath.Join(repo, "AGENTS.md")
+	writeFile(t, path, "secret")
+	require.NoError(t, os.Chmod(path, 0o000))
+	res, err := discoverInstructions(repo, home)
+	require.NoError(t, err)
+	require.Empty(t, res.Text)
+	require.Len(t, res.Warnings, 1)
+	require.Contains(t, res.Warnings[0], "AGENTS.md skipped")
+}
+
+func TestDiscoverSkipsBinaryFile(t *testing.T) {
+	repo, home := repoWithHome(t)
+	writeFile(t, filepath.Join(repo, "AGENTS.md"), "text\x00more")
+	res, err := discoverInstructions(repo, home)
+	require.NoError(t, err)
+	require.Empty(t, res.Text)
+	require.Len(t, res.Warnings, 1)
+	require.Contains(t, res.Warnings[0], "binary file")
+}
+
+func TestDiscoverRefusesAbsoluteSymlinkInsideRepo(t *testing.T) {
+	repo, home := repoWithHome(t)
+	writeFile(t, filepath.Join(repo, "docs", "real.md"), "inside")
+	require.NoError(t, os.Symlink(filepath.Join(repo, "docs", "real.md"), filepath.Join(repo, "AGENTS.md")))
+	res, err := discoverInstructions(repo, home)
+	require.NoError(t, err)
+	require.Empty(t, res.Text)
+	require.Len(t, res.Warnings, 1)
+}
+
+func TestOwnedBy(t *testing.T) {
+	info, err := os.Lstat(t.TempDir())
+	require.NoError(t, err)
+	uid := uint32(os.Geteuid())
+	require.True(t, ownedBy(info, uid))
+	require.False(t, ownedBy(info, uid+1))
+}
+
+func TestProjectDirsIgnoresUnownedGit(t *testing.T) {
+	repo := realTempDir(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+	sub := filepath.Join(repo, "sub")
+	require.NoError(t, os.Mkdir(sub, 0o755))
+	uid := uint32(os.Geteuid())
+
+	root, dirs := projectDirs(sub, uid)
+	require.Equal(t, repo, root)
+	require.Equal(t, []string{repo, sub}, dirs)
+
+	root, dirs = projectDirs(sub, uid+1)
+	require.Equal(t, sub, root)
+	require.Equal(t, []string{sub}, dirs)
 }
 
 func TestDiscoverKeepsImportsLiteral(t *testing.T) {
@@ -869,7 +970,7 @@ func TestDiscoverSkipsEmptyFile(t *testing.T) {
 
 func discoverText(text string) func() (instructions, error) {
 	return func() (instructions, error) {
-		return instructions{Text: text, Files: []string{"AGENTS.md (1.0 KiB)"}}, nil
+		return instructions{Text: text, Files: []string{"AGENTS.md (5 bytes)"}}, nil
 	}
 }
 
@@ -887,10 +988,12 @@ func TestPinInstructionsKeepsFirstText(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "first", first.Text)
 	require.Len(t, first.Files, 1)
+	require.False(t, first.Pinned)
 
 	second, err := pinInstructions(dir, true, false, noDiscovery(t))
 	require.NoError(t, err)
 	require.Equal(t, "first", second.Text)
+	require.True(t, second.Pinned)
 	require.Empty(t, second.Files)
 	require.Empty(t, second.Warnings)
 
@@ -907,6 +1010,7 @@ func TestPinInstructionsOlderSessionPinsEmpty(t *testing.T) {
 	res, err := pinInstructions(dir, true, false, noDiscovery(t))
 	require.NoError(t, err)
 	require.Empty(t, res.Text)
+	require.True(t, res.Pinned)
 	b, err := os.ReadFile(filepath.Join(dir, pinFile))
 	require.NoError(t, err)
 	require.Empty(t, b)
@@ -972,4 +1076,25 @@ func TestPinnedSessionSkipsDiscovery(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "first", again.Text)
 	require.Empty(t, again.Files)
+}
+
+func TestDiscoverWarnsWhenMultiByteCutLeavesNothing(t *testing.T) {
+	home, repo := t.TempDir(), t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(repo, ".git"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, "a"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	// Two 32 KiB files spent on 2-byte runes leave a budget that lands inside the next rune.
+	big := strings.Repeat("é", 20<<10)
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "a", "AGENTS.md"), []byte(big), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, "AGENTS.md"), []byte("x"+big), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "AGENTS.md"), []byte(big), 0o600))
+
+	res, err := discoverInstructions(filepath.Join(repo, "a"), home)
+	require.NoError(t, err)
+	require.NotContains(t, res.Text, "~/.durable/")
+	var warned bool
+	for _, w := range res.Warnings {
+		warned = warned || strings.HasPrefix(w, "~/.durable/AGENTS.md skipped: total limit")
+	}
+	require.True(t, warned, "warnings: %v", res.Warnings)
 }

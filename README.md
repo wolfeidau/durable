@@ -30,12 +30,19 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
   this order: `~/.durable/AGENTS.md`, then each `AGENTS.md` from the repository root (the
   nearest ancestor with a `.git` entry) down to the working directory. The walk stops at the
   root, and with no repository only the working directory is read. `CLAUDE.md` isn't read, and
-  `@path` imports stay as literal text. Files are limited to 32 KiB each and 64 KiB in total;
-  anything over is cut, marked `[truncated]` and reported at startup. A project `AGENTS.md`
-  symlink that resolves outside the repository is refused, as is anything that isn't a regular
-  file; the `~/.durable` file may be a symlink. The text is pinned in `instructions.md` next to
-  the session database when the session starts, so a resume uses the same prompt and edits don't
-  apply until you start a new `--session`. `--no-context` skips loading for a new session.
+  `@path` imports stay as literal text. Files are limited to 32 KiB each and 64 KiB in total,
+  counting file content but not the wrapper tags; anything over is cut, marked `[truncated]`
+  and reported at startup. The budget is spent from the working directory upward, so the most
+  specific files are kept. A project `AGENTS.md` symlink that resolves outside the repository
+  is refused, as is anything that isn't a regular file; an in-repository symlink must be
+  relative. The `~/.durable` file may be a symlink. Files containing NUL bytes are skipped, and
+  a `.git` owned by another user isn't treated as a repository root. The text is pinned in
+  `instructions.md` next to the session database when the session first starts, even if no
+  prompt is sent and even if the first request fails, so a resume uses the same prompt and
+  prints a `[context]` line saying pinned instructions are in use. To reload, start a new
+  `--session` or delete the session directory; deleting only `session.sqlite` keeps the pin.
+  Sessions that predate this feature keep an empty pin, so `AGENTS.md` isn't loaded for them.
+  `--no-context` skips loading for a new session.
   **A cloned repository's `AGENTS.md` goes into the system prompt, so treat it as untrusted
   input, especially with `--yes`.**
 - **Approval:** every tool shows the call and asks `y/N`, except tools that declare
@@ -264,10 +271,13 @@ result commits, not for `pending` or `ReplaySafe` calls, cancellation during `Re
 and `Cancel` recovering `started` calls only.
 
 Instruction tests cover discovery order, stopping at the repository root, ignoring `CLAUDE.md`,
-literal `@path` text, symlinks outside the repository, FIFOs and directories, the size limits
-keeping valid UTF-8, and pinning (a changed file, older sessions, `--no-context` and concurrent
-starts). A real-binary test checks a restart sends a byte-identical system prompt after
-`AGENTS.md` changes.
+literal `@path` text, symlinks outside the repository and absolute in-repository symlinks, FIFOs
+and directories, the size limits (including the exact 32 KiB boundary and the budget favouring
+specific files), NUL bytes, unreadable files, `..foo` directories, `.git` ownership, and pinning
+(a changed file, older sessions, `--no-context` and concurrent starts). Real-binary tests check a
+restart sends a byte-identical system prompt after `AGENTS.md` changes and prints the pinned
+notice, older sessions keep an empty pin, `--no-context` and escaping symlinks keep text out of
+the prompt, and a failed token lookup doesn't pin.
 
 Claude adapter tests cover compaction blocks surviving a streamed round trip through
 `Raw` unchanged, arriving alongside a tool call, and not being sent to older models.
