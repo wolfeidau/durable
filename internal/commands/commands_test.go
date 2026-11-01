@@ -92,7 +92,7 @@ func runREPL(t *testing.T, model durable.Model, tool durable.Tool, yes, piped bo
 		ModelBackoff:  time.Millisecond,
 	}
 	if !yes {
-		opts.Approve = newApprover(lines, out, nil)
+		opts.Ask = newApprover(lines, out)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
@@ -166,24 +166,25 @@ func TestReadOnlyToolsNeverAsk(t *testing.T) {
 	readOnly := readOnlyTools(toolset)
 	require.Equal(t, map[string]bool{"read_file": true, "list_files": true, "grep": true}, readOnly)
 
-	approve := newApprover(make(chan string), &bytes.Buffer{}, readOnly)
+	gate := durable.ReadOnlyGate(toolset)
 	for name := range readOnly {
-		ok, err := approve(context.Background(), durable.ToolCall{Name: name, Input: json.RawMessage(`{}`)})
+		d, err := gate(context.Background(), durable.ToolCall{Name: name, Input: json.RawMessage(`{}`)})
 		require.NoError(t, err)
-		require.True(t, ok)
+		require.Equal(t, durable.ActionAllow, d.Action)
 	}
 }
 
 func TestUndeclaredToolsAsk(t *testing.T) {
 	replaySafe := &fakeTool{name: "fetch", replay: durable.ReplaySafe}
-	readOnly := readOnlyTools([]durable.Tool{replaySafe})
-	require.Empty(t, readOnly)
+	d, err := durable.ReadOnlyGate([]durable.Tool{replaySafe})(context.Background(), durable.ToolCall{Name: "fetch"})
+	require.NoError(t, err)
+	require.Equal(t, durable.ActionAsk, d.Action)
 
 	for answer, want := range map[string]bool{"y": true, "n": false} {
 		lines := make(chan string, 1)
 		lines <- answer
 		out := &bytes.Buffer{}
-		ok, err := newApprover(lines, out, readOnly)(context.Background(), durable.ToolCall{
+		ok, err := newApprover(lines, out)(context.Background(), durable.ToolCall{
 			Name: "fetch", Input: json.RawMessage(`{"url":"https://example.com"}`),
 		})
 		require.NoError(t, err)
@@ -198,7 +199,7 @@ func TestEditApprovalShowsSummary(t *testing.T) {
 	lines := make(chan string, 1)
 	lines <- "YES"
 	out := &bytes.Buffer{}
-	ok, err := newApprover(lines, out, nil)(context.Background(), durable.ToolCall{
+	ok, err := newApprover(lines, out)(context.Background(), durable.ToolCall{
 		Name: "edit_file", Input: json.RawMessage(`{"path":"a.go","old_string":"foo","new_string":"bar"}`),
 	})
 	require.NoError(t, err)
@@ -211,7 +212,7 @@ func TestEditApprovalShowsSummary(t *testing.T) {
 func TestApprovalCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	ok, err := newApprover(make(chan string), &bytes.Buffer{}, nil)(ctx, durable.ToolCall{Name: "bash", Input: json.RawMessage(`{}`)})
+	ok, err := newApprover(make(chan string), &bytes.Buffer{})(ctx, durable.ToolCall{Name: "bash", Input: json.RawMessage(`{}`)})
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, ok)
 }
@@ -392,7 +393,7 @@ func startSigRepl(t *testing.T, model durable.Model, tool durable.Tool, yes bool
 		ModelBackoff:  time.Millisecond,
 	}
 	if !yes {
-		opts.Approve = newApprover(lines, out, nil)
+		opts.Ask = newApprover(lines, out)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)

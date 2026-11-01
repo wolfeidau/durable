@@ -15,9 +15,13 @@ import (
 const UnknownOutcome = "This tool call was interrupted by a restart before its result was saved. " +
 	"It may or may not have taken effect. Check the current state before retrying it."
 
-// Declined is the tool result recorded when Options.Approve rejects a call.
+// Declined is the tool result recorded when Options.Ask says no.
 const Declined = "The user declined this tool call, so it did not run. " +
 	"Do not retry it unchanged; ask the user or take a different approach."
+
+// Denied is the tool result recorded when Options.Gate blocks a call without a reason.
+const Denied = "A policy blocked this tool call, so it did not run. " +
+	"Do not retry it unchanged; take a different approach."
 
 // CallCancelled is the tool result recorded for a pending call when the user
 // cancels the request.
@@ -45,9 +49,13 @@ type Options struct {
 	ModelAttempts int
 	// ModelBackoff is the first retry delay for transient errors, doubling each retry. Default 1s.
 	ModelBackoff time.Duration
-	// Approve, if set, is asked before a pending tool call starts. Returning
-	// false records Declined; an error leaves the call pending for the next Run.
-	Approve func(ctx context.Context, call ToolCall) (bool, error)
+	// Gate, if set, decides each pending tool call before it starts. With no
+	// Gate every call goes to Ask, or runs if Ask is also nil.
+	Gate ToolGate
+	// Ask is the human yes/no for calls the Gate leaves to ask, or for every call
+	// when Gate is nil. Returning false records Declined; an error leaves the call
+	// pending for the next Run. A Gate that asks while Ask is nil denies the call.
+	Ask func(ctx context.Context, call ToolCall) (bool, error)
 }
 
 // Harness drives one durable session stored in one SQLite database.
@@ -436,22 +444,18 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 		}
 		return h.finishCall(ctx, sub, c, joinNote(UnknownOutcome, note), true)
 	case c.Status == callPending:
-		if h.opts.Approve != nil {
-			ok, err := h.opts.Approve(ctx, c.ToolCall)
-			if err != nil {
-				return fmt.Errorf("failed to approve tool call %q: %w", c.ID, err)
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if !ok {
-				return h.finishCall(ctx, sub, c, Declined, true)
-			}
+		call, result, blocked, err := h.decide(ctx, c.ToolCall)
+		if err != nil {
+			return err
 		}
-		err := h.commit(ctx, func(tx *sql.Tx) error {
+		if blocked {
+			return h.finishCall(ctx, sub, c, result, true)
+		}
+		// The rewritten input commits with started so replay and Recover use it.
+		err = h.commit(ctx, func(tx *sql.Tx) error {
 			if _, err := tx.ExecContext(ctx,
-				`UPDATE tool_calls SET status = 'started' WHERE message_seq = ? AND position = ?`,
-				c.MessageSeq, c.Position); err != nil {
+				`UPDATE tool_calls SET status = 'started', input = ? WHERE message_seq = ? AND position = ?`,
+				string(call.Input), c.MessageSeq, c.Position); err != nil {
 				return fmt.Errorf("failed to mark tool call started: %w", err)
 			}
 			return nil
@@ -459,6 +463,7 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 		if err != nil {
 			return err
 		}
+		c.Input = call.Input
 	}
 
 	out, err := tool.Execute(ctx, c.ToolCall)

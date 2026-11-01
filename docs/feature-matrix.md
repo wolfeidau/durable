@@ -32,7 +32,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Replace built-in tools | Part: library only | Yes | Yes: `wraps` | Part: hook `updatedInput`, deny rules |
 | Lifecycle hooks | No | Yes: in-process events | Yes: task hooks | Yes: 33 events |
 | Out-of-process hooks | No | Ext | Ext | Yes: command, HTTP, MCP, prompt, agent |
-| Hook can block or rewrite a tool call | Part: `Approve` blocks only | Yes | Yes: `beforeTool` | Yes: `PreToolUse` |
+| Hook can block or rewrite a tool call | Yes: `ToolGate`, Go only | Yes | Yes: `beforeTool` | Yes: `PreToolUse` |
 | Hook can replace a tool result | No | Yes: `tool_result` | Yes: `afterTool` | Yes: `updatedToolOutput` |
 | MCP client | No | Yes: stdio, HTTP | Ext: tool-based bridge | Yes |
 | Deferred tools, tool search | No | Yes | Yes | Yes: on by default |
@@ -116,7 +116,7 @@ prerequisites for a modular harness. Items 5 to 9 are features on top.
 | # | Item | Why now | Size |
 |---|---|---|---|
 | 1 | Done: `tools` and `claude` are public packages | Other modules can reuse them | S |
-| 2 | Add a `ToolGate` that can allow, deny, ask or rewrite | Replaces `Approve`; rules, hooks and plan mode all build on it | M |
+| 2 | Done: `ToolGate` can allow, deny, ask or rewrite | Replaces `Approve`; rules, hooks and plan mode all build on it | M |
 | 3 | Add a commit observer | Enables JSON output, telemetry, UI and usage tracking. Already next step 1 in the README | M |
 | 4 | Load `AGENTS.md` and `CLAUDE.md`, and pin them per session | Cheapest large gain; config for hooks and MCP also needs a loader | S |
 | 5 | Add MCP client tools | Opens up the existing tool ecosystem | M |
@@ -132,12 +132,12 @@ OS sandbox, which stays deferred on #9.
 
 Modularity here has to keep the crash guarantees, which sets four rules.
 
-1. **Commit rewritten input before the tool runs.** `runCall` marks a call `started` without
-   changing its input. A gate that rewrites arguments must store them in that same commit,
-   or a replay runs the original arguments.
-2. **Run gates only on `pending` calls.** That matches `Approve`, so a gate can be
-   non-deterministic: a crash before `started` simply asks again. A gate's decision must not
-   be re-evaluated for a `started` call.
+1. **Commit rewritten input before the tool runs.** `runCall` stores a gate's rewritten input
+   in the same commit that marks the call `started`, so a replay or `Recover` uses the
+   rewritten arguments. The stored assistant message keeps the model's original arguments.
+2. **Run gates only on `pending` calls.** `Gate` and `Ask` never run for a `started` call, so a
+   gate can be non-deterministic: a crash before `started` simply decides again. A gate's
+   decision is not re-evaluated for a `started` call.
 3. **Treat a tool as able to disappear.** An MCP server can vanish between runs. Today a
    `started` call for an unknown tool records `unknown tool`, which is wrong for a tool that
    may have run. It should record `UnknownOutcome`. MCP tools default to `ReplayNever`, and

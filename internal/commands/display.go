@@ -10,6 +10,8 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
+var _ durable.ReadOnlyTool = displayTool{}
+
 // displayTool prints each call before it runs; Spec and Replay come from the wrapped tool.
 type displayTool struct {
 	durable.Tool
@@ -39,6 +41,12 @@ func (d displayTool) Recover(ctx context.Context, call durable.ToolCall) string 
 		return r.Recover(ctx, call)
 	}
 	return ""
+}
+
+// ReadOnly forwards to the wrapped tool for the same reason as Recover.
+func (d displayTool) ReadOnly() bool {
+	r, ok := d.Tool.(durable.ReadOnlyTool)
+	return ok && r.ReadOnly()
 }
 
 type callInput struct {

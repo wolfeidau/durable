@@ -86,7 +86,8 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 		LeaseTTL: c.LeaseTTL,
 	}
 	if !c.Yes {
-		opts.Approve = newApprover(lines, out, readOnlyTools(toolset))
+		opts.Gate = durable.ReadOnlyGate(toolset)
+		opts.Ask = newApprover(lines, out)
 	}
 
 	h, err := openWithNotice(ctx, path, opts, sigs, func() {

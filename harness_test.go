@@ -60,13 +60,15 @@ type fakeTool struct {
 	name    string
 	replay  Replay
 	runs    atomic.Int32
-	crashOn int32 // crash (cancel ctx) after the effect on this run number; 0 = never
+	input   atomic.Value // last input seen by Execute, as a string
+	crashOn int32        // crash (cancel ctx) after the effect on this run number; 0 = never
 	cancel  context.CancelFunc
 }
 
 func (t *fakeTool) Spec() ToolSpec { return ToolSpec{Name: t.name} }
 func (t *fakeTool) Replay() Replay { return t.replay }
-func (t *fakeTool) Execute(ctx context.Context, _ ToolCall) (string, error) {
+func (t *fakeTool) Execute(ctx context.Context, call ToolCall) (string, error) {
+	t.input.Store(string(call.Input))
 	n := t.runs.Add(1) // the side effect
 	if n == t.crashOn {
 		t.cancel() // the process dies after the effect, before the result is saved
@@ -488,21 +490,21 @@ func callStatus(t *testing.T, h *Harness) string {
 	return s
 }
 
-func TestApproveRunsBeforeStarted(t *testing.T) {
+func TestAskRunsBeforeStarted(t *testing.T) {
 	ctx := context.Background()
 	write := &fakeTool{name: "write_file"}
 	var h *Harness
-	var statusInApprove string
-	var runsInApprove int32 = -1
+	var statusInAsk string
+	var runsInAsk int32 = -1
 	h = openWith(t, ctx, Options{
 		Model: modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
 			return approvalModel(hist, s)
 		}),
 		Tools: []Tool{write}, LeaseTTL: ttl,
-		Approve: func(_ context.Context, call ToolCall) (bool, error) {
+		Ask: func(_ context.Context, call ToolCall) (bool, error) {
 			require.Equal(t, "c1", call.ID)
-			statusInApprove = callStatus(t, h)
-			runsInApprove = write.runs.Load()
+			statusInAsk = callStatus(t, h)
+			runsInAsk = write.runs.Load()
 			return true, nil
 		},
 	})
@@ -511,8 +513,8 @@ func TestApproveRunsBeforeStarted(t *testing.T) {
 	sub, err := h.Prompt(ctx, "a", "go")
 	require.NoError(t, err)
 	require.Equal(t, StatusDone, sub.Status)
-	require.Equal(t, callPending, statusInApprove)
-	require.EqualValues(t, 0, runsInApprove)
+	require.Equal(t, callPending, statusInAsk)
+	require.EqualValues(t, 0, runsInAsk)
 	require.EqualValues(t, 1, write.runs.Load())
 }
 
@@ -524,7 +526,7 @@ func TestDeclinedCallDoesNotRunAndModelContinues(t *testing.T) {
 			return approvalModel(hist, s)
 		}),
 		Tools: []Tool{write}, LeaseTTL: ttl,
-		Approve: func(context.Context, ToolCall) (bool, error) { return false, nil },
+		Ask: func(context.Context, ToolCall) (bool, error) { return false, nil },
 	})
 	defer h.Close()
 
@@ -550,7 +552,7 @@ func TestCancelWhileWaitingForApprovalLeavesCallPending(t *testing.T) {
 			return approvalModel(hist, s)
 		}),
 		Tools: []Tool{write}, LeaseTTL: ttl,
-		Approve: func(ctx context.Context, _ ToolCall) (bool, error) {
+		Ask: func(ctx context.Context, _ ToolCall) (bool, error) {
 			if asked.Add(1) == 1 {
 				waiting <- struct{}{}
 				<-ctx.Done()
@@ -581,7 +583,7 @@ func TestCancelWhileWaitingForApprovalLeavesCallPending(t *testing.T) {
 	require.Equal(t, StatusDone, sub.Status)
 }
 
-func TestApproveErrorIsReturnedAndCallStaysPending(t *testing.T) {
+func TestAskErrorIsReturnedAndCallStaysPending(t *testing.T) {
 	ctx := context.Background()
 	boom := errors.New("prompt broke")
 	h := openWith(t, ctx, Options{
@@ -589,7 +591,7 @@ func TestApproveErrorIsReturnedAndCallStaysPending(t *testing.T) {
 			return approvalModel(hist, s)
 		}),
 		Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl,
-		Approve: func(context.Context, ToolCall) (bool, error) { return false, boom },
+		Ask: func(context.Context, ToolCall) (bool, error) { return false, boom },
 	})
 	defer h.Close()
 
@@ -598,25 +600,25 @@ func TestApproveErrorIsReturnedAndCallStaysPending(t *testing.T) {
 	require.Equal(t, callPending, callStatus(t, h))
 }
 
-func TestApproveNotCalledForReplayedOrUnknownCalls(t *testing.T) {
+func TestAskNotCalledForReplayedOrUnknownCalls(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "session.sqlite")
 	model := modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
 		return approvalModel(hist, s)
 	})
 	var asked atomic.Int32
-	approve := func(context.Context, ToolCall) (bool, error) { asked.Add(1); return true, nil }
+	ask := func(context.Context, ToolCall) (bool, error) { asked.Add(1); return true, nil }
 
 	// Crash after the effect: the call is left started.
 	crashCtx, cancel := context.WithCancel(ctx)
 	write := &fakeTool{name: "write_file", replay: ReplaySafe, crashOn: 1, cancel: cancel}
-	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Ask: ask})
 	require.NoError(t, err)
 	_, _ = h1.Prompt(crashCtx, "a", "go")
 	require.EqualValues(t, 1, asked.Load())
 	h1.abandon()
 
-	h2, err := Open(ctx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	h2, err := Open(ctx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Ask: ask})
 	require.NoError(t, err)
 	defer h2.Close()
 	require.NoError(t, h2.Run(ctx))
@@ -624,7 +626,7 @@ func TestApproveNotCalledForReplayedOrUnknownCalls(t *testing.T) {
 	require.EqualValues(t, 2, write.runs.Load())
 
 	// Unknown tool: never asked.
-	h3 := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, Approve: approve})
+	h3 := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, Ask: ask})
 	defer h3.Close()
 	sub, err := h3.Prompt(ctx, "b", "go")
 	require.NoError(t, err)
@@ -632,23 +634,23 @@ func TestApproveNotCalledForReplayedOrUnknownCalls(t *testing.T) {
 	require.EqualValues(t, 1, asked.Load())
 }
 
-func TestStartedReplayNeverStillYieldsUnknownOutcomeWithApprove(t *testing.T) {
+func TestStartedReplayNeverStillYieldsUnknownOutcomeWithAsk(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "session.sqlite")
 	model := modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
 		return approvalModel(hist, s)
 	})
 	var asked atomic.Int32
-	approve := func(context.Context, ToolCall) (bool, error) { asked.Add(1); return true, nil }
+	ask := func(context.Context, ToolCall) (bool, error) { asked.Add(1); return true, nil }
 
 	crashCtx, cancel := context.WithCancel(ctx)
 	write := &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}
-	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Ask: ask})
 	require.NoError(t, err)
 	_, _ = h1.Prompt(crashCtx, "a", "go")
 	h1.abandon()
 
-	h2, err := Open(ctx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Approve: approve})
+	h2, err := Open(ctx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Ask: ask})
 	require.NoError(t, err)
 	defer h2.Close()
 	require.NoError(t, h2.Run(ctx))
@@ -994,4 +996,194 @@ func TestCancelledStaysCancelledAfterReopen(t *testing.T) {
 	require.Empty(t, unfinished)
 	require.NoError(t, h2.Run(ctx))
 	require.Zero(t, model.calls.Load())
+}
+
+type readOnlyFake struct{ *fakeTool }
+
+func (readOnlyFake) ReadOnly() bool { return true }
+
+func gateModel() Model {
+	return modelFunc(func(_ context.Context, hist []Message, s []ToolSpec) (Message, error) {
+		return approvalModel(hist, s)
+	})
+}
+
+func rewriteGate(input string) ToolGate {
+	return func(context.Context, ToolCall) (Decision, error) {
+		return Decision{Action: ActionAllow, Input: json.RawMessage(input)}, nil
+	}
+}
+
+func storedInput(t *testing.T, h *Harness) string {
+	t.Helper()
+	var s string
+	require.NoError(t, h.db.QueryRow(`SELECT input FROM tool_calls WHERE call_id = 'c1'`).Scan(&s))
+	return s
+}
+
+func TestGateRewriteReachesExecute(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	h := openWith(t, ctx, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Gate: rewriteGate(`{"x":1}`)})
+	defer h.Close()
+
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.Equal(t, `{"x":1}`, write.input.Load())
+	require.Equal(t, `{"x":1}`, storedInput(t, h))
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(hist[1].ToolCalls[0].Input), "the assistant message keeps the model's arguments")
+}
+
+func TestGateRewriteReplaysAfterCrash(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	opts := func(w Tool) Options {
+		return Options{Model: gateModel(), Tools: []Tool{w}, LeaseTTL: ttl, Gate: rewriteGate(`{"x":1}`)}
+	}
+
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", replay: ReplaySafe, crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, opts(write))
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	// The second process has no rewriting gate, so only the stored input can carry the rewrite.
+	o2 := opts(write)
+	o2.Gate = func(context.Context, ToolCall) (Decision, error) { return Decision{}, errors.New("gate must not run") }
+	h2, err := Open(ctx, path, o2)
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.EqualValues(t, 2, write.runs.Load())
+	require.Equal(t, `{"x":1}`, write.input.Load())
+}
+
+func TestGateRewriteReachesRecover(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &recFake{fakeTool: &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}}
+	h1, err := Open(crashCtx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Gate: rewriteGate(`{"x":1}`)})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	var recovered string
+	write.onRecover = func(_ context.Context, c ToolCall) { recovered = string(c.Input) }
+	h2, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.EqualValues(t, 1, write.n.Load())
+	require.Equal(t, `{"x":1}`, recovered)
+}
+
+func TestAskSeesRewrittenInput(t *testing.T) {
+	ctx := context.Background()
+	var seen string
+	h := openWith(t, ctx, Options{
+		Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl,
+		Gate: func(context.Context, ToolCall) (Decision, error) {
+			return Decision{Action: ActionAsk, Input: json.RawMessage(`{"x":1}`)}, nil
+		},
+		Ask: func(_ context.Context, call ToolCall) (bool, error) { seen = string(call.Input); return true, nil },
+	})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, `{"x":1}`, seen)
+}
+
+func TestGateDenyRecordsReasonOrDenied(t *testing.T) {
+	for reason, want := range map[string]string{"no writes": "no writes", "": Denied} {
+		ctx := context.Background()
+		write := &fakeTool{name: "write_file"}
+		h := openWith(t, ctx, Options{
+			Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl,
+			Gate: func(context.Context, ToolCall) (Decision, error) {
+				return Decision{Action: ActionDeny, Reason: reason, Input: json.RawMessage(`{"x":1}`)}, nil
+			},
+		})
+
+		sub, err := h.Prompt(ctx, "a", "go")
+		require.NoError(t, err)
+		require.Equal(t, "saw: "+want, sub.Result)
+		require.EqualValues(t, 0, write.runs.Load())
+		require.JSONEq(t, `{}`, storedInput(t, h), "a rewrite on a denied call is not stored")
+		hist, err := h.History(ctx)
+		require.NoError(t, err)
+		require.True(t, hist[2].IsError)
+		h.Close()
+	}
+}
+
+func TestGateFailsClosed(t *testing.T) {
+	cases := map[string]ToolGate{
+		"empty decision without Ask": func(context.Context, ToolCall) (Decision, error) { return Decision{}, nil },
+		"unknown action": func(context.Context, ToolCall) (Decision, error) {
+			return Decision{Action: Action(99)}, nil
+		},
+	}
+	for name, gate := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			write := &fakeTool{name: "write_file"}
+			asked := false
+			opts := Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Gate: gate}
+			if name == "unknown action" {
+				opts.Ask = func(context.Context, ToolCall) (bool, error) { asked = true; return true, nil }
+			}
+			h := openWith(t, ctx, opts)
+			defer h.Close()
+
+			sub, err := h.Prompt(ctx, "a", "go")
+			require.NoError(t, err)
+			require.Equal(t, "saw: "+Denied, sub.Result)
+			require.EqualValues(t, 0, write.runs.Load())
+			require.False(t, asked)
+		})
+	}
+}
+
+func TestGateInvalidRewriteErrorsAndLeavesCallPending(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	h := openWith(t, ctx, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Gate: rewriteGate(`{bad`)})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "go")
+	require.Error(t, err)
+	require.Equal(t, callPending, callStatus(t, h))
+	require.EqualValues(t, 0, write.runs.Load())
+}
+
+func TestGateErrorLeavesCallPending(t *testing.T) {
+	ctx := context.Background()
+	boom := errors.New("gate broke")
+	h := openWith(t, ctx, Options{
+		Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl,
+		Gate: func(context.Context, ToolCall) (Decision, error) { return Decision{}, boom },
+	})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "go")
+	require.ErrorIs(t, err, boom)
+	require.Equal(t, callPending, callStatus(t, h))
+}
+
+func TestReadOnlyGate(t *testing.T) {
+	gate := ReadOnlyGate([]Tool{
+		readOnlyFake{&fakeTool{name: "read_file", replay: ReplaySafe}},
+		&fakeTool{name: "fetch", replay: ReplaySafe},
+	})
+	for name, want := range map[string]Action{"read_file": ActionAllow, "fetch": ActionAsk, "other": ActionAsk} {
+		d, err := gate(context.Background(), ToolCall{Name: name})
+		require.NoError(t, err)
+		require.Equal(t, want, d.Action, name)
+	}
 }

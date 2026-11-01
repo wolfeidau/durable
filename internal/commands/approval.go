@@ -15,7 +15,7 @@ import (
 func readOnlyTools(tools []durable.Tool) map[string]bool {
 	names := map[string]bool{}
 	for _, t := range tools {
-		if r, ok := t.(interface{ ReadOnly() bool }); ok && r.ReadOnly() {
+		if r, ok := t.(durable.ReadOnlyTool); ok && r.ReadOnly() {
 			names[t.Spec().Name] = true
 		}
 	}
@@ -34,12 +34,9 @@ func approvedTools(tools []durable.Tool) map[string]bool {
 	return names
 }
 
-// newApprover asks on lines for every tool not listed in readOnly, so a new tool asks by default.
-func newApprover(lines <-chan string, out io.Writer, readOnly map[string]bool) func(context.Context, durable.ToolCall) (bool, error) {
+// newApprover asks on lines for every call it is given; durable.ReadOnlyGate keeps read-only tools away from it.
+func newApprover(lines <-chan string, out io.Writer) func(context.Context, durable.ToolCall) (bool, error) {
 	return func(ctx context.Context, call durable.ToolCall) (bool, error) {
-		if readOnly[call.Name] {
-			return true, nil
-		}
 		var in callInput
 		_ = json.Unmarshal(call.Input, &in)
 		switch call.Name {
