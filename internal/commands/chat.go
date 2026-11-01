@@ -70,10 +70,7 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	defer signal.Stop(sigs)
 	lines := readLines(os.Stdin)
 
-	var quiet map[string]bool
-	if !c.Yes {
-		quiet = approvedTools(toolset)
-	}
+	shown := shownCalls{}
 	opts := durable.Options{
 		Model: claude.New(anthropic.NewClient(clientOpts...), claude.Config{
 			Model:     c.Model,
@@ -82,12 +79,12 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 			OnText:    func(s string) { fmt.Fprint(out, s) },
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
 		}),
-		Tools:    withDisplay(toolset, out, quiet),
+		Tools:    withDisplay(toolset, out, shown),
 		LeaseTTL: c.LeaseTTL,
 	}
 	if !c.Yes {
 		opts.Gate = durable.ReadOnlyGate(toolset)
-		opts.Ask = newApprover(lines, out)
+		opts.Ask = newApprover(lines, out, shown)
 	}
 
 	h, err := openWithNotice(ctx, path, opts, sigs, func() {

@@ -1150,16 +1150,118 @@ func TestGateFailsClosed(t *testing.T) {
 	}
 }
 
-func TestGateInvalidRewriteErrorsAndLeavesCallPending(t *testing.T) {
+func TestGateInvalidRewriteDeniesAndQueueContinues(t *testing.T) {
 	ctx := context.Background()
 	write := &fakeTool{name: "write_file"}
 	h := openWith(t, ctx, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Gate: rewriteGate(`{bad`)})
 	defer h.Close()
 
-	_, err := h.Prompt(ctx, "a", "go")
-	require.Error(t, err)
-	require.Equal(t, callPending, callStatus(t, h))
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, "saw: "+InvalidRewrite, sub.Result)
 	require.EqualValues(t, 0, write.runs.Load())
+	require.JSONEq(t, `{}`, storedInput(t, h))
+
+	sub, err = h.Prompt(ctx, "b", "next")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+}
+
+func TestRewrittenResultCarriesNote(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, Options{Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl, Gate: rewriteGate(`{"x":1}`)})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Contains(t, hist[2].Text, Rewritten)
+}
+
+func TestUnchangedRewriteCarriesNoNote(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, Options{Model: gateModel(), Tools: []Tool{&fakeTool{name: "write_file"}}, LeaseTTL: ttl, Gate: rewriteGate(` { } `)})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.NotContains(t, hist[2].Text, Rewritten)
+}
+
+func TestUnknownOutcomeCarriesRewriteNoteAfterCrash(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Gate: rewriteGate(`{"x":1}`)})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	h2, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, joinNote(UnknownOutcome, Rewritten), hist[2].Text)
+}
+
+func TestCancelCarriesRewriteNote(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Gate: rewriteGate(`{"x":1}`)})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	h2, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	defer h2.Close()
+	_, err = h2.Cancel(ctx, "a")
+	require.NoError(t, err)
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, joinNote(CancelledUnknown, Rewritten), hist[2].Text)
+}
+
+func TestModelInputWithWhitespaceIsNotARewrite(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	model := modelFunc(func(_ context.Context, hist []Message, _ []ToolSpec) (Message, error) {
+		if hist[len(hist)-1].Role == RoleTool {
+			return Message{Text: "done"}, nil
+		}
+		return Message{ToolCalls: []ToolCall{{ID: "c1", Name: "write_file", Input: json.RawMessage(`{ "a" : 1 }`)}}}, nil
+	})
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	h2, err := Open(ctx, path, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, UnknownOutcome, hist[2].Text)
+}
+
+func TestOpenRejectsDuplicateToolNames(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	_, err := Open(context.Background(), path, Options{
+		Model: gateModel(), LeaseTTL: ttl,
+		Tools: []Tool{readOnlyFake{&fakeTool{name: "write_file"}}, &fakeTool{name: "write_file"}},
+	})
+	require.ErrorContains(t, err, `duplicate tool "write_file"`)
 }
 
 func TestGateErrorLeavesCallPending(t *testing.T) {

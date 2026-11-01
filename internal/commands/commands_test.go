@@ -84,15 +84,16 @@ func runREPL(t *testing.T, model durable.Model, tool durable.Tool, yes, piped bo
 	t.Helper()
 	lines := readLines(strings.NewReader(input))
 	out := &bytes.Buffer{}
+	shown := shownCalls{}
 	opts := durable.Options{
 		Model:         model,
-		Tools:         withDisplay([]durable.Tool{tool}, out, nil),
+		Tools:         withDisplay([]durable.Tool{tool}, out, shown),
 		LeaseTTL:      300 * time.Millisecond,
 		ModelAttempts: 1,
 		ModelBackoff:  time.Millisecond,
 	}
 	if !yes {
-		opts.Ask = newApprover(lines, out)
+		opts.Ask = newApprover(lines, out, shown)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
@@ -163,14 +164,16 @@ func TestYesSkipsApproval(t *testing.T) {
 func TestReadOnlyToolsNeverAsk(t *testing.T) {
 	toolset, err := tools.All(t.TempDir(), t.TempDir())
 	require.NoError(t, err)
-	readOnly := readOnlyTools(toolset)
-	require.Equal(t, map[string]bool{"read_file": true, "list_files": true, "grep": true}, readOnly)
-
 	gate := durable.ReadOnlyGate(toolset)
-	for name := range readOnly {
+	for _, name := range []string{"read_file", "list_files", "grep"} {
 		d, err := gate(context.Background(), durable.ToolCall{Name: name, Input: json.RawMessage(`{}`)})
 		require.NoError(t, err)
 		require.Equal(t, durable.ActionAllow, d.Action)
+	}
+	for _, name := range []string{"edit_file", "bash"} {
+		d, err := gate(context.Background(), durable.ToolCall{Name: name, Input: json.RawMessage(`{}`)})
+		require.NoError(t, err)
+		require.Equal(t, durable.ActionAsk, d.Action)
 	}
 }
 
@@ -184,7 +187,7 @@ func TestUndeclaredToolsAsk(t *testing.T) {
 		lines := make(chan string, 1)
 		lines <- answer
 		out := &bytes.Buffer{}
-		ok, err := newApprover(lines, out)(context.Background(), durable.ToolCall{
+		ok, err := newApprover(lines, out, shownCalls{})(context.Background(), durable.ToolCall{
 			Name: "fetch", Input: json.RawMessage(`{"url":"https://example.com"}`),
 		})
 		require.NoError(t, err)
@@ -199,7 +202,7 @@ func TestEditApprovalShowsSummary(t *testing.T) {
 	lines := make(chan string, 1)
 	lines <- "YES"
 	out := &bytes.Buffer{}
-	ok, err := newApprover(lines, out)(context.Background(), durable.ToolCall{
+	ok, err := newApprover(lines, out, shownCalls{})(context.Background(), durable.ToolCall{
 		Name: "edit_file", Input: json.RawMessage(`{"path":"a.go","old_string":"foo","new_string":"bar"}`),
 	})
 	require.NoError(t, err)
@@ -212,7 +215,7 @@ func TestEditApprovalShowsSummary(t *testing.T) {
 func TestApprovalCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	ok, err := newApprover(make(chan string), &bytes.Buffer{})(ctx, durable.ToolCall{Name: "bash", Input: json.RawMessage(`{}`)})
+	ok, err := newApprover(make(chan string), &bytes.Buffer{}, shownCalls{})(ctx, durable.ToolCall{Name: "bash", Input: json.RawMessage(`{}`)})
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, ok)
 }
@@ -385,15 +388,16 @@ func startSigRepl(t *testing.T, model durable.Model, tool durable.Tool, yes bool
 	pr, pw := io.Pipe()
 	lines := readLines(pr)
 	out := &lockedBuffer{}
+	shown := shownCalls{}
 	opts := durable.Options{
 		Model:         model,
-		Tools:         withDisplay([]durable.Tool{tool}, out, nil),
+		Tools:         withDisplay([]durable.Tool{tool}, out, shown),
 		LeaseTTL:      300 * time.Millisecond,
 		ModelAttempts: 1,
 		ModelBackoff:  time.Millisecond,
 	}
 	if !yes {
-		opts.Ask = newApprover(lines, out)
+		opts.Ask = newApprover(lines, out, shown)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	t.Cleanup(cancel)
@@ -644,15 +648,17 @@ func TestReadLinesLongLineAndFinalLine(t *testing.T) {
 	require.Equal(t, []string{long, "second", "last"}, got)
 }
 
-func TestDisplayToolQuietSkipsHeader(t *testing.T) {
+func TestDisplayToolSkipsHeaderOnlyForCallsTheApproverShowed(t *testing.T) {
 	out := &bytes.Buffer{}
-	wrapped := withDisplay([]durable.Tool{&fakeTool{name: "bash"}, &fakeTool{name: "read_file"}}, out, map[string]bool{"bash": true})
-	_, err := wrapped[0].Execute(context.Background(), durable.ToolCall{Name: "bash", Input: json.RawMessage(`{"command":"ls"}`)})
+	wrapped := withDisplay([]durable.Tool{&fakeTool{name: "bash"}}, out, shownCalls{"c1": true})
+	_, err := wrapped[0].Execute(context.Background(), durable.ToolCall{ID: "c1", Name: "bash", Input: json.RawMessage(`{"command":"ls"}`)})
 	require.NoError(t, err)
 	require.Empty(t, out.String())
-	_, err = wrapped[1].Execute(context.Background(), durable.ToolCall{Name: "read_file", Input: json.RawMessage(`{"path":"a"}`)})
+
+	// A gate can allow a call without asking, so it must still be displayed.
+	_, err = wrapped[0].Execute(context.Background(), durable.ToolCall{ID: "c2", Name: "bash", Input: json.RawMessage(`{"command":"pwd"}`)})
 	require.NoError(t, err)
-	require.Contains(t, out.String(), "[read_file] a")
+	require.Contains(t, out.String(), "[bash] pwd")
 }
 
 func TestTruncateKeepsUTF8(t *testing.T) {

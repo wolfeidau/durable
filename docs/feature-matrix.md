@@ -134,7 +134,8 @@ Modularity here has to keep the crash guarantees, which sets four rules.
 
 1. **Commit rewritten input before the tool runs.** `runCall` stores a gate's rewritten input
    in the same commit that marks the call `started`, so a replay or `Recover` uses the
-   rewritten arguments. The stored assistant message keeps the model's original arguments.
+   rewritten arguments. The stored assistant message keeps the model's original arguments, so
+   the result carries a `Rewritten` note.
 2. **Run gates only on `pending` calls.** `Gate` and `Ask` never run for a `started` call, so a
    gate can be non-deterministic: a crash before `started` simply decides again. A gate's
    decision is not re-evaluated for a `started` call.

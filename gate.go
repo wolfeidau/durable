@@ -21,7 +21,7 @@ type Decision struct {
 	Action Action
 	// Reason is the tool result recorded for a deny; empty uses Denied.
 	Reason string
-	// Input, if non-nil, replaces the model's input. It must be valid JSON.
+	// Input, if non-nil, replaces the model's input. Invalid JSON denies the call with InvalidRewrite.
 	Input json.RawMessage
 }
 
@@ -83,7 +83,8 @@ func (h *Harness) decide(ctx context.Context, call ToolCall) (ToolCall, string, 
 
 	if d.Input != nil {
 		if !json.Valid(d.Input) {
-			return call, "", false, fmt.Errorf("gate returned invalid input for tool call %q", call.ID)
+			// Retrying can't fix this, and a pending call would block the whole queue.
+			return call, InvalidRewrite, true, nil
 		}
 		call.Input = d.Input
 	}

@@ -23,6 +23,14 @@ const Declined = "The user declined this tool call, so it did not run. " +
 const Denied = "A policy blocked this tool call, so it did not run. " +
 	"Do not retry it unchanged; take a different approach."
 
+// InvalidRewrite is the tool result recorded when Options.Gate rewrites a call to invalid JSON.
+const InvalidRewrite = "A policy produced invalid input for this tool call, so it did not run. " +
+	"Do not retry it unchanged; take a different approach."
+
+// Rewritten is added to the result of a call whose input Options.Gate changed.
+// It omits the input because a gate may have added secrets the model must not see.
+const Rewritten = "A policy changed this call's input before it ran, so what ran differs from the arguments shown."
+
 // CallCancelled is the tool result recorded for a pending call when the user
 // cancels the request.
 const CallCancelled = "The user cancelled the request, so this tool call did not run."
@@ -38,6 +46,7 @@ const RequestCancelled = "The user cancelled the request above. Do not continue 
 // Options configures a Harness.
 type Options struct {
 	Model Model
+	// Tools must have unique names; OpenDB rejects duplicates.
 	Tools []Tool
 	// LeaseTTL is how long a crashed process blocks the session before
 	// another one may take over. Default 10s (the same as Pi's local agent).
@@ -104,6 +113,9 @@ func OpenDB(ctx context.Context, db *sql.DB, opts Options) (*Harness, error) {
 		leaseLost: make(chan struct{}), runSem: make(chan struct{}, 1)}
 	for _, t := range opts.Tools {
 		spec := t.Spec()
+		if _, dup := h.tools[spec.Name]; dup {
+			return nil, fmt.Errorf("durable: duplicate tool %q", spec.Name)
+		}
 		h.tools[spec.Name] = t
 		h.specs = append(h.specs, spec)
 	}
@@ -463,6 +475,7 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 		if err != nil {
 			return err
 		}
+		c.Rewritten = !sameInput(c.Input, call.Input)
 		c.Input = call.Input
 	}
 
@@ -502,6 +515,9 @@ func (h *Harness) finishCall(ctx context.Context, sub Submission, c storedCall, 
 }
 
 func recordResult(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall, out string, isErr bool) error {
+	if c.Rewritten {
+		out = joinNote(out, Rewritten)
+	}
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE tool_calls SET status = 'done', result = ?, is_error = ? WHERE message_seq = ? AND position = ?`,
 		out, isErr, c.MessageSeq, c.Position); err != nil {
