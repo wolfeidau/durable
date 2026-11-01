@@ -48,7 +48,8 @@ Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default)
   mismatched flag is an error. Sessions that predate this feature stay `anthropic`.
   Limits on OpenRouter: server-side compaction exists only on the direct `anthropic`
   provider, so a long session fails at the model's context limit. `anthropic-messages` via
-  OpenRouter also leaves out server-side fallbacks and thinking block binding. `--effort`
+  OpenRouter also leaves out server-side fallbacks, and sends thinking block binding only
+  to Claude models, because OpenRouter rejects it on other models. `--effort`
   is sent to `openai-responses` only when set, and a value the model doesn't support fails
   with the provider's error.
 

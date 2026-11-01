@@ -190,7 +190,8 @@ var protocolModels = map[string]func(r route, s providerSpec, a modelArgs) durab
 		switch {
 		case s.BaseURL != "":
 			// Gateways must never see Anthropic credentials from the environment, or the reverse.
-			opts = []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithBaseURL(baseURL(s)), option.WithAuthToken(a.Key)}
+			// Those defaults also carry the SDK's header timeout, so set an equivalent client.
+			opts = []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithHTTPClient(responses.DefaultHTTPClient()), option.WithBaseURL(baseURL(s)), option.WithAuthToken(a.Key)}
 		case a.Key != "":
 			opts = []option.RequestOption{option.WithAPIKey(a.Key)}
 		}

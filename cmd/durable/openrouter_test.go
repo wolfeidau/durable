@@ -206,7 +206,7 @@ func TestOpenRouterMessagesProtocolUsesGatewayMode(t *testing.T) {
 	for i, h := range headers {
 		require.Equal(t, "Bearer "+routerKey, h.Get("Authorization"))
 		require.Empty(t, h.Values("x-api-key"))
-		require.Empty(t, h.Values("anthropic-beta"))
+		require.Equal(t, []string{"thinking-binding-controls-2026-08-01"}, h.Values("anthropic-beta"))
 		require.NotContains(t, strings.Join(h.Values("Authorization"), ","), anthropicSecret)
 		require.NotContains(t, bodies[i], "fallbacks")
 		require.NotContains(t, bodies[i], "context_management")

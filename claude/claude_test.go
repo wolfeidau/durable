@@ -239,11 +239,20 @@ func TestGatewayRequestShape(t *testing.T) {
 	_, err = gen(t, gw.model(Config{Gateway: true, Model: "anthropic/claude-sonnet-5-5"}), msgs, nil)
 	require.NoError(t, err)
 	body = gw.body(t, 0)
-	require.Empty(t, gw.headers[0].Values("anthropic-beta"))
+	require.Equal(t, []string{"thinking-binding-controls-2026-08-01"}, gw.headers[0].Values("anthropic-beta"))
 	require.NotContains(t, body, "fallbacks")
 	require.NotContains(t, body, "context_management")
-	require.Equal(t, map[string]any{"type": "adaptive"}, body["thinking"])
+	require.Equal(t, map[string]any{
+		"type":          "adaptive",
+		"block_binding": map[string]any{"prefix_mismatch_behavior": "drop_block"},
+	}, body["thinking"])
 	require.Equal(t, map[string]any{"type": "ephemeral"}, body["cache_control"])
+
+	other := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
+	_, err = gen(t, other.model(Config{Gateway: true, Model: "z-ai/glm-5.3"}), msgs, nil)
+	require.NoError(t, err)
+	require.Empty(t, other.headers[0].Values("anthropic-beta"))
+	require.Equal(t, map[string]any{"type": "adaptive"}, other.body(t, 0)["thinking"])
 }
 
 func compactionBlock(i int, summary, encrypted string) string {

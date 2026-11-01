@@ -90,6 +90,25 @@ func generate(t *testing.T, f *fakeServer, cfg Config) (durable.Message, error) 
 	return f.model(cfg).Generate(ctx, prompt, nil)
 }
 
+func TestDefaultClientBoundsTheHeaderWait(t *testing.T) {
+	transport, ok := DefaultHTTPClient().Transport.(*http.Transport)
+	require.True(t, ok)
+	require.Equal(t, responseHeaderTimeout, transport.ResponseHeaderTimeout)
+	require.Zero(t, DefaultHTTPClient().Timeout, "a total timeout would cut long streams")
+}
+
+func TestStalledHeadersAreTransient(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	t.Cleanup(srv.Close)
+	t.Cleanup(func() { close(release) })
+
+	m := New(Config{BaseURL: srv.URL, HTTPClient: &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: 20 * time.Millisecond}}})
+	_, err := m.Generate(context.Background(), []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
+	require.Error(t, err)
+	require.True(t, isTransient(err), err.Error())
+}
+
 func isTransient(err error) bool {
 	return reflect.TypeOf(err) == reflect.TypeOf(durable.Transient(errors.New("x")))
 }

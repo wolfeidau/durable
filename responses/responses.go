@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/rawjson"
@@ -21,6 +22,9 @@ const (
 	minOutputTokens = 16
 	maxErrorBody    = 4096
 	noToolOutput    = "(no tool output)"
+
+	// responseHeaderTimeout matches the Anthropic SDK's default client.
+	responseHeaderTimeout = 10 * time.Minute
 )
 
 var defaultSchema = json.RawMessage(`{"type":"object","properties":{}}`)
@@ -40,7 +44,7 @@ type Config struct {
 	SessionID string
 	// OnText receives streamed text deltas. A retried stream may repeat text.
 	OnText func(string)
-	// HTTPClient defaults to a client without a timeout, because streams are long-lived.
+	// HTTPClient defaults to DefaultHTTPClient.
 	HTTPClient *http.Client
 }
 
@@ -52,11 +56,22 @@ type Model struct {
 
 var _ durable.Model = (*Model)(nil)
 
+// DefaultHTTPClient bounds only the wait for headers, because streams are long-lived and a stalled request must still retry.
+func DefaultHTTPClient() *http.Client {
+	t, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Client{}
+	}
+	t = t.Clone()
+	t.ResponseHeaderTimeout = responseHeaderTimeout
+	return &http.Client{Transport: t}
+}
+
 // New returns a Model using cfg.
 func New(cfg Config) *Model {
 	client := cfg.HTTPClient
 	if client == nil {
-		client = &http.Client{}
+		client = DefaultHTTPClient()
 	}
 	cfg.BaseURL = strings.TrimRight(cfg.BaseURL, "/")
 	return &Model{cfg: cfg, client: client}
@@ -154,11 +169,9 @@ func (m *Model) redact(err error) error {
 }
 
 func (m *Model) classify(ctx context.Context, err error) error {
-	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		return err
+	// Only ctx means cancellation: a transport header timeout also matches context.DeadlineExceeded.
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
 	return durable.Transient(err)
 }

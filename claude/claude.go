@@ -38,7 +38,7 @@ type Config struct {
 	System    string
 	MaxTokens int64
 	Effort    string
-	// Gateway drops the Anthropic-only betas, fallbacks, compaction and thinking block binding, which gateways may reject.
+	// Gateway drops server-side fallbacks and compaction, and sends thinking block binding only to Claude models.
 	Gateway bool
 	// OnText receives streamed text deltas. A retried stream may repeat text.
 	OnText func(string)
@@ -90,16 +90,20 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 	}
 	if !olderThanClaude5.MatchString(m.cfg.Model) {
 		adaptive := &anthropic.BetaThinkingConfigAdaptiveParam{}
+		// Stored thinking is bound to the system prompt and tools, so a new binary must degrade rather than fail the session.
+		// OpenRouter rejects block_binding on non-Claude models.
+		if !m.cfg.Gateway || strings.Contains(m.cfg.Model, "claude") {
+			params.Betas = append(params.Betas, anthropic.AnthropicBetaThinkingBindingControls2026_08_01)
+			adaptive.BlockBinding = anthropic.BetaThinkingBlockBindingParam{
+				PrefixMismatchBehavior: anthropic.BetaThinkingPrefixMismatchBehaviorDropBlock,
+			}
+		}
 		if !m.cfg.Gateway {
-			// Stored thinking is bound to the system prompt and tools, so a new binary must degrade rather than fail the session.
-			params.Betas = append(params.Betas, anthropic.AnthropicBetaThinkingBindingControls2026_08_01, anthropic.AnthropicBetaCompact2026_01_12)
+			params.Betas = append(params.Betas, anthropic.AnthropicBetaCompact2026_01_12)
 			params.ContextManagement = anthropic.BetaContextManagementConfigParam{
 				Edits: []anthropic.BetaContextManagementConfigEditUnionParam{{
 					OfCompact20260112: &anthropic.BetaCompact20260112EditParam{Instructions: anthropic.String(compactInstructions)},
 				}},
-			}
-			adaptive.BlockBinding = anthropic.BetaThinkingBlockBindingParam{
-				PrefixMismatchBehavior: anthropic.BetaThinkingPrefixMismatchBehaviorDropBlock,
 			}
 		}
 		params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfAdaptive: adaptive}
@@ -167,7 +171,8 @@ func toResult(acc anthropic.BetaMessage) (durable.Message, error) {
 }
 
 func classify(ctx context.Context, err error) error {
-	if ctx.Err() != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	// Only ctx means cancellation: a transport header timeout also matches context.DeadlineExceeded.
+	if ctx.Err() != nil {
 		return err
 	}
 	wrapped := fmt.Errorf("failed to generate: %w", err)
