@@ -34,9 +34,9 @@ var liveCompactionModels = []struct {
 	name string
 	args []string
 }{
-	{"responses-glm", []string{"--model", "z-ai/glm-5.3"}},
+	{"responses-glm", []string{"--model", "z-ai/glm-5.3-flash"}},
 	{"responses-luna", []string{"--model", "openai/gpt-6-luna", "--effort", "low"}},
-	{"messages-glm", []string{"--protocol", "anthropic-messages", "--model", "z-ai/glm-5.3"}},
+	{"messages-glm", []string{"--protocol", "anthropic-messages", "--model", "z-ai/glm-5.3-flash"}},
 }
 
 // liveProxy forwards to OpenRouter, and only lowers the window so real summarising happens within a few turns.
@@ -61,7 +61,7 @@ func newLiveProxy(t *testing.T) *liveProxy {
 			var list struct {
 				Data []map[string]any `json:"data"`
 			}
-			for _, id := range []string{"z-ai/glm-5.3", "openai/gpt-6-luna"} {
+			for _, id := range []string{"z-ai/glm-5.3-flash", "openai/gpt-6-luna"} {
 				list.Data = append(list.Data, map[string]any{"id": id, "context_length": liveWindow})
 			}
 			_ = json.NewEncoder(w).Encode(list)
@@ -163,7 +163,7 @@ func TestOpenRouterCompactionLive(t *testing.T) {
 func TestOpenRouterOverflowTextLive(t *testing.T) {
 	key := requireLiveKey(t)
 	bin := buildBinary(t)
-	for _, model := range []string{"z-ai/glm-5.3", "openai/gpt-6-luna"} {
+	for _, model := range []string{"z-ai/glm-5.3-flash", "openai/gpt-6-luna"} {
 		t.Run(model, func(t *testing.T) {
 			window := liveContextLength(t, key, model)
 			ws, home := newWorkspace(t)

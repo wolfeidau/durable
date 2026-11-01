@@ -55,7 +55,7 @@ func TestOpenRouterLive(t *testing.T) {
 		args []string
 	}{
 		{"responses-reasoning", []string{"--model", "openai/gpt-6-luna", "--effort", "low"}},
-		{"responses-non-openai", []string{"--model", "z-ai/glm-5.3"}},
+		{"responses-non-openai", []string{"--model", "z-ai/glm-5.3-flash"}},
 		{"messages-claude", []string{"--protocol", "anthropic-messages", "--model", "anthropic/claude-haiku-5.5"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
