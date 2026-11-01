@@ -65,6 +65,11 @@ type Options struct {
 	// when Gate is nil. Returning false records Declined; an error leaves the call
 	// pending for the next Run. A Gate that asks while Ask is nil denies the call.
 	Ask func(ctx context.Context, call ToolCall) (bool, error)
+	// Observer, if set, is called synchronously after each commit with the new events, in Seq
+	// order. It may call Events or History, but not Submit, Run or Cancel, which would deadlock.
+	// It must not panic: the state has already committed, and the panic reaches the committing caller.
+	// Delivery isn't guaranteed: reconcile with Events if you need every event.
+	Observer func(Event)
 }
 
 // Harness drives one durable session stored in one SQLite database.
@@ -81,6 +86,9 @@ type Harness struct {
 	stopRenew context.CancelFunc
 	renewDone chan struct{}
 	closeOnce sync.Once
+
+	observeMu   sync.Mutex // serialises delivery, since Submit can commit alongside Run
+	observedSeq int64      // newest event seq handed to Observer
 }
 
 // OpenDB opens a session on an already-open database. It waits until it can
@@ -134,6 +142,13 @@ func OpenDB(ctx context.Context, db *sql.DB, opts Options) (*Harness, error) {
 			return nil, fmt.Errorf("durable: session is owned by another process: %w", ctx.Err())
 		case <-time.After(poll):
 		}
+	}
+
+	// Taken after the lease so no previous owner can add events past it.
+	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(seq), 0) FROM events`).Scan(&h.observedSeq); err != nil {
+		// Release so a failed open doesn't block the next one for a whole TTL.
+		_ = releaseLease(context.WithoutCancel(ctx), db, h.owner)
+		return nil, fmt.Errorf("durable: read last event: %w", err)
 	}
 
 	renewCtx, cancel := context.WithCancel(context.Background())
@@ -209,7 +224,7 @@ func (h *Harness) Submit(ctx context.Context, requestID, text string) (Submissio
 		}
 		seq, _ := res.LastInsertId()
 		sub = Submission{Seq: seq, RequestID: requestID, Text: text, Status: StatusQueued}
-		return nil
+		return addEvent(ctx, tx, Event{Kind: EventSubmission, Submission: seq, Status: StatusQueued})
 	})
 	return sub, err
 }
@@ -455,6 +470,16 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 			return ctx.Err()
 		}
 		return h.finishCall(ctx, sub, c, joinNote(UnknownOutcome, note), true)
+	case c.Status == callStarted:
+		err := h.commit(ctx, func(tx *sql.Tx) error {
+			return addEvent(ctx, tx, Event{
+				Kind: EventCallReplayed, Submission: sub.Seq, Rewritten: c.Rewritten,
+				Call: &ToolCall{ID: c.ID, Name: c.Name, Input: c.Input},
+			})
+		})
+		if err != nil {
+			return err
+		}
 	case c.Status == callPending:
 		call, result, blocked, err := h.decide(ctx, c.ToolCall)
 		if err != nil {
@@ -463,6 +488,7 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 		if blocked {
 			return h.finishCall(ctx, sub, c, result, true)
 		}
+		rewritten := !sameInput(c.Input, call.Input)
 		// The rewritten input commits with started so replay and Recover use it.
 		err = h.commit(ctx, func(tx *sql.Tx) error {
 			if _, err := tx.ExecContext(ctx,
@@ -470,12 +496,15 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 				string(call.Input), c.MessageSeq, c.Position); err != nil {
 				return fmt.Errorf("failed to mark tool call started: %w", err)
 			}
-			return nil
+			return addEvent(ctx, tx, Event{
+				Kind: EventCallStarted, Submission: sub.Seq, Rewritten: rewritten,
+				Call: &ToolCall{ID: c.ID, Name: c.Name, Input: call.Input},
+			})
 		})
 		if err != nil {
 			return err
 		}
-		c.Rewritten = !sameInput(c.Input, call.Input)
+		c.Rewritten = rewritten
 		c.Input = call.Input
 	}
 
@@ -526,10 +555,15 @@ func recordResult(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall,
 		out, isErr, c.MessageSeq, c.Position); err != nil {
 		return fmt.Errorf("failed to record tool result: %w", err)
 	}
-	_, err := appendMessage(ctx, tx, sub.Seq, Message{
+	if _, err := appendMessage(ctx, tx, sub.Seq, Message{
 		Role: RoleTool, ToolCallID: c.ID, Text: out, IsError: isErr,
+	}); err != nil {
+		return err
+	}
+	return addEvent(ctx, tx, Event{
+		Kind: EventCallDone, Submission: sub.Seq, Rewritten: c.Rewritten, IsError: isErr,
+		Call: &ToolCall{ID: c.ID, Name: c.Name},
 	})
-	return err
 }
 
 // Cancel durably stops a submission: it is marked cancelled and will not

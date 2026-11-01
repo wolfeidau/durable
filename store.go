@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	is_error    INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (message_seq, position)
 );
+CREATE TABLE IF NOT EXISTS events (
+	seq  INTEGER PRIMARY KEY AUTOINCREMENT,
+	body TEXT    NOT NULL                 -- JSON Event without Seq
+);
 `
 
 const (
@@ -131,6 +135,7 @@ func (h *Harness) commit(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	h.deliver(ctx)
 	return nil
 }
 
@@ -270,7 +275,10 @@ func lastAssistantCalls(ctx context.Context, q querier, submissionSeq int64) (ca
 		if err := rows.Scan(&c.ID, &c.Position, &c.Name, &input, &c.Status); err != nil {
 			return nil, false, fmt.Errorf("failed to read tool call: %w", err)
 		}
-		c.Input = json.RawMessage(input)
+		// A nil input is stored as "", and an empty RawMessage can't be marshalled.
+		if input != "" {
+			c.Input = json.RawMessage(input)
+		}
 		c.Rewritten = !sameInput(msg.ToolCalls[c.Position].Input, c.Input)
 		calls = append(calls, c)
 	}
@@ -298,6 +306,11 @@ func appendMessage(ctx context.Context, tx *sql.Tx, submissionSeq int64, m Messa
 	if err != nil {
 		return 0, fmt.Errorf("failed to read message id: %w", err)
 	}
+	// Raw can be large and provider-specific; History has it.
+	m.Raw = nil
+	if err := addEvent(ctx, tx, Event{Kind: EventMessage, Submission: submissionSeq, Message: &m}); err != nil {
+		return 0, err
+	}
 	return id, nil
 }
 
@@ -307,5 +320,5 @@ func setSubmission(ctx context.Context, tx *sql.Tx, seq int64, status Submission
 		status, result, errText, seq); err != nil {
 		return fmt.Errorf("failed to update submission: %w", err)
 	}
-	return nil
+	return addEvent(ctx, tx, Event{Kind: EventSubmission, Submission: seq, Status: status, Error: errText})
 }
