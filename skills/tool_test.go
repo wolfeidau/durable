@@ -128,12 +128,12 @@ func TestHiddenSkill(t *testing.T) {
 
 	s, ok := Find(ss, "secret")
 	require.True(t, ok)
-	out, err := Expand(s, "do it")
+	out, err := Expand(context.Background(), s, "do it")
 	require.NoError(t, err)
 	require.Contains(t, out, "Secret body.")
 	require.True(t, strings.HasSuffix(out, "\n\ndo it"))
 
-	out, err = Expand(s, "")
+	out, err = Expand(context.Background(), s, "")
 	require.NoError(t, err)
 	require.True(t, strings.HasSuffix(out, "</skill_content>"))
 }
@@ -230,4 +230,20 @@ func TestResourceCap(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 100, strings.Count(out, "<file>"))
 	require.Contains(t, out, "more than 100 files")
+}
+
+func TestUnreadableSubdirStillLoads(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file modes")
+	}
+	root, ss := project(t)
+	locked := filepath.Join(root, "skills", "pdf", "locked")
+	write(t, filepath.Join(locked, "f.md"), "x")
+	require.NoError(t, os.Chmod(locked, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	out, err := run(t, Tool(ss), `{"name":"pdf","path":null}`)
+	require.NoError(t, err)
+	require.Contains(t, out, "Body of pdf.")
+	require.Contains(t, out, "<file>scripts/run.sh</file>")
 }

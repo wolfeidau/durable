@@ -36,10 +36,23 @@ func skillSourcesFor(cwd, home string, uid uint32) []skills.Source {
 			srcs = append(srcs, skills.Source{Dir: filepath.Join(d, sub, "skills"), Root: root})
 		}
 	}
+	// Only the user form can load a symlinked skill, so it wins when cwd is home.
+	userDirs := map[string]bool{}
 	for _, sub := range []string{".durable", ".agents"} {
-		srcs = append(srcs, skills.Source{Dir: filepath.Join(home, sub, "skills")})
+		dir := filepath.Join(home, sub, "skills")
+		userDirs[canonical(filepath.Join(canonical(home), sub, "skills"))] = true
+		srcs = append(srcs, skills.Source{Dir: dir})
 	}
-	return srcs
+	return slices.DeleteFunc(srcs, func(s skills.Source) bool {
+		return s.Root != "" && userDirs[canonical(s.Dir)]
+	})
+}
+
+func canonical(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return filepath.Clean(p)
 }
 
 // pinSkills pins the catalog on first start; existed (session.sqlite predates this run) pins an older session empty.

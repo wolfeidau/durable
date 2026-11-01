@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -145,7 +147,12 @@ func TestUnknownSkillSlashCommandSubmitsNothing(t *testing.T) {
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("hi"))
 	a := startAgent(t, bin, ws, home, api.srv.URL)
-	runPrompt(t, api, 1, a, "/skill:nope\nplain")
+	_, err := io.WriteString(a.stdin, "/skill:nope\nplain\n")
+	require.NoError(t, err)
+	eventually(t, "API requests", func() bool { return len(api.requests()) == 1 })
+	require.NoError(t, a.stdin.Close())
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, a.cmd.Wait(), &exitErr, a.out.String())
 	require.Contains(t, a.out.String(), `unknown skill "nope"`)
 	require.Contains(t, api.requests()[0], "plain")
 	require.NotContains(t, api.requests()[0], "/skill:")

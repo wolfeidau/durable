@@ -56,6 +56,12 @@ func TestParse(t *testing.T) {
 		{name: "name mismatch", text: skillMD("other", "d"), ok: true, want: Skill{Name: "other", Description: "d"}, warned: "does not match"},
 		{name: "invalid name", text: skillMD("Bad_Name", "d"), ok: true, want: Skill{Name: "Bad_Name", Description: "d"}, warned: "not valid"},
 		{name: "long name", text: skillMD(strings.Repeat("a", 65), "d"), ok: true, want: Skill{Name: strings.Repeat("a", 65), Description: "d"}, warned: "not valid"},
+		{name: "block folded", text: "---\nname: pdf\ndescription: >\n  one\n  two\n\n  three\nargument-hint: use: x: y\n---\nb", ok: true, want: Skill{Name: "pdf", Description: "one two three"}, warned: "invalid YAML"},
+		{name: "block folded strip", text: "---\nname: pdf\ndescription: >-\n  one\n  two\nargument-hint: use: x: y\n---\nb", ok: true, want: Skill{Name: "pdf", Description: "one two"}, warned: "invalid YAML"},
+		{name: "block literal", text: "---\nname: pdf\ndescription: |\n  one\n  two\nargument-hint: use: x: y\n---\nb", ok: true, want: Skill{Name: "pdf", Description: "one\ntwo"}, warned: "invalid YAML"},
+		{name: "name with newline", text: "---\nname: \"a\\nb\"\ndescription: d\n---\nb", warned: "whitespace or control"},
+		{name: "name with escape", text: "---\nname: \"a\\eb\"\ndescription: d\n---\nb", warned: "whitespace or control"},
+		{name: "name with space", text: "---\nname: a b\ndescription: d\n---\nb", warned: "whitespace or control"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,6 +164,26 @@ func TestDiscoverProjectSymlinkEscape(t *testing.T) {
 	got, warns := Discover([]Source{{Dir: dir, Root: root}})
 	require.Empty(t, got)
 	require.Len(t, warns, 2)
+}
+
+func TestDiscoverIgnoresStrayFiles(t *testing.T) {
+	root := realDir(t)
+	dir := filepath.Join(root, "skills")
+	write(t, filepath.Join(dir, "pdf", "SKILL.md"), skillMD("pdf", "d"))
+	write(t, filepath.Join(dir, ".DS_Store"), "x")
+	write(t, filepath.Join(dir, "README.md"), "x")
+	for _, src := range []Source{{Dir: dir, Root: root}, userSrc(dir)} {
+		got, warns := Discover([]Source{src})
+		require.Empty(t, warns)
+		require.Len(t, got, 1)
+	}
+
+	// A symlink to a file outside Root still warns.
+	outside := realDir(t)
+	write(t, filepath.Join(outside, "f"), "x")
+	require.NoError(t, os.Symlink(filepath.Join(outside, "f"), filepath.Join(dir, "link")))
+	_, warns := Discover([]Source{{Dir: dir, Root: root}})
+	require.Len(t, warns, 1)
 }
 
 func TestDiscoverRejectsBadSkillFiles(t *testing.T) {

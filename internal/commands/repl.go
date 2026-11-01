@@ -167,7 +167,7 @@ func (r *repl) run(ctx context.Context) error {
 			continue
 		}
 
-		prompt, ok := r.expandSkill(line)
+		prompt, ok := r.expandSkill(ctx, line)
 		if !ok {
 			continue
 		}
@@ -180,7 +180,7 @@ func (r *repl) run(ctx context.Context) error {
 
 // expandSkill turns a /skill:<name> [text] line into the prompt to submit; other lines pass through.
 // ok is false when the line was rejected and nothing should be submitted.
-func (r *repl) expandSkill(line string) (prompt string, ok bool) {
+func (r *repl) expandSkill(ctx context.Context, line string) (prompt string, ok bool) {
 	rest, found := strings.CutPrefix(line, skillPrefix)
 	if !found {
 		return line, true
@@ -191,11 +191,13 @@ func (r *repl) expandSkill(line string) (prompt string, ok bool) {
 	}
 	s, known := skills.Find(r.skills, name)
 	if name == "" || !known {
+		r.failed = true
 		fmt.Fprintf(r.out, "unknown skill %q; the skills in this session are listed when it starts, or start a new --session to reload them\n", name)
 		return "", false
 	}
-	expanded, err := skills.Expand(s, text)
+	expanded, err := skills.Expand(ctx, s, text)
 	if err != nil {
+		r.failed = true
 		fmt.Fprintf(r.out, "error: failed to load skill %q: %v\n", name, err)
 		return "", false
 	}

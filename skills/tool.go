@@ -114,8 +114,8 @@ func (t *skillTool) Execute(ctx context.Context, call durable.ToolCall) (string,
 }
 
 // Expand wraps a skill for a user-invoked turn, followed by the user's text. It works for hidden skills.
-func Expand(s Skill, text string) (string, error) {
-	out, err := render(context.Background(), s)
+func Expand(ctx context.Context, s Skill, text string) (string, error) {
+	out, err := render(ctx, s)
 	if err != nil {
 		return "", err
 	}
@@ -171,11 +171,18 @@ func listResources(ctx context.Context, s Skill) ([]string, bool, error) {
 	var files []string
 	capped := false
 	err = fs.WalkDir(sub.FS(), ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
 		if err := ctx.Err(); err != nil {
 			return err
+		}
+		if err != nil {
+			// The listing is optional, so an unreadable entry must not block the instructions.
+			if p == "." {
+				return err
+			}
+			if d != nil && d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			if d.Name() == ".git" {

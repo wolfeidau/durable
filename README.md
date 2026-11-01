@@ -69,7 +69,8 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
 - **Skills:** a new session loads [Agent Skills](https://agentskills.io/specification) from
   `.durable/skills` then `.agents/skills` in each project directory, nearest first up to the
   repository root, then `~/.durable/skills` and `~/.agents/skills`. The first skill of a name
-  wins and a shadowed one gets a warning. `.claude/skills` isn't scanned. A project skill
+  wins and a shadowed one gets a warning. `.claude/skills` isn't scanned, and Claude Code reads only that location, so a skill
+  meant for both needs a copy. A project skill
   that resolves outside the repository is skipped. The model loads one with the `skill` tool,
   which lists the skills in its description and needs no approval to read, while scripts a
   skill mentions run through `bash` and ask as usual. The catalog is pinned in `skills.json`

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -175,7 +176,7 @@ func TestExpandSkillLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out bytes.Buffer
 			r := &repl{skills: list, out: &out}
-			prompt, ok := r.expandSkill(tt.line)
+			prompt, ok := r.expandSkill(context.Background(), tt.line)
 			require.Equal(t, tt.ok, ok)
 			for _, w := range tt.want {
 				require.Contains(t, prompt, w)
@@ -193,7 +194,27 @@ func TestExpandSkillLine(t *testing.T) {
 func TestExpandSkillLineRemovedSkill(t *testing.T) {
 	var out bytes.Buffer
 	r := &repl{skills: []skills.Skill{{Name: "gone", Description: "d", Root: realTempDir(t), Dir: "."}}, out: &out}
-	_, ok := r.expandSkill("/skill:gone")
+	_, ok := r.expandSkill(context.Background(), "/skill:gone")
 	require.False(t, ok)
 	require.Contains(t, out.String(), `failed to load skill "gone"`)
+}
+
+func TestSkillSourcesCwdIsHome(t *testing.T) {
+	home := realTempDir(t)
+	link := filepath.Join(realTempDir(t), "home")
+	require.NoError(t, os.Symlink(home, link))
+	target := realTempDir(t)
+	writeFile(t, filepath.Join(target, "SKILL.md"), "---\nname: linked\ndescription: d\n---\nbody")
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable", "skills"), 0o755))
+	require.NoError(t, os.Symlink(target, filepath.Join(home, ".durable", "skills", "linked")))
+
+	srcs := skillSourcesFor(home, link, uint32(os.Geteuid()))
+	require.Equal(t, []string{filepath.Join(link, ".durable", "skills"), filepath.Join(link, ".agents", "skills")}, sourceDirs(srcs))
+	for _, s := range srcs {
+		require.Empty(t, s.Root)
+	}
+	got, warns := skills.Discover(srcs)
+	require.Empty(t, warns)
+	require.Len(t, got, 1)
+	require.Equal(t, "linked", got[0].Name)
 }

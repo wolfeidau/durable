@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"unicode"
 	"unicode/utf8"
 
 	"go.yaml.in/yaml/v3"
@@ -71,6 +72,10 @@ func Discover(sources []Source) ([]Skill, []string) {
 			continue
 		}
 		for _, e := range entries {
+			// Stray files such as .DS_Store are not skills; a symlink may still lead to one.
+			if !e.IsDir() && e.Type()&fs.ModeSymlink == 0 {
+				continue
+			}
 			s, ws, ok := load(src, e.Name())
 			warns = append(warns, ws...)
 			if !ok {
@@ -124,7 +129,7 @@ func load(src Source, dirName string) (Skill, []string, bool) {
 	}
 
 	data, _, err := readConfined(root, filepath.Join(rel, "SKILL.md"))
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return Skill{}, nil, false
 	}
 	if err != nil {
@@ -161,6 +166,10 @@ func parse(text, dirName, path string) (Skill, []string, bool) {
 		name = dirName
 		warns = append(warns, fmt.Sprintf("skills: %s: no name, using directory name", path))
 	}
+	// A name with whitespace or control characters would inject lines into the catalog and terminal.
+	if strings.ContainsFunc(name, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) {
+		return Skill{}, append(warns, fmt.Sprintf("skills: skipped %s: name %q has whitespace or control characters", path, name)), false
+	}
 	desc, _ := m.Description.(string)
 	desc = strings.TrimSpace(desc)
 	if desc == "" {
@@ -188,7 +197,9 @@ func parse(text, dirName, path string) (Skill, []string, bool) {
 // scan reads top-level key: value lines; unquoted colons are the usual reason YAML fails.
 func scan(fm string) meta {
 	var m meta
-	for line := range strings.SplitSeq(fm, "\n") {
+	lines := strings.Split(fm, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
 		if line == "" || line[0] == ' ' || line[0] == '\t' {
 			continue
 		}
@@ -197,6 +208,11 @@ func scan(fm string) meta {
 			continue
 		}
 		v = strings.TrimSpace(v)
+		if blockScalar.MatchString(v) {
+			var n int
+			v, n = collectBlock(v[0], lines[i+1:])
+			i += n
+		}
 		if len(v) >= 2 && (v[0] == '"' || v[0] == '\'') && v[len(v)-1] == v[0] {
 			v = v[1 : len(v)-1]
 		}
@@ -212,6 +228,28 @@ func scan(fm string) meta {
 		}
 	}
 	return m
+}
+
+var blockScalar = regexp.MustCompile(`^[>|][-+]?$`)
+
+// collectBlock joins the indented lines after a block scalar indicator and reports how many it used.
+func collectBlock(style byte, lines []string) (string, int) {
+	var parts []string
+	n := 0
+	for _, l := range lines {
+		if l != "" && l[0] != ' ' && l[0] != '\t' {
+			break
+		}
+		if t := strings.TrimSpace(l); t != "" || style == '|' {
+			parts = append(parts, t)
+		}
+		n++
+	}
+	sep := " "
+	if style == '|' {
+		sep = "\n"
+	}
+	return strings.TrimSpace(strings.Join(parts, sep)), n
 }
 
 // split returns the frontmatter and trimmed body of a SKILL.md.
