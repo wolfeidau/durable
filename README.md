@@ -257,6 +257,10 @@ model call.
    output after a reconnect; commit partials to a separate table and discard them
    when the final message commits.
 
+## Built with AI
+
+This project is built with AI-assisted development workflows using tools including [OpenAI Codex](https://developers.openai.com/codex/), [Claude Code](https://claude.ai/code), and [Cursor](https://cursor.com).
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
