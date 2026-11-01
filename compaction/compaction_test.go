@@ -213,16 +213,16 @@ func TestCutSelection(t *testing.T) {
 }
 
 func TestCutKeepClampedForSmallWindow(t *testing.T) {
-	// Window 2000, reserve 1500 gives threshold 500 and keep 250, not the 20000 default.
+	// Window 2000, reserve 1500 gives threshold 1000 (half the window) and keep 500, not the 20000 default.
 	f := newFake()
 	c := New(Config{Model: f, ContextWindow: 2000, ReserveTokens: 1500})
 	msgs := convo(20, 400) // 100 tokens each
-	msgs[19].ContextTokens = 600
+	msgs[19].ContextTokens = 1200
 	got, ok, err := c.Compact(t.Context(), durable.CompactRequest{Messages: msgs})
 	require.NoError(t, err)
 	require.True(t, ok)
-	// 250 tokens reached at index 17, which is a valid cut.
-	require.Equal(t, 17, got.FirstKept)
+	// 500 tokens reached at index 15, which is a valid cut.
+	require.Equal(t, 15, got.FirstKept)
 }
 
 func TestSerialization(t *testing.T) {
@@ -386,4 +386,10 @@ func TestCutFallsBackBeforeTrailingToolResults(t *testing.T) {
 	cut, ok := c.findCut(msgs, 0, false)
 	require.True(t, ok)
 	require.Equal(t, 3, cut)
+}
+
+func TestThresholdNeverDropsBelowHalfTheWindow(t *testing.T) {
+	for window, want := range map[int64]int64{8192: 4096, 16384: 8192, 16385: 8192, 17000: 8500, 32768: 16384, 128000: 111616} {
+		require.Equal(t, want, New(Config{ContextWindow: window}).threshold(), "window %d", window)
+	}
 }

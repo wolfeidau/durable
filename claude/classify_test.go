@@ -93,3 +93,9 @@ func TestHeaderTimeoutIsTransientButCancellationIsNot(t *testing.T) {
 	cancel()
 	require.NotEqual(t, transient, reflect.TypeOf(classify(ctx, timeout)))
 }
+
+func TestContextWindowStopReasonIsOverflow(t *testing.T) {
+	body := fakeapi.Stream("claude-sonnet-5-5", "model_context_window_exceeded", "null", fakeapi.TextBlock(0, "partial"))
+	_, err := gen(t, newFakeAPI(t, reply{status: 200, body: body}).model(Config{}), []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
+	require.Equal(t, kind(durable.ContextOverflow(errors.New("x"))), kind(err))
+}

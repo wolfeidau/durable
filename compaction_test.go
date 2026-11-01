@@ -592,3 +592,25 @@ func TestContextOverflowHelper(t *testing.T) {
 	require.False(t, isOverflow(base))
 	require.False(t, isTransient(err))
 }
+
+func TestGateRewrittenInputNeverReachesCompactor(t *testing.T) {
+	ctx := context.Background()
+	rec := &recorder{}
+	opts := fastOpts(gateModel(), rec.compactor(func(int, CompactRequest) (Compaction, bool, error) {
+		return Compaction{}, false, nil
+	}))
+	opts.Tools = []Tool{&fakeTool{name: "write_file"}}
+	opts.Gate = rewriteGate(`{"token":"gate-secret"}`)
+	h := openWith(t, ctx, opts)
+	defer h.Close()
+
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.NotEmpty(t, rec.compacts)
+	for _, req := range rec.compacts {
+		body, err := json.Marshal(req.Messages)
+		require.NoError(t, err)
+		require.NotContains(t, string(body), "gate-secret")
+	}
+}

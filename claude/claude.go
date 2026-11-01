@@ -145,6 +145,8 @@ func toResult(acc anthropic.BetaMessage) (durable.Message, error) {
 	case "":
 		// The stream ended without message_delta, so the connection was cut.
 		return durable.Message{}, durable.Transient(errors.New("stream ended before a stop reason"))
+	case anthropic.BetaStopReasonModelContextWindowExceeded:
+		return durable.Message{}, durable.ContextOverflow(errors.New("model context window exceeded"))
 	case anthropic.BetaStopReasonRefusal:
 		return durable.Message{}, fmt.Errorf("model refused to respond (category %q): %s", acc.StopDetails.Category, acc.StopDetails.Explanation)
 	default:

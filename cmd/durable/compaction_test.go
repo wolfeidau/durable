@@ -339,3 +339,26 @@ func TestDirectAnthropicHasNoCompaction(t *testing.T) {
 	require.Equal(t, []string{"/v1/messages"}, paths, "no /v1/models request")
 	require.NotContains(t, a.out.String(), "[compaction]")
 }
+
+func TestSummariserUsesTheSessionEffort(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	api := newCompactAPI(t, "/v1/messages", 1000, step{usage: 900}, step{usage: 50})
+	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
+
+	args := []string{"--yes", "--effort", "high"}
+	for _, tc := range compactionProtocols {
+		if tc.path == "/v1/messages" {
+			args = append(args, tc.args...)
+		}
+	}
+	a := startRouterAgent(t, bin, ws, env, args...)
+	send(t, a, prompt(oldestMarker))
+	waitCounts(t, api, 1, 0)
+	send(t, a, prompt(newestMarker))
+	waitCounts(t, api, 2, 1)
+	closeAndWait(t, a)
+
+	_, summBodies := api.requests()
+	require.Contains(t, summBodies[0], `"effort":"high"`)
+}

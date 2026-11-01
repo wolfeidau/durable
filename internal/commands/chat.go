@@ -165,7 +165,7 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 		Tools:    withDisplay(toolset, out, shown),
 		LeaseTTL: c.LeaseTTL,
 	}
-	addCompaction(ctx, out, &opts, rt, spec, key, sessionID)
+	addCompaction(ctx, out, &opts, rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: c.Effort, SessionID: sessionID})
 	var base durable.ToolGate
 	if !c.Yes {
 		base = durable.ReadOnlyGate(toolset)
@@ -192,21 +192,20 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 }
 
 // addCompaction summarises with the session's own model, built without OnText so the summary stays off the terminal.
-func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt route, spec providerSpec, key, sessionID string) {
+func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt route, spec providerSpec, args modelArgs) {
 	// The direct anthropic route keeps server-side compaction.
 	if rt.Provider != providerOpenRouter {
 		return
 	}
 	// The window doesn't feed the prompt prefix, so it isn't pinned and a failed fetch doesn't block the session.
-	window, err := fetchContextWindow(ctx, &http.Client{}, baseURL(spec), key, rt.Model)
+	window, err := fetchContextWindow(ctx, &http.Client{}, baseURL(spec), args.Key, rt.Model)
 	if err != nil {
 		fmt.Fprintf(out, "[compaction] warning: %s; compaction runs only if the provider reports an overflow\n", err)
 		window = 0
 	} else {
 		fmt.Fprintf(out, "[compaction] context window %d tokens\n", window)
 	}
-	summariser := protocolModels[rt.Protocol](rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, SessionID: sessionID})
-	opts.Compactor = compaction.New(compaction.Config{Model: summariser, ContextWindow: window})
+	opts.Compactor = compaction.New(compaction.Config{Model: protocolModels[rt.Protocol](rt, spec, args), ContextWindow: window})
 	opts.Observer = func(e durable.Event) {
 		switch e.Kind {
 		case durable.EventCompacted:

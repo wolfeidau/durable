@@ -45,11 +45,12 @@ wrote them.
 
 ## Compaction
 
-The direct `anthropic` provider uses server-side compaction. It isn't available on OpenRouter, so
-there durable compacts on the client, for both protocols.
+The direct `anthropic` provider uses server-side compaction. On OpenRouter, durable compacts on the
+client for both protocols, so it works on any model.
 
 - It reads the model's `context_length` from `GET /v1/models` once at startup, and compacts before a
-  request when the context would exceed that window minus 16,384 tokens. It also compacts and retries
+  request when the context would exceed that window minus 16,384 tokens, or half the window if that's
+  larger. It also compacts and retries
   once when the provider reports a context overflow.
 - It keeps about the last 20,000 tokens and summarises everything older with the session's own model,
   so each compaction costs one extra model call. A later compaction folds the previous summary in.
@@ -59,8 +60,8 @@ there durable compacts on the client, for both protocols.
   prints `[compaction] warning: ...` and compacts only on a reported overflow.
 - A summary failure doesn't fail the prompt: the agent prints a warning and carries on, since the
   request may still fit. A transient failure pauses the session like any model error.
-- OpenRouter's `/messages` schema accepts `compact_20260112`, which could move this to the server.
-  It is untested and unused here.
+- OpenRouter's `/messages` schema accepts `compact_20260112`, which could move Claude models to the
+  server. It is untested and unused here.
 
 ## Limits on OpenRouter
 

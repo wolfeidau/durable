@@ -60,16 +60,13 @@ func (c *Compactor) Compact(ctx context.Context, req durable.CompactRequest) (du
 	return durable.Compaction{Summary: summary, FirstKept: cut}, true, nil
 }
 
-// threshold is the token count above which compaction triggers; 0 when there is no window.
+// threshold never drops below half the window, because measured usage includes the system prompt and tools and could never fall under a tiny one.
 func (c *Compactor) threshold() int64 {
 	w := c.cfg.ContextWindow
 	if w <= 0 {
 		return 0
 	}
-	if c.cfg.ReserveTokens >= w {
-		return w / 2
-	}
-	return w - c.cfg.ReserveTokens
+	return max(w-c.cfg.ReserveTokens, w/2)
 }
 
 func (c *Compactor) estimate(req durable.CompactRequest) int64 {
