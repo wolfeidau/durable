@@ -1,0 +1,39 @@
+version: 2
+
+project_name: durable
+
+before:
+  hooks:
+    - go mod tidy -diff
+
+builds:
+  - id: durable
+    main: ./cmd/durable
+    binary: durable
+    # mattn/go-sqlite3 needs cgo, so cross-compiling needs a C toolchain;
+    # build each target on a matching host (goreleaser --split) or add zig/cross-cc.
+    env:
+      - CGO_ENABLED=1
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files: [LICENSE, README.md]
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^chore:"]
+
+release:
+  github:
+    owner: wolfeidau
+    name: durable
