@@ -17,6 +17,7 @@ Before finishing, after your last edit:
 ```sh
 go vet ./... && go test -race -count=1 ./...
 mise exec -- golangci-lint run ./...
+mise run check:tidy
 ```
 
 ## Durability invariants
@@ -73,7 +74,7 @@ require.Equal(t, http.StatusCreated, resp.StatusCode)
 ```
 
 - Fake models must also cover nil or empty input, not just `{}`.
-- Every new flag or caller needs a real-binary test in `cmd/durable`, because unit tests don't protect the wiring.
+- Every new CLI flag, or new wiring in `chat.go`, needs a real-binary test in `cmd/durable`, because unit tests don't protect it.
 - Tests that run the binary must use a temporary `HOME`.
 - When a test fails, fix the code. Change the test's data only if the test is wrong.
 - Real-binary tests run their own `go build`, so mutation checks on them need `GOFLAGS=-overlay=<file>`, not `go test -overlay`.
