@@ -1,4 +1,4 @@
-// Package fakeapi builds Anthropic Messages API server-sent event streams for tests.
+// Package fakeapi builds Anthropic Messages and OpenAI Responses server-sent event streams for tests.
 package fakeapi
 
 import (
@@ -52,4 +52,53 @@ func Stream(model, stop, details string, blocks ...string) string {
 	s := MessageStart(model) + strings.Join(blocks, "")
 	s += Event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null,"stop_details":%s},"usage":{"output_tokens":5}}`, stop, details))
 	return s + Event("message_stop", `{"type":"message_stop"}`)
+}
+
+// ResponsesMessageItem is an assistant message output item with one text part.
+func ResponsesMessageItem(id, text string) string {
+	return fmt.Sprintf(`{"type":"message","id":%q,"role":"assistant","status":"completed","content":[{"type":"output_text","text":%q,"annotations":[]}]}`, id, text)
+}
+
+// ResponsesCallItem is a function_call output item; args is the raw arguments string.
+func ResponsesCallItem(id, callID, name, args string) string {
+	return fmt.Sprintf(`{"type":"function_call","id":%q,"call_id":%q,"name":%q,"arguments":%q,"status":"completed"}`, id, callID, name, args)
+}
+
+func ResponsesItemAdded(index int, item string) string {
+	return Event("response.output_item.added", fmt.Sprintf(`{"type":"response.output_item.added","output_index":%d,"item":%s}`, index, item))
+}
+
+func ResponsesItemDone(index int, item string) string {
+	return Event("response.output_item.done", fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":%s}`, index, item))
+}
+
+func ResponsesTextDelta(index int, delta string) string {
+	return Event("response.output_text.delta", fmt.Sprintf(`{"type":"response.output_text.delta","output_index":%d,"delta":%q}`, index, delta))
+}
+
+// ResponsesItem frames added, then done, for one output item.
+func ResponsesItem(index int, item string) string {
+	return ResponsesItemAdded(index, item) + ResponsesItemDone(index, item)
+}
+
+// ResponsesCompleted frames the terminal event; output is the raw JSON array for response.output.
+func ResponsesCompleted(output string) string {
+	return Event("response.completed", fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":%s}}`, output))
+}
+
+// ResponsesIncomplete frames response.incomplete; an empty reason omits incomplete_details.
+func ResponsesIncomplete(reason string) string {
+	details := ""
+	if reason != "" {
+		details = fmt.Sprintf(`,"incomplete_details":{"reason":%q}`, reason)
+	}
+	return Event("response.incomplete", `{"type":"response.incomplete","response":{"id":"resp_1","status":"incomplete"`+details+`}}`)
+}
+
+func ResponsesFailed(code, message string) string {
+	return Event("response.failed", fmt.Sprintf(`{"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":%q,"message":%q}}}`, code, message))
+}
+
+func ResponsesError(code, message string) string {
+	return Event("error", fmt.Sprintf(`{"type":"error","code":%q,"message":%q}`, code, message))
 }
