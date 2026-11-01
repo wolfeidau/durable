@@ -12,7 +12,12 @@ func Event(name, data string) string {
 }
 
 func MessageStart(model string) string {
-	return Event("message_start", fmt.Sprintf(`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":1}}}`, model))
+	return MessageStartUsage(model, `{"input_tokens":1,"output_tokens":1}`)
+}
+
+// MessageStartUsage is MessageStart with chosen raw JSON for the usage object.
+func MessageStartUsage(model, usage string) string {
+	return Event("message_start", fmt.Sprintf(`{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":%q,"content":[],"stop_reason":null,"stop_sequence":null,"usage":%s}}`, model, usage))
 }
 
 func BlockStart(i int, block string) string {
@@ -49,8 +54,13 @@ func ToolBlock(i int, id, name string, parts ...string) string {
 
 // Stream frames a whole message; details is the raw JSON for stop_details ("null" for none).
 func Stream(model, stop, details string, blocks ...string) string {
-	s := MessageStart(model) + strings.Join(blocks, "")
-	s += Event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null,"stop_details":%s},"usage":{"output_tokens":5}}`, stop, details))
+	return StreamUsage(model, stop, details, `{"input_tokens":1,"output_tokens":1}`, `{"output_tokens":5}`, blocks...)
+}
+
+// StreamUsage is Stream with chosen raw JSON for the message_start and message_delta usage objects.
+func StreamUsage(model, stop, details, startUsage, deltaUsage string, blocks ...string) string {
+	s := MessageStartUsage(model, startUsage) + strings.Join(blocks, "")
+	s += Event("message_delta", fmt.Sprintf(`{"type":"message_delta","delta":{"stop_reason":%q,"stop_sequence":null,"stop_details":%s},"usage":%s}`, stop, details, deltaUsage))
 	return s + Event("message_stop", `{"type":"message_stop"}`)
 }
 
@@ -84,6 +94,11 @@ func ResponsesItem(index int, item string) string {
 // ResponsesCompleted frames the terminal event; output is the raw JSON array for response.output.
 func ResponsesCompleted(output string) string {
 	return Event("response.completed", fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":%s}}`, output))
+}
+
+// ResponsesCompletedUsage is ResponsesCompleted with chosen raw JSON for response.usage.
+func ResponsesCompletedUsage(output, usage string) string {
+	return Event("response.completed", fmt.Sprintf(`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":%s,"usage":%s}}`, output, usage))
 }
 
 // ResponsesIncomplete frames response.incomplete; an empty reason omits incomplete_details.

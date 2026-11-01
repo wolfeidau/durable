@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 	"strings"
 
@@ -167,7 +168,11 @@ func toResult(acc anthropic.BetaMessage) (durable.Message, error) {
 	if err != nil {
 		return durable.Message{}, fmt.Errorf("failed to marshal assistant content: %w", err)
 	}
-	return durable.Message{Role: durable.RoleAssistant, Text: text.String(), ToolCalls: calls, Raw: rawJSON}, nil
+	u := acc.Usage
+	return durable.Message{
+		Role: durable.RoleAssistant, Text: text.String(), ToolCalls: calls, Raw: rawJSON,
+		ContextTokens: u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens,
+	}, nil
 }
 
 func classify(ctx context.Context, err error) error {
@@ -187,10 +192,17 @@ func classify(ctx context.Context, err error) error {
 			return durable.Transient(wrapped)
 		default:
 		}
-		return wrapped
+		return overflowOr(apiErr, wrapped)
 	}
 	if s := apiErr.StatusCode; s == 408 || s == 409 || s == 429 || s >= 500 {
 		return durable.Transient(wrapped)
+	}
+	return overflowOr(apiErr, wrapped)
+}
+
+func overflowOr(apiErr *anthropic.Error, wrapped error) error {
+	if apiErr.StatusCode == http.StatusRequestEntityTooLarge || durable.IsOverflowText(apiErr.Error()) {
+		return durable.ContextOverflow(wrapped)
 	}
 	return wrapped
 }
