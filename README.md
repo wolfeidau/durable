@@ -6,22 +6,57 @@ Every step of a run is committed to SQLite before the next one starts, so you ca
 
 ## Running the agent
 
-`cmd/durable` is a small coding agent built on the harness, using Claude and five
-tools (`read_file`, `list_files`, `grep`, `edit_file`, `bash`).
+`cmd/durable` is a small coding agent built on the harness. It uses Claude by default, or
+a model through OpenRouter, and has five tools (`read_file`, `list_files`, `grep`,
+`edit_file`, `bash`).
 
 ```sh
 go build -o durable ./cmd/durable
 ./durable --api-token-from-1password 'op://<vault>/<item>/<field>'
 ```
 
-Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
+Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default),
+`--model` (default `claude-sonnet-5-5` on `anthropic`, required for a new `openrouter` session),
+`--effort` (default `medium` on `anthropic-messages`, unset on `openai-responses`),
 `--session` (default `default`), `--yes`, `--no-context`, `--version`, `--api-token` and
 `--api-token-from-1password`.
+
+- **Providers and protocols:** the provider is where requests go and which key they use.
+  The protocol is the wire format, and it is also the format of the stored model replies.
+
+  | Provider | Key | Default protocol | Allowed protocols |
+  |---|---|---|---|
+  | `anthropic` | SDK defaults | `anthropic-messages` | `anthropic-messages` |
+  | `openrouter` | `OPENROUTER_API_KEY` | `openai-responses` | `openai-responses`, `anthropic-messages` |
+
+  ```sh
+  ./durable                                                    # anthropic, anthropic-messages
+  ./durable --provider openrouter --model openai/gpt-5.6-luna  # openai-responses
+  ./durable --provider openrouter --protocol anthropic-messages --model anthropic/claude-sonnet-5-5
+  ```
+
+  Every start prints a `[model] <provider> via <protocol>: <model>` line showing the route.
+  `openai-responses` is the OpenRouter default for every model, but an `anthropic/*` model
+  on it loses Anthropic prompt caching and can cost several times more, so the agent prints
+  a warning. Use `--protocol anthropic-messages` for Claude models. The `OPENROUTER_API_KEY`
+  variable, `--api-token` or `--api-token-from-1password` supplies the key, and
+  `OPENROUTER_BASE_URL` overrides the root URL (without `/v1`). The OpenRouter route
+  ignores `ANTHROPIC_*` from the environment, so neither key goes to the wrong service.
+  The provider, protocol and OpenRouter model are pinned in `provider.json` next to the
+  session database when the session first starts, because stored replies only replay under
+  the protocol that wrote them. Changing any of them needs a new `--session`, and a
+  mismatched flag is an error. Sessions that predate this feature stay `anthropic`.
+  Limits on OpenRouter: server-side compaction exists only on the direct `anthropic`
+  provider, so a long session fails at the model's context limit. `anthropic-messages` via
+  OpenRouter also leaves out server-side fallbacks, and sends thinking block binding only
+  to Claude models, because OpenRouter rejects it on other models. `--effort`
+  is sent to `openai-responses` only when set, and a value the model doesn't support fails
+  with the provider's error.
 
 - **Credentials:** `--api-token-from-1password` reads the key with the `op` CLI when the
   agent starts. `--api-token` also works, but the key is then visible in the process list
   and shell history. With neither flag, the SDK's defaults apply (`ANTHROPIC_API_KEY`, or
-  `ant auth login`). `bash` commands don't inherit `ANTHROPIC_*` or `OP_*` variables, but
+  `ant auth login`). `bash` commands don't inherit `ANTHROPIC_*`, `OPENROUTER_*` or `OP_*` variables, but
   `bash` isn't sandboxed, so an approved command can still reach anything you can.
 - **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers
   the working directory and `--session`. To resume after a crash or a quit, run the agent
@@ -56,7 +91,7 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
   can't influence it (for example `npx` resolving a package from the project). A relative
   `command` no longer resolves in the repository; `"useWorkspaceCwd": true` runs that server
   in the workspace again. This doesn't sandbox the server, which still runs as you. Stdio
-  servers don't inherit `ANTHROPIC_*` or `OP_*` unless you pass them this way, and their stderr goes to
+  servers don't inherit `ANTHROPIC_*`, `OPENROUTER_*` or `OP_*` unless you pass them this way, and their stderr goes to
   `mcp-<server>.log` next to the session database. Tools are named `mcp__<server>__<tool>`
   and pinned in `mcp-tools.json` when the session first starts, so a resume uses the same list
   without connecting, and a server connects on its first call. A server that fails at session
@@ -124,7 +159,8 @@ sub, err := h.Prompt(ctx, requestID, userInput) // requestID: a UUID per input, 
 ```
 
 The agent's own parts are public, so you can reuse them instead of writing your own.
-`claude.New` returns a `Model`, and `tools.All` returns the five coding tools scoped to a
+`claude.New` returns a `Model` for Anthropic's Messages API, `responses.New` returns one for
+OpenAI-style Responses APIs such as OpenRouter's, and `tools.All` returns the five coding tools scoped to a
 workspace root. Its `stateDir` holds crash bookkeeping, so keep it outside the workspace:
 
 ```go
@@ -243,7 +279,7 @@ and later the adapter sends `prefix_mismatch_behavior: "drop_block"`, so the API
 those blocks and the session carries on without that reasoning, instead of failing with
 a 400. It also restarts the prompt cache.
 
-**Long sessions.** The adapter turns on server-side compaction on Claude 5 and later.
+**Long sessions.** On the direct Anthropic provider, the adapter turns on server-side compaction on Claude 5 and later.
 When a request reaches 150,000 input tokens, the API summarizes the older history into a
 compaction block at the start of the reply, and the agent prints `[compacting history]`.
 The block is stored in `Raw` like any other content, and the API ignores everything

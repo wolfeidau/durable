@@ -16,7 +16,7 @@ a no.
 
 `durable` leads on crash semantics and has a small extension surface. Its two seams, `Model`
 and `Tool`, are clean, but apart from MCP tools only Go code compiled into the binary can use
-them. The concrete tools and Claude adapter are public packages, so an embedder can reuse them.
+them. The concrete tools and the Claude and Responses adapters are public packages, so an embedder can reuse them.
 
 Pi and Claude Code have converged on the same set of extension points: context files,
 skills, MCP, hooks, subagents and packages. Pi Durable shows how those fit a durable loop.
@@ -41,7 +41,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Context files | Yes: `AGENTS.md` | Yes: `AGENTS.md`, `CLAUDE.md` | Ext: prompt sections | Yes: `CLAUDE.md`, `.claude/rules/` |
 | Replace or append system prompt | Part: library only | Yes: `SYSTEM.md`, `APPEND_SYSTEM.md` | Yes: sections | Yes: output styles, SDK |
 | Plugin packaging | No | Yes: npm, git, local | Part: extension registry | Yes: plugins, marketplaces |
-| Custom model providers | Part: `Model` interface | Yes: `registerProvider` | Yes: `pi-ai` | Part: Claude on several clouds |
+| Custom model providers | Part: `Model` interface; Anthropic and OpenRouter built in | Yes: `registerProvider` | Yes: `pi-ai` | Part: Claude on several clouds |
 | Custom commands, flags, shortcuts | No | Yes | n/a: library | Part: commands, keybindings |
 | Custom terminal UI | No | Yes: renderers, widgets | n/a: library | Part: status line, mods |
 | Project trust gate | No | Yes | n/a: library | Yes |
@@ -57,7 +57,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Subagents | No | Ext: example extension | Ext: ownership primitives | Yes |
 | Background tasks, sleep | No | Ext | Yes: stored sleep | Yes |
 | Scripted tool calls | No | Yes: codemode | Yes: code mode | Part: dynamic workflows |
-| Compaction | Yes: server-side, Claude 5+ | Yes | Yes | Yes |
+| Compaction | Yes: server-side, Claude 5+, direct Anthropic provider only | Yes | Yes | Yes |
 | Manual or guided compaction | No | Yes | Yes | Yes: `/compact` |
 | Plan mode | No | Ext: example extension | Ext | Yes |
 | Long-term memory | No | Ext | Yes: documents | Yes: auto memory |
@@ -93,7 +93,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Permission modes | Part: default, `--yes` | Ext | Ext | Yes: 6 modes |
 | Allow, ask, deny rules | No | Ext | Ext | Yes |
 | Workspace path scoping | Part: file tools only | No: cwd isn't a boundary | Ext | Yes |
-| Strips credentials from bash | Part: `ANTHROPIC_*`, `OP_*` | n/d | n/d | n/d |
+| Strips credentials from bash | Part: `ANTHROPIC_*`, `OPENROUTER_*`, `OP_*` | n/d | n/d | n/d |
 | OS sandbox | No: deferred, see #9 | Ext: containers | No | Yes |
 
 ## Interfaces and embedding
@@ -104,7 +104,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Non-interactive run | Part: piped stdin | Yes: `-p` | n/a: library | Yes: `-p` |
 | Structured event output | Part: `Observer`, library only | Yes: JSON mode | Yes: `watch` | Yes: stream JSON |
 | RPC over stdio | No | Yes | n/a: library | Part: SDK |
-| Embeddable library | Yes: harness, tools, Claude adapter | Yes: SDK | Yes | Yes: Agent SDK |
+| Embeddable library | Yes: harness, tools, Claude and Responses adapters | Yes: SDK | Yes | Yes: Agent SDK |
 | Multiple clients on one session | No | n/d | Yes: read-only opens, `watch` | Part: Remote Control |
 | Telemetry | No | n/d | Yes: metrics | Yes |
 
@@ -125,7 +125,7 @@ prerequisites for a modular harness. Items 5 to 9 are features on top.
 | 8 | Add steering and durable subagents | README next steps 2 and 3. Subagents need multiple conversations per store first | L |
 | 9 | Add a package format | Wait until items 5 to 7 give it something to bundle | M |
 
-Leave out for now: a TUI, multiple providers (`Model` already allows them), codemode and the
+Leave out for now: a TUI, more providers beyond Anthropic and OpenRouter, codemode and the
 OS sandbox, which stays deferred on #9.
 
 ## Design constraints
@@ -146,7 +146,8 @@ Modularity here has to keep the crash guarantees, which sets four rules.
 4. **Pin the prefix per session.** Context files, skill listings and tool order all feed the
    prompt cache and stored thinking blocks. Snapshot them when the session starts, and don't
    reread them on resume. The CLI does this for `AGENTS.md` in `instructions.md` and for MCP
-   tools in `mcp-tools.json`, and for skills in `skills.json`, all beside the session database.
+   tools in `mcp-tools.json`, for skills in `skills.json`, and for the provider, protocol and
+   OpenRouter model in `provider.json`, all beside the session database.
 
 Go also changes the extension model. Pi loads TypeScript into its process, which Go can't do
 well, because `plugin` is fragile and needs matching builds. So use three tiers: Go interfaces

@@ -191,6 +191,7 @@ func TestPinnedRoundTripIsByteIdentical(t *testing.T) {
 func TestStdioServerEndToEnd(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "leak")
 	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "leak")
+	t.Setenv("OPENROUTER_API_KEY", "leak")
 	root := t.TempDir()
 	logDir := filepath.Join(t.TempDir(), "logs")
 	p := NewPool(map[string]Server{
@@ -210,6 +211,7 @@ func TestStdioServerEndToEnd(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(out), &got))
 	require.Empty(t, got["anthropic"])
 	require.Empty(t, got["op"])
+	require.Empty(t, got["openrouter"])
 	require.Equal(t, "bar", got["foo"])
 	wantCwd, err := filepath.EvalSymlinks(root)
 	require.NoError(t, err)

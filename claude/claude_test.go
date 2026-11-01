@@ -207,6 +207,54 @@ func TestOlderModelsSendNoThinkingConfig(t *testing.T) {
 	}
 }
 
+func TestOlderThanClaude5Regex(t *testing.T) {
+	for model, want := range map[string]bool{
+		"anthropic/claude-sonnet-4.5": true,
+		"claude-sonnet-4-5":           true,
+		"anthropic/claude-sonnet-5-5": false,
+		"claude-sonnet-5-5":           false,
+	} {
+		require.Equal(t, want, olderThanClaude5.MatchString(model), model)
+	}
+}
+
+func TestGatewayRequestShape(t *testing.T) {
+	msgs := []durable.Message{{Role: durable.RoleUser, Text: "hi"}}
+
+	direct := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
+	_, err := gen(t, direct.model(Config{}), msgs, nil)
+	require.NoError(t, err)
+	body := direct.body(t, 0)
+	require.Equal(t, "default", body["fallbacks"])
+	require.Contains(t, body, "context_management")
+	require.Equal(t, map[string]any{
+		"type":          "adaptive",
+		"block_binding": map[string]any{"prefix_mismatch_behavior": "drop_block"},
+	}, body["thinking"])
+	for _, b := range []string{"server-side-fallback-2026-07-01", "thinking-binding-controls-2026-08-01", "compact-2026-01-12"} {
+		require.Contains(t, direct.headers[0].Get("anthropic-beta"), b)
+	}
+
+	gw := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
+	_, err = gen(t, gw.model(Config{Gateway: true, Model: "anthropic/claude-sonnet-5-5"}), msgs, nil)
+	require.NoError(t, err)
+	body = gw.body(t, 0)
+	require.Equal(t, []string{"thinking-binding-controls-2026-08-01"}, gw.headers[0].Values("anthropic-beta"))
+	require.NotContains(t, body, "fallbacks")
+	require.NotContains(t, body, "context_management")
+	require.Equal(t, map[string]any{
+		"type":          "adaptive",
+		"block_binding": map[string]any{"prefix_mismatch_behavior": "drop_block"},
+	}, body["thinking"])
+	require.Equal(t, map[string]any{"type": "ephemeral"}, body["cache_control"])
+
+	other := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "ok")))
+	_, err = gen(t, other.model(Config{Gateway: true, Model: "z-ai/glm-5.3"}), msgs, nil)
+	require.NoError(t, err)
+	require.Empty(t, other.headers[0].Values("anthropic-beta"))
+	require.Equal(t, map[string]any{"type": "adaptive"}, other.body(t, 0)["thinking"])
+}
+
 func compactionBlock(i int, summary, encrypted string) string {
 	delta, _ := json.Marshal(map[string]string{"type": "compaction_delta", "content": summary, "encrypted_content": encrypted})
 	return fakeapi.BlockStart(i, `{"type":"compaction","content":null,"encrypted_content":null}`) + fakeapi.BlockDelta(i, string(delta)) + fakeapi.BlockStop(i)

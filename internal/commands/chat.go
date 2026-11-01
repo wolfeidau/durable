@@ -12,15 +12,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/anthropics/anthropic-sdk-go/v2"
-	"github.com/anthropics/anthropic-sdk-go/v2/option"
 	"golang.org/x/term"
 
 	"github.com/wolfeidau/durable"
-	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/mcp"
 	"github.com/wolfeidau/durable/skills"
@@ -36,15 +34,17 @@ Be concise.`
 
 // ChatCmd runs the interactive agent.
 type ChatCmd struct {
-	Model     string        `help:"Claude model; empty uses the built-in default."`
-	Effort    string        `help:"Reasoning effort; empty uses the built-in default."`
+	Provider  string        `help:"Model provider: anthropic or openrouter. Empty uses the session's pin, else anthropic."`
+	Protocol  string        `help:"Wire protocol: anthropic-messages or openai-responses. Empty uses the session's pin, else the provider's default (anthropic: anthropic-messages, openrouter: openai-responses)."`
+	Model     string        `help:"Model name. Required for a new openrouter session, which pins it. For anthropic, empty uses the built-in default."`
+	Effort    string        `help:"Reasoning effort. Empty uses the built-in default on anthropic-messages and the model's own default on openai-responses."`
 	Yes       bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
 	NoContext bool          `name:"no-context" help:"Do not load AGENTS.md files or skills. Applies only when a session starts; resumed sessions keep their pinned instructions and skills."`
 	Session   string        `default:"default" help:"Session name; sessions are per directory."`
 	LeaseTTL  time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
 
-	APIToken              string `name:"api-token" help:"Claude API key. Visible in the process list and shell history; prefer --api-token-from-1password."`
-	APITokenFrom1Password string `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the Claude API key."`
+	APIToken              string `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
+	APITokenFrom1Password string `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
 }
 
 // Run opens the session, resumes unfinished work and reads prompts until EOF or interrupt.
@@ -63,14 +63,6 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	toolset, err := tools.All(cwd, filepath.Dir(path))
 	if err != nil {
 		return fmt.Errorf("failed to build tools: %w", err)
-	}
-	token, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
-	if err != nil {
-		return fmt.Errorf("failed to resolve API token: %w", err)
-	}
-	var clientOpts []option.RequestOption
-	if token != "" {
-		clientOpts = append(clientOpts, option.WithAPIKey(token))
 	}
 
 	// Pin after anything likely to fail, so a failed start doesn't freeze the text.
@@ -91,6 +83,10 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 			return err
 		}
 		mcpWarnings = append(mcpWarnings, strings.ReplaceAll(err.Error(), "\n", "; "))
+	}
+	rt, spec, key, err := c.resolveRoute(ctx, filepath.Dir(path), statErr == nil)
+	if err != nil {
+		return err
 	}
 	pinned, err := pinInstructions(filepath.Dir(path), statErr == nil, c.NoContext, func() (instructions, error) {
 		return discoverInstructions(cwd, home)
@@ -138,15 +134,21 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(pinned.Text))
 	}
 
+	line, warning := routeLine(rt)
+	fmt.Fprintln(out, line)
+	if warning != "" {
+		fmt.Fprintln(out, warning)
+	}
 	printMCP(out, servers, mcpWarnings, mcpPinned)
 	printSkills(out, skillsPinned)
 
 	shown := shownCalls{}
 	opts := durable.Options{
-		Model: claude.New(anthropic.NewClient(clientOpts...), claude.Config{
-			Model:     c.Model,
+		Model: protocolModels[rt.Protocol](rt, spec, modelArgs{
+			Key:       key,
 			System:    buildPrompt(pinned.Text),
 			Effort:    c.Effort,
+			SessionID: filepath.Base(filepath.Dir(path)),
 			OnText:    func(s string) { fmt.Fprint(out, s) },
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
 		}),
@@ -168,6 +170,41 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 
 	r := &repl{h: h, skills: skillsPinned.Skills, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
 	return r.run(ctx)
+}
+
+// resolveRoute validates the route and its key before any pin is written, so a failed start doesn't freeze the session.
+func (c *ChatCmd) resolveRoute(ctx context.Context, dir string, existed bool) (route, providerSpec, string, error) {
+	flagToken := sync.OnceValues(func() (string, error) {
+		tok, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
+		if err != nil {
+			return "", fmt.Errorf("failed to resolve API token: %w", err)
+		}
+		return tok, nil
+	})
+	var key string
+	rt, _, err := pinRoute(dir, existed, routeFlags{Provider: c.Provider, Protocol: c.Protocol, Model: c.Model}, func(r route) error {
+		s, err := r.spec()
+		if err != nil {
+			return err
+		}
+		tok, err := flagToken()
+		if err != nil {
+			return err
+		}
+		key, err = resolveKey(tok, r, s)
+		return err
+	})
+	if err != nil {
+		return route{}, providerSpec{}, "", err
+	}
+	if rt.Provider == providerAnthropic {
+		rt.Model = c.Model
+	}
+	spec, err := rt.spec()
+	if err != nil {
+		return route{}, providerSpec{}, "", err
+	}
+	return rt, spec, key, nil
 }
 
 func printMCP(out io.Writer, servers map[string]mcp.Server, configWarnings []string, p mcpTools) {

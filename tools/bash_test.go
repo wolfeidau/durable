@@ -42,6 +42,7 @@ func TestBashStdinIsEmpty(t *testing.T) {
 func TestBashScrubsCredentials(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "leak-me")
 	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "leak-me")
+	t.Setenv("OPENROUTER_API_KEY", "leak-me")
 	t.Setenv("DURABLE_KEEP", "kept")
 	e := newEnv(t)
 	out, err := e.run(t, "bash", map[string]any{"command": "env", "timeout_seconds": nil})
