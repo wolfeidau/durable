@@ -236,51 +236,11 @@ call is simply made again, which costs tokens but loses nothing.
 
 ## Tests
 
-`go test -race ./...` includes a real `kill -9` test (`cmd/durable/kill_test.go`). It
-builds the binary, points it at a fake Anthropic server, kills it mid-`bash` call and
-while an approval prompt is showing, restarts it, and checks the tool ran once, the
-unknown outcome was reported, and the submission finished. The harness tests also
-simulate crashes by cancelling the context at the worst moments: after an unsafe tool's side effect, after a safe tool's side effect, and
-during a model call. Others cover lease exclusion, stale-owner fencing, duplicate
-request IDs, and queue ordering. Further tests cover lease loss cancelling a running
-tool, concurrent `Run` calls not double-executing a tool, retried and failed model
-calls, and cancellation during retry backoff. Cancel tests cover queued and running
-submissions, mixed done/started/pending calls getting exactly one result each,
-idempotence, unknown IDs, waiting for `Run`, stale-owner fencing and surviving a
-reopen. The REPL tests check that Ctrl-C during a tool or at an approval prompt cancels
-without resuming, and that SIGTERM leaves the task running. A real-binary test
-(`TestInterruptCancelsAndDoesNotResume`) sends SIGINT and checks a restart doesn't
-re-run the task.
-
-Gate tests cover allow, deny, ask and rewrite, failing closed, invalid rewrites not blocking
-the queue, and rewritten input reaching replay and `Recover` with the `Rewritten` note.
-
-Event tests cover commit order, `Seq` ordering, rewritten inputs, replays, `call_done` for calls
-that never ran, nil tool input, `Raw` being omitted, `Events`
-paging and catch-up after a crash, live-only delivery, `Cancel`, failed models, duplicate
-request IDs, stale-owner commits adding nothing, sessions that predate the `events` table,
-an `Observer` calling `History`, and `Submit` racing `Run`.
-
-`TestKillStopsOrphanedCommand` kills the agent mid-`bash`, checks the command is still
-alive, restarts, and checks it was stopped, never finished, and reported with the
-stopped note. `Orphan`/`Recover` tests in `tools` cover a live orphan,
-state-file cleanup after success, error, timeout and cancel, reused group IDs, lock
-holders outside the recorded group, unusable IDs (`0`, `1`, `-1`, empty) never being
-signalled, and idempotence. `recover_test.go` covers `Recover` running once before the
-result commits, not for `pending` or `ReplaySafe` calls, cancellation during `Recover`,
-and `Cancel` recovering `started` calls only.
-
-Instruction tests cover discovery order, stopping at the repository root, ignoring `CLAUDE.md`,
-literal `@path` text, symlinks outside the repository and absolute in-repository symlinks, FIFOs
-and directories, the size limits (including the exact 32 KiB boundary and the budget favouring
-specific files), NUL bytes, unreadable files, `..foo` directories, `.git` ownership, and pinning
-(a changed file, older sessions, `--no-context` and concurrent starts). Real-binary tests check a
-restart sends a byte-identical system prompt after `AGENTS.md` changes and prints the pinned
-notice, older sessions keep an empty pin, `--no-context` and escaping symlinks keep text out of
-the prompt, and a failed token lookup doesn't pin.
-
-Claude adapter tests cover compaction blocks surviving a streamed round trip through
-`Raw` unchanged, arriving alongside a tool call, and not being sent to older models.
+`go test -race ./...` includes real `kill -9` tests in `cmd/durable`. They build the binary, point
+it at a fake Anthropic server, kill it mid-`bash` and at an approval prompt, then restart it and
+check the tool ran once and the outcome was reported. The harness tests simulate crashes by
+cancelling the context at the worst moments, including after a tool's side effect and during a
+model call.
 
 ## Next steps, roughly in order of payoff
 
