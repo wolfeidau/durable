@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 
@@ -84,7 +85,11 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	// Only the user's file: a repository must not be able to start commands.
 	servers, mcpWarnings, err := mcp.LoadConfig(filepath.Join(home, ".durable", "mcp.json"))
 	if err != nil {
-		return err
+		// A new session fails before anything is pinned; an existing one must still resume.
+		if statErr != nil {
+			return err
+		}
+		mcpWarnings = append(mcpWarnings, strings.ReplaceAll(err.Error(), "\n", "; "))
 	}
 	pinned, err := pinInstructions(filepath.Dir(path), statErr == nil, c.NoContext, func() (instructions, error) {
 		return discoverInstructions(cwd, home)

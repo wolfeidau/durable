@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -43,7 +44,7 @@ type Pinned struct {
 
 // Options configures a Pool.
 type Options struct {
-	// Root is the working directory of stdio servers.
+	// Root is the workspace; stdio servers run there only if their config sets UseWorkspaceCwd.
 	Root string
 	// LogDir receives the stderr of stdio servers as mcp-<server>.log.
 	LogDir string
@@ -56,6 +57,8 @@ type Pool struct {
 	servers map[string]Server
 	opts    Options
 	conns   map[string]*conn
+	// live counts sessions whose cleanup has not run yet.
+	live sync.WaitGroup
 	// dial is a seam for tests. cleanup runs once the session is gone.
 	dial func(name string, s Server) (t mcpsdk.Transport, cleanup func(), err error)
 }
@@ -79,43 +82,68 @@ var unsafeName = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
 func (p *Pool) dialServer(name string, s Server) (mcpsdk.Transport, func(), error) {
 	if s.Type == typeHTTP {
-		client := &http.Client{Transport: headerTripper{headers: s.Headers, next: http.DefaultTransport}}
+		u, err := url.Parse(s.URL)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse url of mcp server %q: %w", name, err)
+		}
+		client := &http.Client{Transport: headerTripper{headers: s.Headers, scheme: u.Scheme, host: u.Host, next: http.DefaultTransport}}
 		return &mcpsdk.StreamableClientTransport{Endpoint: s.URL, HTTPClient: client, DisableStandaloneSSE: true}, func() {}, nil
+	}
+
+	dir := p.opts.Root
+	removeDir := func() {}
+	if !s.UseWorkspaceCwd {
+		tmp, err := os.MkdirTemp("", "durable-mcp-*")
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to create MCP working directory: %w", err)
+		}
+		dir = tmp
+		removeDir = func() { _ = os.RemoveAll(tmp) }
 	}
 
 	// Not CommandContext: the server must outlive the context of any one call.
 	cmd := exec.Command(s.Command, s.Args...) //nolint:gosec,noctx // running the configured command is the point; a call context must not kill it
-	cmd.Dir = p.opts.Root
-	cmd.Env = tools.ScrubEnv(os.Environ())
+	cmd.Dir = dir
+	// With an explicit Env, os/exec does not update PWD, so the inherited one would name the workspace.
+	cmd.Env = append(tools.ScrubEnv(os.Environ()), "PWD="+dir)
 	for _, k := range sortedKeys(s.Env) {
 		cmd.Env = append(cmd.Env, k+"="+s.Env[k])
 	}
 	// Own process group, so a terminal Ctrl-C does not reach the server.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cleanup := func() {}
+	cleanup := removeDir
 	if p.opts.LogDir != "" {
 		if err := os.MkdirAll(p.opts.LogDir, 0o700); err != nil {
+			removeDir()
 			return nil, nil, fmt.Errorf("failed to create MCP log directory: %w", err)
 		}
 		f, err := os.OpenFile(filepath.Join(p.opts.LogDir, "mcp-"+unsafeName.ReplaceAllString(name, "_")+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
+			removeDir()
 			return nil, nil, fmt.Errorf("failed to open MCP log file: %w", err)
 		}
 		cmd.Stderr = f
-		cleanup = func() { _ = f.Close() }
+		cleanup = func() {
+			_ = f.Close()
+			removeDir()
+		}
 	}
 	return &mcpsdk.CommandTransport{Command: cmd, TerminateDuration: terminateDuration}, cleanup, nil
 }
 
+// headerTripper adds headers only for the configured origin, so a redirect cannot carry them elsewhere.
 type headerTripper struct {
-	headers map[string]string
-	next    http.RoundTripper
+	headers      map[string]string
+	scheme, host string
+	next         http.RoundTripper
 }
 
 func (h headerTripper) RoundTrip(r *http.Request) (*http.Response, error) {
-	r = r.Clone(r.Context())
-	for k, v := range h.headers {
-		r.Header.Set(k, v)
+	if r.URL.Scheme == h.scheme && strings.EqualFold(r.URL.Host, h.host) {
+		r = r.Clone(r.Context())
+		for k, v := range h.headers {
+			r.Header.Set(k, v)
+		}
 	}
 	return h.next.RoundTrip(r)
 }
@@ -158,7 +186,7 @@ func (p *Pool) session(ctx context.Context, name string) (*mcpsdk.ClientSession,
 		return nil, fmt.Errorf("failed to connect to mcp server %q: %w", name, err)
 	}
 	c.cs = cs
-	go func() {
+	p.live.Go(func() {
 		_ = cs.Wait()
 		c.mu.Lock()
 		if c.cs == cs {
@@ -166,7 +194,7 @@ func (p *Pool) session(ctx context.Context, name string) (*mcpsdk.ClientSession,
 		}
 		c.mu.Unlock()
 		cleanup()
-	}()
+	})
 	return cs, nil
 }
 
@@ -251,11 +279,15 @@ func inputSchema(v any) (json.RawMessage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("input schema is not valid JSON: %w", err)
 	}
-	var probe struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(raw, &probe); err != nil || probe.Type != "object" {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil || string(probe["type"]) != `"object"` {
 		return nil, errors.New("input schema must be a JSON object with type \"object\"")
+	}
+	// The Claude API rejects these at the top level, which would fail every request that includes the tool.
+	for _, k := range []string{"oneOf", "anyOf", "allOf"} {
+		if _, ok := probe[k]; ok {
+			return nil, fmt.Errorf("input schema must not use %s at the top level", k)
+		}
 	}
 	return raw, nil
 }
@@ -270,7 +302,7 @@ func capUTF8(s string, n int) string {
 	return s[:n]
 }
 
-// Close closes every open session.
+// Close closes every open session and waits until each one's cleanup has run.
 func (p *Pool) Close() error {
 	var first error
 	for _, c := range p.conns {
@@ -285,5 +317,6 @@ func (p *Pool) Close() error {
 			first = fmt.Errorf("failed to close mcp session: %w", err)
 		}
 	}
+	p.live.Wait()
 	return first
 }

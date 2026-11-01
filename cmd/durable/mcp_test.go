@@ -28,8 +28,12 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// runFakeServer is a stdio MCP server whose tools, delay, marker file and read-only hint come from the environment.
+// runFakeServer is a stdio MCP server whose tools, delay, marker file, read-only hint and working-directory report file come from the environment.
 func runFakeServer() {
+	if path := os.Getenv("FAKE_MCP_CWDFILE"); path != "" {
+		cwd, _ := os.Getwd()
+		_ = os.WriteFile(path, []byte(cwd), 0o600)
+	}
 	s := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "fake", Version: "1"}, nil)
 	delay, _ := time.ParseDuration(os.Getenv("FAKE_MCP_SLEEP"))
 	for name := range strings.SplitSeq(os.Getenv("FAKE_MCP_TOOLS"), ",") {
@@ -134,6 +138,8 @@ func TestMCPToolRoundTrip(t *testing.T) {
 func TestMCPReadOnlyHintStillPrompts(t *testing.T) {
 	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
+	// kill -9 leaves the server's temp directory behind.
+	t.Setenv("TMPDIR", t.TempDir())
 	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "echo", "FAKE_MCP_READONLY": "1"})
 	api := newFakeAPIReply(t, mcpCall("mcp__fake__echo"))
 
@@ -147,6 +153,8 @@ func TestMCPReadOnlyHintStillPrompts(t *testing.T) {
 func TestMCPKillDuringCallThenServerRemoved(t *testing.T) {
 	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
+	// kill -9 leaves the server's temp directory behind.
+	t.Setenv("TMPDIR", t.TempDir())
 	marker := filepath.Join(ws, "marker.txt")
 	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "slow", "FAKE_MCP_SLEEP": "5s", "FAKE_MCP_MARKER": marker})
 	api := newFakeAPIReply(t, mcpCall("mcp__fake__slow"))
@@ -220,4 +228,134 @@ func TestMissingMCPServerCommandWarnsAndChatWorks(t *testing.T) {
 	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 1, a, "first")
 	require.Contains(t, a.out.String(), "[mcp] warning: mcp server \"fake\" skipped")
+}
+
+// fakeServers is a config entry for the fake server with extra fields such as useWorkspaceCwd.
+func fakeServers(t *testing.T, env map[string]string, extra map[string]any) map[string]any {
+	t.Helper()
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	all := map[string]string{fakeServerEnv: "1"}
+	maps.Copy(all, env)
+	entry := map[string]any{"command": exe, "env": all}
+	maps.Copy(entry, extra)
+	return map[string]any{"fake": entry}
+}
+
+func runCwdTest(t *testing.T, useWorkspaceCwd bool) (ws, got, tmp string) {
+	t.Helper()
+	tmp = t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	cwdFile := filepath.Join(home, "cwd.txt")
+	extra := map[string]any{}
+	if useWorkspaceCwd {
+		extra["useWorkspaceCwd"] = true
+	}
+	writeMCPServers(t, home, fakeServers(t, map[string]string{"FAKE_MCP_TOOLS": "echo", "FAKE_MCP_CWDFILE": cwdFile}, extra))
+	api := newFakeAPIReply(t, textReply("hi"))
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 1, a, "go")
+
+	b, err := os.ReadFile(cwdFile)
+	require.NoError(t, err)
+	got, err = filepath.EvalSymlinks(string(b))
+	if err != nil {
+		// The default directory is already removed once the agent exits.
+		got = string(b)
+	}
+	return ws, got, tmp
+}
+
+func TestMCPServerDefaultCwdIsNotWorkspace(t *testing.T) {
+	ws, got, tmp := runCwdTest(t, false)
+	require.NotEqual(t, ws, got)
+	require.Contains(t, got, "durable-mcp-")
+	require.Empty(t, mustReadDir(t, tmp), "temp dir must be removed after the agent exits")
+}
+
+func TestMCPServerUseWorkspaceCwd(t *testing.T) {
+	ws, got, tmp := runCwdTest(t, true)
+	require.Equal(t, ws, got)
+	require.Empty(t, mustReadDir(t, tmp))
+}
+
+func mustReadDir(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestInvalidMCPConfigOnResumeWarnsAndCompletesRun(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	marker := filepath.Join(ws, "marker.txt")
+	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "slow", "FAKE_MCP_SLEEP": "5s", "FAKE_MCP_MARKER": marker})
+	api := newFakeAPIReply(t, mcpCall("mcp__fake__slow"))
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	_, err := io.WriteString(a.stdin, "use it\n")
+	require.NoError(t, err)
+	eventually(t, "marker line", func() bool { return len(readLinesOf(t, marker)) == 1 })
+	a.kill(t)
+
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "mcp.json"), []byte("{nope"), 0o600))
+	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	require.NoError(t, b.stdin.Close())
+	require.NoError(t, waitExit(t, b), b.out.String())
+	require.Contains(t, b.out.String(), "[mcp] warning: failed to parse MCP config")
+
+	require.Len(t, readLinesOf(t, marker), 1, "the MCP call must not run twice")
+	reqs := api.requests()
+	require.Len(t, reqs, 2)
+	require.True(t, hasToolResult(t, reqs[1], true, durable.UnknownOutcome), reqs[1])
+	hist := finalHistory(t, ws)
+	require.Equal(t, []durable.Role{durable.RoleUser, durable.RoleAssistant, durable.RoleTool, durable.RoleAssistant}, historyRoles(hist))
+}
+
+func unsetVarConfig(t *testing.T, home string) {
+	t.Helper()
+	writeMCPServers(t, home, fakeServers(t, map[string]string{"FAKE_MCP_TOOLS": "echo", "TOKEN": "${DURABLE_TEST_UNSET_MCP_VAR}"}, nil))
+}
+
+func TestUnsetMCPVariableFailsNewSessionWithoutPinning(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	unsetVarConfig(t, home)
+	api := newFakeAPIReply(t, textReply("hi"))
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	require.NoError(t, a.stdin.Close())
+	require.Error(t, waitExit(t, a), a.out.String())
+	require.Contains(t, a.out.String(), "DURABLE_TEST_UNSET_MCP_VAR")
+
+	for _, pin := range []string{"instructions.md", "mcp-tools.json"} {
+		pins, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", pin))
+		require.NoError(t, err)
+		require.Empty(t, pins)
+	}
+	require.Empty(t, api.requests())
+}
+
+func TestUnsetMCPVariableOnExistingSessionWarns(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "echo"})
+	api := newFakeAPIReply(t, textReply("hi"))
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 1, a, "first")
+
+	unsetVarConfig(t, home)
+	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 2, b, "second")
+	require.Contains(t, b.out.String(), "[mcp] warning: ")
+	require.Contains(t, b.out.String(), "DURABLE_TEST_UNSET_MCP_VAR")
 }

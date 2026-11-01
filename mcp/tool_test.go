@@ -171,7 +171,7 @@ func TestExecuteServerRemovedFromConfig(t *testing.T) {
 	require.Equal(t, spec, tl.Spec())
 	_, err := tl.Execute(context.Background(), durable.ToolCall{})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no longer configured")
+	require.Contains(t, err.Error(), "not available in the current MCP config")
 	require.Contains(t, err.Error(), "did not run")
 }
 

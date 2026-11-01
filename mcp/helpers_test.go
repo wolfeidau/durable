@@ -31,6 +31,7 @@ func runStdioServer() {
 			"op":        os.Getenv("OP_SERVICE_ACCOUNT_TOKEN"),
 			"foo":       os.Getenv("FOO"),
 			"cwd":       cwd,
+			"pwd":       os.Getenv("PWD"),
 		}
 		b, _ := json.Marshal(out)
 		return text(string(b)), nil

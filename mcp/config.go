@@ -25,13 +25,16 @@ type Server struct {
 	URL            string            `json:"url,omitempty"`
 	Headers        map[string]string `json:"headers,omitempty"`
 	TimeoutSeconds int               `json:"timeoutSeconds,omitempty"`
+	// UseWorkspaceCwd runs a stdio server in the workspace instead of an empty temp directory.
+	UseWorkspaceCwd bool `json:"useWorkspaceCwd,omitempty"`
 }
 
 var envVar = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // LoadConfig reads the mcpServers map from path. A missing file means no servers.
-// Entries that cannot be used are skipped with a warning. The returned Type is
-// always "stdio" or "http".
+// Entries that cannot be used are skipped with a warning. A server that
+// references an unset variable is skipped too, and the error names it while the
+// other servers are still returned. The returned Type is always "stdio" or "http".
 func LoadConfig(path string) (map[string]Server, []string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // the path is the caller's trusted config file
 	if errors.Is(err, os.ErrNotExist) {
@@ -55,6 +58,7 @@ func LoadConfig(path string) (map[string]Server, []string, error) {
 
 	servers := map[string]Server{}
 	var warnings []string
+	var errs []error
 	for _, name := range names {
 		s := cfg.MCPServers[name]
 		switch {
@@ -73,15 +77,16 @@ func LoadConfig(path string) (map[string]Server, []string, error) {
 			warnings = append(warnings, fmt.Sprintf("mcp server %q skipped: type %q needs a command or url", name, s.Type))
 			continue
 		}
-		if s.Env, err = expand(name, s.Env); err != nil {
-			return nil, nil, err
-		}
-		if s.Headers, err = expand(name, s.Headers); err != nil {
-			return nil, nil, err
+		var envErr, headerErr error
+		s.Env, envErr = expand(name, s.Env)
+		s.Headers, headerErr = expand(name, s.Headers)
+		if err := errors.Join(envErr, headerErr); err != nil {
+			errs = append(errs, err)
+			continue
 		}
 		servers[name] = s
 	}
-	return servers, warnings, nil
+	return servers, warnings, errors.Join(errs...)
 }
 
 func expand(server string, m map[string]string) (map[string]string, error) {

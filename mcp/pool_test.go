@@ -3,9 +3,12 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,7 +194,7 @@ func TestStdioServerEndToEnd(t *testing.T) {
 	root := t.TempDir()
 	logDir := filepath.Join(t.TempDir(), "logs")
 	p := NewPool(map[string]Server{
-		"../sneaky": {Type: typeStdio, Command: os.Args[0], Env: map[string]string{stdioServerEnv: "1", "FOO": "bar"}},
+		"../sneaky": {Type: typeStdio, Command: os.Args[0], Env: map[string]string{stdioServerEnv: "1", "FOO": "bar"}, UseWorkspaceCwd: true},
 	}, Options{Root: root, LogDir: logDir})
 	t.Cleanup(func() { _ = p.Close() })
 
@@ -213,6 +216,9 @@ func TestStdioServerEndToEnd(t *testing.T) {
 	gotCwd, err := filepath.EvalSymlinks(got["cwd"])
 	require.NoError(t, err)
 	require.Equal(t, wantCwd, gotCwd)
+	gotPWD, err := filepath.EvalSymlinks(got["pwd"])
+	require.NoError(t, err)
+	require.Equal(t, wantCwd, gotPWD)
 
 	logPath := filepath.Join(logDir, "mcp-___sneaky.log")
 	require.Eventually(t, func() bool {
@@ -225,4 +231,226 @@ func TestStdioServerEndToEnd(t *testing.T) {
 	entries, err := os.ReadDir(logDir)
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
+}
+
+func TestInputSchemaRejectsTopLevelCombiners(t *testing.T) {
+	for _, kw := range []string{"oneOf", "anyOf", "allOf"} {
+		_, err := inputSchema(map[string]any{"type": "object", kw: []any{map[string]any{"required": []any{"a"}}}})
+		require.Error(t, err, kw)
+		require.Contains(t, err.Error(), kw)
+	}
+}
+
+func TestInputSchemaAllowsNestedCombiners(t *testing.T) {
+	raw, err := inputSchema(map[string]any{"type": "object", "properties": map[string]any{
+		"a": map[string]any{"oneOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "number"}}},
+		"b": map[string]any{"anyOf": []any{map[string]any{"type": "string"}}},
+		"c": map[string]any{"allOf": []any{map[string]any{"type": "string"}}},
+	}})
+	require.NoError(t, err)
+	require.NotEmpty(t, raw)
+}
+
+// isolateTmp points the temp directory at a fresh one so tests can see what the pool leaves in it.
+func isolateTmp(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	return tmp
+}
+
+func entriesOf(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func runReport(t *testing.T, p *Pool) map[string]string {
+	t.Helper()
+	pinned, warnings := p.Discover(context.Background())
+	require.Empty(t, warnings)
+	require.Len(t, pinned, 1)
+	out, err := p.Tools(pinned)[0].Execute(context.Background(), durable.ToolCall{ID: "1"})
+	require.NoError(t, err)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal([]byte(out), &got))
+	return got
+}
+
+func stdioServer(useWorkspace bool) map[string]Server {
+	return map[string]Server{"s": {Type: typeStdio, Command: os.Args[0], Env: map[string]string{stdioServerEnv: "1"}, UseWorkspaceCwd: useWorkspace}}
+}
+
+func TestStdioDefaultCwdIsEmptyTempDirRemovedOnClose(t *testing.T) {
+	tmp := isolateTmp(t)
+	root := t.TempDir()
+	p := NewPool(stdioServer(false), Options{Root: root})
+
+	got := runReport(t, p)
+	entries := entriesOf(t, tmp)
+	require.Len(t, entries, 1)
+	require.Regexp(t, `^durable-mcp-`, entries[0])
+	gotCwd, err := filepath.EvalSymlinks(got["cwd"])
+	require.NoError(t, err)
+	wantCwd, err := filepath.EvalSymlinks(filepath.Join(tmp, entries[0]))
+	require.NoError(t, err)
+	require.Equal(t, wantCwd, gotCwd)
+	wantRoot, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	require.NotEqual(t, wantRoot, gotCwd)
+	require.Empty(t, entriesOf(t, filepath.Join(tmp, entries[0])))
+	// PWD must not leak the workspace.
+	gotPWD, err := filepath.EvalSymlinks(got["pwd"])
+	require.NoError(t, err)
+	require.Equal(t, wantCwd, gotPWD)
+
+	require.NoError(t, p.Close())
+	require.Empty(t, entriesOf(t, tmp))
+}
+
+func TestStdioUseWorkspaceCwdUsesRootAndCreatesNoTempDir(t *testing.T) {
+	tmp := isolateTmp(t)
+	root := t.TempDir()
+	p := NewPool(stdioServer(true), Options{Root: root})
+
+	got := runReport(t, p)
+	wantRoot, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	gotCwd, err := filepath.EvalSymlinks(got["cwd"])
+	require.NoError(t, err)
+	require.Equal(t, wantRoot, gotCwd)
+	gotPWD, err := filepath.EvalSymlinks(got["pwd"])
+	require.NoError(t, err)
+	require.Equal(t, wantRoot, gotPWD)
+	require.Empty(t, entriesOf(t, tmp))
+	require.NoError(t, p.Close())
+	require.DirExists(t, root)
+}
+
+func TestStdioConnectFailureRemovesTempDir(t *testing.T) {
+	tmp := isolateTmp(t)
+	p := NewPool(map[string]Server{"s": {Type: typeStdio, Command: "/nonexistent/durable-mcp-test"}}, Options{Root: t.TempDir()})
+
+	_, warnings := p.Discover(context.Background())
+	require.Len(t, warnings, 1)
+	require.Empty(t, entriesOf(t, tmp))
+	require.NoError(t, p.Close())
+}
+
+func TestDialRejectsUnparsableURL(t *testing.T) {
+	p := NewPool(map[string]Server{"h": {Type: typeHTTP, URL: "http://[::1"}}, Options{})
+	_, warnings := p.Discover(context.Background())
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], `"h"`)
+}
+
+func headerClient(t *testing.T, url string) *http.Client {
+	t.Helper()
+	p := NewPool(nil, Options{})
+	tr, cleanup, err := p.dialServer("h", Server{Type: typeHTTP, URL: url, Headers: map[string]string{"X-Token": "s3cret"}})
+	require.NoError(t, err)
+	cleanup()
+	return tr.(*mcpsdk.StreamableClientTransport).HTTPClient
+}
+
+func get(t *testing.T, c *http.Client, url string) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	require.NoError(t, err)
+	resp, err := c.Do(req)
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+}
+
+func TestHeadersNotSentToOtherOriginOnRedirect(t *testing.T) {
+	var other string
+	b := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { other = r.Header.Get("X-Token") }))
+	t.Cleanup(b.Close)
+	var first string
+	a := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		first = r.Header.Get("X-Token")
+		http.Redirect(w, r, b.URL, http.StatusTemporaryRedirect)
+	}))
+	t.Cleanup(a.Close)
+
+	get(t, headerClient(t, a.URL), a.URL)
+	require.Equal(t, "s3cret", first)
+	require.Empty(t, other)
+}
+
+func TestHeadersKeptOnSameOriginRedirect(t *testing.T) {
+	var final string
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/start" {
+			http.Redirect(w, r, srv.URL+"/final", http.StatusTemporaryRedirect)
+			return
+		}
+		final = r.Header.Get("X-Token")
+	}))
+	t.Cleanup(srv.Close)
+
+	get(t, headerClient(t, srv.URL), srv.URL+"/start")
+	require.Equal(t, "s3cret", final)
+}
+
+type captureTripper struct{ got *http.Request }
+
+func (c *captureTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	c.got = r
+	return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: r}, nil
+}
+
+func TestHeadersNotSentWhenSchemeDiffers(t *testing.T) {
+	next := &captureTripper{}
+	tr := headerTripper{headers: map[string]string{"X-Token": "s3cret"}, scheme: "http", host: "example.test", next: next}
+
+	for url, want := range map[string]string{"http://example.test/x": "s3cret", "https://example.test/x": ""} {
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		require.NoError(t, err)
+		resp, err := tr.RoundTrip(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, want, next.got.Header.Get("X-Token"), url)
+	}
+}
+
+func TestHTTPServerEndToEnd(t *testing.T) {
+	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "http", Version: "1"}, nil)
+	srv.AddTool(objectTool("echo"), func(context.Context, *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+		return text("pong"), nil
+	})
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	var mu sync.Mutex
+	var tokens []string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		tokens = append(tokens, r.Header.Get("X-Token"))
+		mu.Unlock()
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+
+	p := NewPool(map[string]Server{"h": {Type: typeHTTP, URL: ts.URL, Headers: map[string]string{"X-Token": "s3cret"}}}, Options{})
+	t.Cleanup(func() { _ = p.Close() })
+
+	pinned, warnings := p.Discover(context.Background())
+	require.Empty(t, warnings)
+	require.Len(t, pinned, 1)
+	require.Equal(t, "mcp__h__echo", pinned[0].Spec.Name)
+	out, err := p.Tools(pinned)[0].Execute(context.Background(), durable.ToolCall{ID: "1"})
+	require.NoError(t, err)
+	require.Equal(t, "pong", out)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, tokens)
+	for _, tok := range tokens {
+		require.Equal(t, "s3cret", tok)
+	}
 }

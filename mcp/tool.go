@@ -42,7 +42,7 @@ func (t *mcpTool) Replay() durable.Replay { return durable.ReplayNever }
 func (t *mcpTool) Execute(ctx context.Context, call durable.ToolCall) (string, error) {
 	server, ok := t.pool.servers[t.pinned.Server]
 	if !ok {
-		return "", fmt.Errorf("mcp server %q is no longer configured; the call did not run", t.pinned.Server)
+		return "", fmt.Errorf("mcp server %q is not available in the current MCP config; the call did not run", t.pinned.Server)
 	}
 	cs, err := t.pool.session(ctx, t.pinned.Server)
 	if err != nil {
