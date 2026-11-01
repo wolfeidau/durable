@@ -19,6 +19,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/hooks"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/mcp"
 	"github.com/wolfeidau/durable/skills"
@@ -84,6 +85,11 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 		}
 		mcpWarnings = append(mcpWarnings, strings.ReplaceAll(err.Error(), "\n", "; "))
 	}
+	// A policy the user configured must not be skipped, so unlike MCP an existing session refuses too.
+	hookCfg, hookWarnings, err := hooks.LoadConfig(filepath.Join(home, ".durable", "hooks.json"))
+	if err != nil {
+		return err
+	}
 	rt, spec, key, err := c.resolveRoute(ctx, filepath.Dir(path), statErr == nil)
 	if err != nil {
 		return err
@@ -141,6 +147,7 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	}
 	printMCP(out, servers, mcpWarnings, mcpPinned)
 	printSkills(out, skillsPinned)
+	printHooks(out, hookCfg, hookWarnings, toolset)
 
 	shown := shownCalls{}
 	opts := durable.Options{
@@ -155,9 +162,17 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 		Tools:    withDisplay(toolset, out, shown),
 		LeaseTTL: c.LeaseTTL,
 	}
+	var base durable.ToolGate
 	if !c.Yes {
-		opts.Gate = durable.ReadOnlyGate(toolset)
+		base = durable.ReadOnlyGate(toolset)
+		opts.Gate = base
 		opts.Ask = newApprover(lines, out, shown)
+	}
+	if !hookCfg.Empty() {
+		// base comes from the unwrapped tools and the display wrapper stays outermost, so the call line prints before the tool runs.
+		runner := newHookRunner(hookCfg, cwd, filepath.Dir(path), c.Yes)
+		opts.Gate = runner.Gate(base)
+		opts.Tools = withDisplay(runner.Wrap(toolset), out, shown)
 	}
 
 	h, err := openWithNotice(ctx, path, opts, sigs, func() {
