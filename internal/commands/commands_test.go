@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wolfeidau/durable"
-	"github.com/wolfeidau/durable/internal/tools"
+	"github.com/wolfeidau/durable/tools"
 )
 
 type fakeModel struct {
