@@ -168,7 +168,7 @@ func TestCutSelection(t *testing.T) {
 		force bool
 		want  int // -1 for ok=false
 	}{
-		{"keeps newest by budget and prefers user", convo(10, 40), 25, false, 8},
+		{"keeps newest by budget", convo(10, 40), 25, false, 7},
 		{"budget lands on user keeps it", convo(10, 40), 35, false, 6},
 		{"assistant when no later user", convo(8, 40), 5, false, 7},
 		{"budget never reached", convo(4, 40), 1000, false, -1},
@@ -221,8 +221,8 @@ func TestCutKeepClampedForSmallWindow(t *testing.T) {
 	got, ok, err := c.Compact(t.Context(), durable.CompactRequest{Messages: msgs})
 	require.NoError(t, err)
 	require.True(t, ok)
-	// 250 tokens reached at index 17; nearest user at or after is 18.
-	require.Equal(t, 18, got.FirstKept)
+	// 250 tokens reached at index 17, which is a valid cut.
+	require.Equal(t, 17, got.FirstKept)
 }
 
 func TestSerialization(t *testing.T) {
@@ -311,7 +311,7 @@ func TestPrompt(t *testing.T) {
 		got, ok, err := New(Config{Model: f, KeepTokens: 25}).Compact(t.Context(), durable.CompactRequest{Messages: msgs, Force: true})
 		require.NoError(t, err)
 		require.True(t, ok)
-		require.Equal(t, 8, got.FirstKept)
+		require.Equal(t, 7, got.FirstKept)
 		require.NotContains(t, f.calls[0][0].Text, "NEWEST")
 	})
 }
@@ -358,4 +358,32 @@ func TestDefaults(t *testing.T) {
 	c = New(Config{ReserveTokens: 5, KeepTokens: 7})
 	require.Equal(t, int64(5), c.cfg.ReserveTokens)
 	require.Equal(t, int64(7), c.cfg.KeepTokens)
+}
+
+func TestCutKeepsRecentWorkBeforeANewPrompt(t *testing.T) {
+	msgs := []durable.Message{
+		{Role: durable.RoleUser, Text: strings.Repeat("a", 4000)},
+		{Role: durable.RoleAssistant, Text: strings.Repeat("b", 4000)},
+		{Role: durable.RoleUser, Text: strings.Repeat("c", 4000)},
+		{Role: durable.RoleAssistant, Text: strings.Repeat("d", 4000)},
+		{Role: durable.RoleUser, Text: "next"},
+	}
+	c := New(Config{KeepTokens: 1500})
+	cut, ok := c.findCut(msgs, 0, false)
+	require.True(t, ok)
+	require.Equal(t, 2, cut)
+}
+
+func TestCutFallsBackBeforeTrailingToolResults(t *testing.T) {
+	msgs := []durable.Message{
+		{Role: durable.RoleUser, Text: "start"},
+		{Role: durable.RoleAssistant, Text: "ok"},
+		{Role: durable.RoleUser, Text: "run it"},
+		{Role: durable.RoleAssistant, ToolCalls: []durable.ToolCall{{ID: "1", Name: "bash"}}},
+		{Role: durable.RoleTool, ToolCallID: "1", Text: strings.Repeat("x", 100000)},
+	}
+	c := New(Config{KeepTokens: 1000})
+	cut, ok := c.findCut(msgs, 0, false)
+	require.True(t, ok)
+	require.Equal(t, 3, cut)
 }

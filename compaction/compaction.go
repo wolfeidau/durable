@@ -109,21 +109,19 @@ func (c *Compactor) findCut(msgs []durable.Message, threshold int64, force bool)
 	return 0, false
 }
 
-// validCut returns the nearest user message at or after i, else the nearest assistant one, else -1.
+// validCut returns the nearest non-tool message at or after i, so the keep budget holds, else the nearest before it.
 func validCut(msgs []durable.Message, i int) int {
-	assistant := -1
 	for j := i; j < len(msgs); j++ {
-		switch msgs[j].Role {
-		case durable.RoleUser:
+		if msgs[j].Role != durable.RoleTool {
 			return j
-		case durable.RoleAssistant:
-			if assistant < 0 {
-				assistant = j
-			}
-		case durable.RoleTool:
 		}
 	}
-	return assistant
+	for j := i - 1; j >= 0; j-- {
+		if msgs[j].Role != durable.RoleTool {
+			return j
+		}
+	}
+	return -1
 }
 
 func tokens(chars int64) int64 { return (chars + 3) / 4 }
