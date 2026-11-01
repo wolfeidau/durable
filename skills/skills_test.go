@@ -44,6 +44,7 @@ func TestParse(t *testing.T) {
 		{name: "no closing delimiter", text: "---\nname: pdf\ndescription: x\n", warned: "no frontmatter"},
 		{name: "no opening", text: "name: pdf\n", warned: "no frontmatter"},
 		{name: "unquoted colon", text: "---\nname: pdf\ndescription: Use when: PDFs appear\n---\nb", ok: true, want: Skill{Name: "pdf", Description: "Use when: PDFs appear"}, warned: "invalid YAML"},
+		{name: "hidden survives invalid YAML", text: "---\nname: pdf\ndescription: Use when: PDFs\ndisable-model-invocation: \"true\"\n---\nb", ok: true, want: Skill{Name: "pdf", Description: "Use when: PDFs", Hidden: true}, warned: "invalid YAML"},
 		{name: "missing description", text: "---\nname: pdf\n---\nb", warned: "no description"},
 		{name: "empty description", text: "---\nname: pdf\ndescription: \"  \"\n---\nb", warned: "no description"},
 		{name: "non-string description", text: "---\nname: pdf\ndescription: 42\n---\nb", warned: "no description"},

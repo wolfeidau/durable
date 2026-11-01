@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -235,4 +236,54 @@ func writePin(dir, pin string, content []byte) (won bool, err error) {
 		return false, fmt.Errorf("failed to pin %s: %w", filepath.Base(pin), err)
 	}
 	return true, nil
+}
+
+// pinJSON pins a value as JSON on first start; existed pins empty for a session that predates the pin.
+// pinned reports that the value is not from this run's discovery: an earlier pin, a lost race, or an older session.
+func pinJSON[T any](dir, name, what string, existed bool, empty T, discover func() (T, error)) (v T, pinned bool, err error) {
+	pin := filepath.Join(dir, name)
+	if v, ok, err := readJSONPin[T](pin, what); ok || err != nil {
+		return v, ok, err
+	}
+
+	v = empty
+	if !existed {
+		if v, err = discover(); err != nil {
+			return empty, false, err
+		}
+	}
+	data, err := json.Marshal(v)
+	if err != nil {
+		return empty, false, fmt.Errorf("failed to encode %s: %w", what, err)
+	}
+	won, err := writePin(dir, pin, data)
+	if err != nil {
+		return empty, false, err
+	}
+	if !won {
+		// Another process pinned first; its value wins so both agree.
+		v, ok, err := readJSONPin[T](pin, what)
+		if err != nil {
+			return empty, false, err
+		}
+		if !ok {
+			return empty, false, fmt.Errorf("pinned %s disappeared", what)
+		}
+		return v, true, nil
+	}
+	return v, existed, nil
+}
+
+func readJSONPin[T any](pin, what string) (v T, ok bool, err error) {
+	b, err := os.ReadFile(pin) //nolint:gosec // pin is a fixed name inside the session directory
+	if errors.Is(err, fs.ErrNotExist) {
+		return v, false, nil
+	}
+	if err != nil {
+		return v, false, fmt.Errorf("failed to read pinned %s: %w", what, err)
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return v, false, fmt.Errorf("failed to parse pinned %s %s: %w", what, pin, err)
+	}
+	return v, true, nil
 }

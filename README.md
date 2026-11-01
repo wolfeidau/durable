@@ -66,6 +66,21 @@ Flags: `--model` (default `claude-sonnet-5-5`), `--effort` (default `medium`),
   connection is never retried and is reported as an unknown outcome. Nothing stops a server
   after a crash: one that ignores stdin closing keeps running, and an HTTP call may finish.
   **Tool descriptions and results come from the server, so treat them as untrusted input.**
+- **Skills:** a new session loads [Agent Skills](https://agentskills.io/specification) from
+  `.durable/skills` then `.agents/skills` in each project directory, nearest first up to the
+  repository root, then `~/.durable/skills` and `~/.agents/skills`. The first skill of a name
+  wins and a shadowed one gets a warning. `.claude/skills` isn't scanned. A project skill
+  that resolves outside the repository is skipped. The model loads one with the `skill` tool,
+  which lists the skills in its description and needs no approval to read, while scripts a
+  skill mentions run through `bash` and ask as usual. The catalog is pinned in `skills.json`
+  next to the session database when the session first starts, so a resume uses the same tool;
+  to reload, start a new `--session`. Sessions that predate this feature keep an empty pin,
+  and `--no-context` skips skills for a new session. `/skill:<name> [text]` loads a skill into
+  your own prompt, including one with `disable-model-invocation`, which the model never sees.
+  `allowed-tools` is ignored. Compaction may drop a loaded skill's instructions, and the model
+  can load it again.
+  **A cloned repository's skills go into the model's context, so treat them as untrusted
+  input, especially with `--yes`.**
 - **Approval:** every tool shows the call and asks `y/N`, except built-in tools that declare
   themselves read-only (`read_file`, `list_files`, `grep`).
 - **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so

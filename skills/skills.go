@@ -205,6 +205,10 @@ func scan(fm string) meta {
 			m.Name = v
 		case "description":
 			m.Description = v
+		case "disable-model-invocation":
+			if v == "true" {
+				m.Hidden = true
+			}
 		}
 	}
 	return m

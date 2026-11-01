@@ -23,6 +23,7 @@ import (
 	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/mcp"
+	"github.com/wolfeidau/durable/skills"
 	"github.com/wolfeidau/durable/tools"
 )
 
@@ -38,7 +39,7 @@ type ChatCmd struct {
 	Model     string        `help:"Claude model; empty uses the built-in default."`
 	Effort    string        `help:"Reasoning effort; empty uses the built-in default."`
 	Yes       bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
-	NoContext bool          `name:"no-context" help:"Do not load AGENTS.md files. Applies only when a session starts; resumed sessions keep their pinned instructions."`
+	NoContext bool          `name:"no-context" help:"Do not load AGENTS.md files or skills. Applies only when a session starts; resumed sessions keep their pinned instructions and skills."`
 	Session   string        `default:"default" help:"Session name; sessions are per directory."`
 	LeaseTTL  time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
 
@@ -105,6 +106,21 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 		return err
 	}
 	toolset = append(toolset, pool.Tools(mcpPinned.Tools)...)
+	skillsPinned, err := pinSkills(filepath.Dir(path), statErr == nil, c.NoContext, func() ([]skills.Skill, []string, error) {
+		srcs, err := skillSources(cwd, home)
+		if err != nil {
+			return nil, nil, err
+		}
+		found, warns := skills.Discover(srcs)
+		return found, warns, nil
+	})
+	if err != nil {
+		return err
+	}
+	// Added before withDisplay and the gate so the read-only tool runs without prompting.
+	if t := skills.Tool(skillsPinned.Skills); t != nil {
+		toolset = append(toolset, t)
+	}
 
 	out := os.Stdout
 	sigs := make(chan os.Signal, 2)
@@ -123,6 +139,7 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	}
 
 	printMCP(out, servers, mcpWarnings, mcpPinned)
+	printSkills(out, skillsPinned)
 
 	shown := shownCalls{}
 	opts := durable.Options{
@@ -149,7 +166,7 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	}
 	defer h.Close()
 
-	r := &repl{h: h, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
+	r := &repl{h: h, skills: skillsPinned.Skills, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
 	return r.run(ctx)
 }
 
@@ -173,6 +190,23 @@ func printMCP(out io.Writer, servers map[string]mcp.Server, configWarnings []str
 		}
 	case p.Pinned && len(servers) > 0:
 		fmt.Fprintln(out, "[mcp] this session has no MCP tools pinned, so configured servers are not used; start a new --session to use them")
+	}
+}
+
+func printSkills(out io.Writer, p skillSet) {
+	for _, w := range p.Warnings {
+		fmt.Fprintf(out, "[skills] warning: %s\n", w)
+	}
+	switch {
+	case len(p.Skills) == 0:
+	case p.Pinned:
+		fmt.Fprintf(out, "[skills] using %d pinned skills; start a new --session to reload skills\n", len(p.Skills))
+	default:
+		names := make([]string, len(p.Skills))
+		for i, s := range p.Skills {
+			names[i] = s.Name
+		}
+		fmt.Fprintf(out, "[skills] %d skills: %s\n", len(names), strings.Join(names, ", "))
 	}
 }
 
