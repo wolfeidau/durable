@@ -111,7 +111,7 @@ writers across processes, and bash orphans are stopped on recovery.
 ## Recommended order
 
 Build the seams first, because each later item depends on them. Items 1 to 4 are
-prerequisites for a modular harness. Items 5 to 9 are features on top.
+prerequisites for a modular harness. Items 5 to 8 are features on top.
 
 | # | Item | Why now | Size |
 |---|---|---|---|
@@ -123,10 +123,11 @@ prerequisites for a modular harness. Items 5 to 9 are features on top.
 | 6 | Done: `skills` package, pinned per session in `skills.json` | The same format as Claude Code, and `.agents/skills` is shared with Pi | S |
 | 7 | Done: `hooks` package and `~/.durable/hooks.json`, not pinned; only `PreToolUse` and `PostToolUse` so far | The only practical runtime extension in Go. Existing Claude Code hooks need adapting; see the README | M |
 | 8 | Add steering and durable subagents | README next steps 2 and 3. Subagents need multiple conversations per store first | L |
-| 9 | Add a package format | Wait until items 5 to 7 give it something to bundle | M |
 
 Leave out for now: a TUI, more providers beyond Anthropic and OpenRouter, codemode and the
-OS sandbox, which stays deferred on #9.
+OS sandbox, which stays deferred on #9. A package format also waits: it adds no capability
+beyond MCP, skills and hooks, so build it when someone else needs to install a shared set of
+extensions, or when copying one setup across machines or projects becomes a real cost.
 
 ## Design constraints
 
