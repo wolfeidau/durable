@@ -341,3 +341,126 @@ func TestKillStopsOrphanedCommand(t *testing.T) {
 	time.Sleep(6*time.Second - time.Since(killedAt))
 	require.Empty(t, readLinesOf(t, marker), "the orphan must not finish its command")
 }
+
+// systemOf returns the raw system field of a request body, whether the SDK sent a string or blocks.
+func systemOf(t *testing.T, body string) string {
+	t.Helper()
+	var req struct {
+		System json.RawMessage `json:"system"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return string(req.System)
+}
+
+// runPrompt sends one prompt, waits for the API to see want requests in total, then closes stdin and expects a clean exit.
+func runPrompt(t *testing.T, api *fakeAPI, want int, a *agent, prompt string) {
+	t.Helper()
+	_, err := io.WriteString(a.stdin, prompt+"\n")
+	require.NoError(t, err)
+	eventually(t, "API requests", func() bool { return len(api.requests()) == want })
+	require.NoError(t, a.stdin.Close())
+	done := make(chan error, 1)
+	go func() { done <- a.cmd.Wait() }()
+	select {
+	case err := <-done:
+		require.NoError(t, err, a.out.String())
+	case <-time.After(testTimeout):
+		t.Fatalf("agent did not exit: %s", a.out.String())
+	}
+}
+
+func TestInstructionsArePinnedAcrossRestart(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	agents := filepath.Join(ws, "AGENTS.md")
+	require.NoError(t, os.WriteFile(agents, []byte("marker ALPHA-ONE"), 0o644))
+	api := newFakeAPI(t, "true")
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 2, a, "first")
+	require.Contains(t, a.out.String(), "[context] AGENTS.md")
+
+	require.NoError(t, os.WriteFile(agents, []byte("marker BETA-TWO"), 0o644))
+	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 3, b, "second")
+	require.NotContains(t, b.out.String(), "[context] AGENTS.md")
+	require.Equal(t, 1, strings.Count(b.out.String(), "[context]"))
+	require.Contains(t, b.out.String(), "[context] using pinned instructions (")
+
+	reqs := api.requests()
+	first := systemOf(t, reqs[0])
+	require.Contains(t, first, "ALPHA-ONE")
+	require.NotContains(t, first, "BETA-TWO")
+	require.Equal(t, first, systemOf(t, reqs[2]))
+}
+
+func TestOlderSessionKeepsEmptyPin(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	api := newFakeAPI(t, "true")
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 2, a, "first")
+
+	pins, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", "instructions.md"))
+	require.NoError(t, err)
+	require.Len(t, pins, 1)
+	require.NoError(t, os.Remove(pins[0]))
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte("marker LATE-ADD"), 0o644))
+
+	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 3, b, "second")
+	require.Contains(t, b.out.String(), "[context] using pinned instructions (0 bytes)")
+	reqs := api.requests()
+	require.NotContains(t, systemOf(t, reqs[2]), "LATE-ADD")
+	require.Equal(t, systemOf(t, reqs[0]), systemOf(t, reqs[2]))
+}
+
+func TestNoContextSkipsAgentsFile(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	require.NoError(t, os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte("marker HIDDEN"), 0o644))
+	api := newFakeAPI(t, "true")
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes", "--no-context")
+	runPrompt(t, api, 2, a, "first")
+	require.NotContains(t, systemOf(t, api.requests()[0]), "HIDDEN")
+}
+
+func TestEscapingSymlinkWarnsAndIsNotSent(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	outside := filepath.Join(t.TempDir(), "secret.md")
+	require.NoError(t, os.WriteFile(outside, []byte("marker OUTSIDE-SECRET"), 0o644))
+	require.NoError(t, os.Symlink(outside, filepath.Join(ws, "AGENTS.md")))
+	api := newFakeAPI(t, "true")
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 2, a, "first")
+	require.Contains(t, a.out.String(), "[context] warning:")
+	for _, r := range api.requests() {
+		require.NotContains(t, r, "OUTSIDE-SECRET")
+	}
+}
+
+func TestFailedTokenLookupDoesNotPin(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	agents := filepath.Join(ws, "AGENTS.md")
+	require.NoError(t, os.WriteFile(agents, []byte("marker DRAFT"), 0o644))
+	api := newFakeAPI(t, "true")
+
+	cmd := exec.Command(bin, "--api-token-from-1password", "op://vault/item/field")
+	cmd.Dir = ws
+	cmd.Env = []string{"HOME=" + home, "PATH=" + t.TempDir(), "ANTHROPIC_BASE_URL=" + api.srv.URL}
+	out, err := cmd.CombinedOutput()
+	require.Error(t, err, string(out))
+	pins, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", "instructions.md"))
+	require.NoError(t, err)
+	require.Empty(t, pins)
+
+	require.NoError(t, os.WriteFile(agents, []byte("marker FINAL"), 0o644))
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 2, a, "first")
+	require.Contains(t, systemOf(t, api.requests()[0]), "FINAL")
+}

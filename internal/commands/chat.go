@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -19,7 +21,7 @@ import (
 	"github.com/wolfeidau/durable/tools"
 )
 
-// The prompt must stay fixed: any change invalidates the prompt cache and stored thinking blocks.
+// The base prompt must stay fixed for the same cache and thinking reasons; pinned instructions are appended per session.
 const systemPrompt = `You are a coding agent working in the user's current directory through the provided tools.
 Read code before changing it. Make small, focused edits and verify them by running the project's tests or build when possible.
 Prefer read_file, list_files and grep for exploration, and use bash for running commands.
@@ -28,11 +30,12 @@ Be concise.`
 
 // ChatCmd runs the interactive agent.
 type ChatCmd struct {
-	Model    string        `help:"Claude model; empty uses the built-in default."`
-	Effort   string        `help:"Reasoning effort; empty uses the built-in default."`
-	Yes      bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
-	Session  string        `default:"default" help:"Session name; sessions are per directory."`
-	LeaseTTL time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
+	Model     string        `help:"Claude model; empty uses the built-in default."`
+	Effort    string        `help:"Reasoning effort; empty uses the built-in default."`
+	Yes       bool          `help:"Run edit_file and bash without asking. Bash is not sandboxed."`
+	NoContext bool          `name:"no-context" help:"Do not load AGENTS.md files. Applies only when a session starts; resumed sessions keep their pinned instructions."`
+	Session   string        `default:"default" help:"Session name; sessions are per directory."`
+	LeaseTTL  time.Duration `hidden:"" default:"0" help:"Session lease TTL (0 for the harness default)."`
 
 	APIToken              string `name:"api-token" help:"Claude API key. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the Claude API key."`
@@ -64,17 +67,44 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 		clientOpts = append(clientOpts, option.WithAPIKey(token))
 	}
 
+	// Pin after anything likely to fail, so a failed start doesn't freeze the text.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to find home directory: %w", err)
+	}
+	// Check before openWithNotice creates the database.
+	_, statErr := os.Stat(path)
+	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+		return fmt.Errorf("failed to check session database: %w", statErr)
+	}
+	pinned, err := pinInstructions(filepath.Dir(path), statErr == nil, c.NoContext, func() (instructions, error) {
+		return discoverInstructions(cwd, home)
+	})
+	if err != nil {
+		return err
+	}
+
 	out := os.Stdout
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigs)
 	lines := readLines(os.Stdin)
 
+	for _, f := range pinned.Files {
+		fmt.Fprintf(out, "[context] %s\n", f)
+	}
+	for _, w := range pinned.Warnings {
+		fmt.Fprintf(out, "[context] warning: %s\n", w)
+	}
+	if pinned.Pinned {
+		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(pinned.Text))
+	}
+
 	shown := shownCalls{}
 	opts := durable.Options{
 		Model: claude.New(anthropic.NewClient(clientOpts...), claude.Config{
 			Model:     c.Model,
-			System:    systemPrompt,
+			System:    buildPrompt(pinned.Text),
 			Effort:    c.Effort,
 			OnText:    func(s string) { fmt.Fprint(out, s) },
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
