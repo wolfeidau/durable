@@ -115,7 +115,7 @@ func runBash(ctx context.Context, root, state, command string, timeout time.Dura
 func ScrubEnv(env []string) []string {
 	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
 		name, _, _ := strings.Cut(kv, "=")
-		return strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "OP_")
+		return strings.HasPrefix(name, "ANTHROPIC_") || strings.HasPrefix(name, "OPENROUTER_") || strings.HasPrefix(name, "OP_")
 	})
 }
 

@@ -22,13 +22,15 @@ const compactInstructions = "Summarize the transcript inside <summary></summary>
 	"Do not call any tools while writing this summary; respond with text only."
 
 const (
-	defaultModel     = "claude-sonnet-5-5"
+	// DefaultModel is used when Config.Model is empty.
+	DefaultModel     = "claude-sonnet-5-5"
 	defaultMaxTokens = 64000
 	defaultEffort    = "medium"
 )
 
 // olderThanClaude5 matches models where adaptive thinking is rejected or would turn thinking on.
-var olderThanClaude5 = regexp.MustCompile(`^claude-([a-z]+-)?[1-4](-|$)`)
+// An optional vendor prefix covers gateway names like anthropic/claude-sonnet-4.5.
+var olderThanClaude5 = regexp.MustCompile(`^([a-z0-9-]+/)?claude-([a-z]+-)?[1-4]([-.]|$)`)
 
 // Config configures the adapter. Zero values select the defaults.
 type Config struct {
@@ -36,6 +38,8 @@ type Config struct {
 	System    string
 	MaxTokens int64
 	Effort    string
+	// Gateway drops the Anthropic-only betas, fallbacks, compaction and thinking block binding, which gateways may reject.
+	Gateway bool
 	// OnText receives streamed text deltas. A retried stream may repeat text.
 	OnText func(string)
 	// OnCompact is called when the API starts summarizing older history into a compaction block.
@@ -53,7 +57,7 @@ var _ durable.Model = (*Model)(nil)
 // New returns a Model using client and cfg.
 func New(client anthropic.Client, cfg Config) *Model {
 	if cfg.Model == "" {
-		cfg.Model = defaultModel
+		cfg.Model = DefaultModel
 	}
 	if cfg.MaxTokens == 0 {
 		cfg.MaxTokens = defaultMaxTokens
@@ -76,25 +80,29 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 		MaxTokens: m.cfg.MaxTokens,
 		Messages:  msgs,
 		Tools:     toTools(tools),
-		Betas:     []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01},
-		Fallbacks: anthropic.BetaFallbacksParamOfDefault(),
 		// Top-level cache control caches tools, system and history together.
 		CacheControl: anthropic.NewBetaCacheControlEphemeralParam(),
 		OutputConfig: anthropic.BetaOutputConfigParam{Effort: anthropic.BetaOutputConfigEffort(m.cfg.Effort)},
 	}
-	// Stored thinking is bound to the system prompt and tools, so a new binary must degrade rather than fail the session.
+	if !m.cfg.Gateway {
+		params.Betas = []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01}
+		params.Fallbacks = anthropic.BetaFallbacksParamOfDefault()
+	}
 	if !olderThanClaude5.MatchString(m.cfg.Model) {
-		params.Betas = append(params.Betas, anthropic.AnthropicBetaThinkingBindingControls2026_08_01, anthropic.AnthropicBetaCompact2026_01_12)
-		params.ContextManagement = anthropic.BetaContextManagementConfigParam{
-			Edits: []anthropic.BetaContextManagementConfigEditUnionParam{{
-				OfCompact20260112: &anthropic.BetaCompact20260112EditParam{Instructions: anthropic.String(compactInstructions)},
-			}},
-		}
-		params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfAdaptive: &anthropic.BetaThinkingConfigAdaptiveParam{
-			BlockBinding: anthropic.BetaThinkingBlockBindingParam{
+		adaptive := &anthropic.BetaThinkingConfigAdaptiveParam{}
+		if !m.cfg.Gateway {
+			// Stored thinking is bound to the system prompt and tools, so a new binary must degrade rather than fail the session.
+			params.Betas = append(params.Betas, anthropic.AnthropicBetaThinkingBindingControls2026_08_01, anthropic.AnthropicBetaCompact2026_01_12)
+			params.ContextManagement = anthropic.BetaContextManagementConfigParam{
+				Edits: []anthropic.BetaContextManagementConfigEditUnionParam{{
+					OfCompact20260112: &anthropic.BetaCompact20260112EditParam{Instructions: anthropic.String(compactInstructions)},
+				}},
+			}
+			adaptive.BlockBinding = anthropic.BetaThinkingBlockBindingParam{
 				PrefixMismatchBehavior: anthropic.BetaThinkingPrefixMismatchBehaviorDropBlock,
-			},
-		}}
+			}
+		}
+		params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfAdaptive: adaptive}
 	}
 	if m.cfg.System != "" {
 		params.System = []anthropic.BetaTextBlockParam{{Text: m.cfg.System}}

@@ -27,11 +27,12 @@ func runStdioServer() {
 	s.AddTool(objectTool("report"), func(context.Context, *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
 		cwd, _ := os.Getwd()
 		out := map[string]string{
-			"anthropic": os.Getenv("ANTHROPIC_API_KEY"),
-			"op":        os.Getenv("OP_SERVICE_ACCOUNT_TOKEN"),
-			"foo":       os.Getenv("FOO"),
-			"cwd":       cwd,
-			"pwd":       os.Getenv("PWD"),
+			"anthropic":  os.Getenv("ANTHROPIC_API_KEY"),
+			"op":         os.Getenv("OP_SERVICE_ACCOUNT_TOKEN"),
+			"openrouter": os.Getenv("OPENROUTER_API_KEY"),
+			"foo":        os.Getenv("FOO"),
+			"cwd":        cwd,
+			"pwd":        os.Getenv("PWD"),
 		}
 		b, _ := json.Marshal(out)
 		return text(string(b)), nil
