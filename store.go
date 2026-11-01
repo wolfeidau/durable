@@ -51,9 +51,8 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	PRIMARY KEY (message_seq, position)
 );
 CREATE TABLE IF NOT EXISTS events (
-	seq            INTEGER PRIMARY KEY AUTOINCREMENT,
-	submission_seq INTEGER NOT NULL REFERENCES submissions(seq),
-	body           TEXT    NOT NULL       -- JSON Event without Seq
+	seq  INTEGER PRIMARY KEY AUTOINCREMENT,
+	body TEXT    NOT NULL                 -- JSON Event without Seq
 );
 `
 
@@ -276,7 +275,10 @@ func lastAssistantCalls(ctx context.Context, q querier, submissionSeq int64) (ca
 		if err := rows.Scan(&c.ID, &c.Position, &c.Name, &input, &c.Status); err != nil {
 			return nil, false, fmt.Errorf("failed to read tool call: %w", err)
 		}
-		c.Input = json.RawMessage(input)
+		// A nil input is stored as "", and an empty RawMessage can't be marshalled.
+		if input != "" {
+			c.Input = json.RawMessage(input)
+		}
 		c.Rewritten = !sameInput(msg.ToolCalls[c.Position].Input, c.Input)
 		calls = append(calls, c)
 	}

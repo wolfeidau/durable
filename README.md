@@ -198,14 +198,17 @@ session that has compacted can't continue on an older `--model`.
 **Events.** Every state change inserts a row into `events` in the same transaction, so an
 event exists only if its change committed. Kinds are `submission` (queued, then each
 status change, with `Error` when failed), `message` (a transcript entry, without `Raw`)
-and `call_started` (the input that actually runs, with `Rewritten` set when a gate
-changed it). `Options.Observer` is called after each commit with the new events in `Seq`
+`call_started` (the input that actually runs, with `Rewritten` set when a gate changed
+it), `call_replayed` (a `ReplaySafe` call running again after a crash) and `call_done` (a
+call's result, whether it ran or not, with the text in the `message` event before it). `Options.Observer` is called after each commit with the new events in `Seq`
 order. It is live only: events from before `Open` are not replayed. To catch up, call
 `Events(ctx, after, limit)` after `Open` and before `Run`, then drop any `Seq` you have
-already seen. A crash between commit and delivery loses only the callback, so delivery is
-at-least-once across restarts. `Observer` runs synchronously on the committing goroutine,
+already seen. A crash between commit and delivery loses only the callback, and a failed
+delivery is retried on the next commit, if there is one. So `Observer` alone isn't a complete
+feed: reconcile with `Events` if you need every event, which gives at-least-once across
+restarts. `Observer` runs synchronously on the committing goroutine,
 so a slow one slows the agent. It may call `Events` or `History`, but not `Submit`, `Run`
-or `Cancel`, which deadlock. `Event.Call.Input` is the effective input and can hold
+or `Cancel`, which deadlock, and it must not panic. `Event.Call.Input` is the effective input and can hold
 secrets a gate added; treat the log accordingly.
 
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
@@ -232,7 +235,8 @@ re-run the task.
 Gate tests cover allow, deny, ask and rewrite, failing closed, invalid rewrites not blocking
 the queue, and rewritten input reaching replay and `Recover` with the `Rewritten` note.
 
-Event tests cover commit order, `Seq` ordering, rewritten inputs, `Raw` being omitted, `Events`
+Event tests cover commit order, `Seq` ordering, rewritten inputs, replays, `call_done` for calls
+that never ran, nil tool input, `Raw` being omitted, `Events`
 paging and catch-up after a crash, live-only delivery, `Cancel`, failed models, duplicate
 request IDs, stale-owner commits adding nothing, sessions that predate the `events` table,
 an `Observer` calling `History`, and `Submit` racing `Run`.

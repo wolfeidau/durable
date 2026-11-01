@@ -16,6 +16,10 @@ const (
 	EventSubmission  EventKind = "submission"   // submitted or changed status
 	EventMessage     EventKind = "message"      // transcript entry appended
 	EventCallStarted EventKind = "call_started" // tool call committed to run
+	// EventCallReplayed is a ReplaySafe call running again after a crash, so each execution has an event.
+	EventCallReplayed EventKind = "call_replayed"
+	// EventCallDone is a call's result, whether it ran or not; the message event before it has the text.
+	EventCallDone EventKind = "call_done"
 )
 
 // Event is one committed state change. Events are append-only and written in
@@ -31,7 +35,8 @@ type Event struct {
 	Message *Message `json:"message,omitempty"` // message events; Raw is omitted, History has it
 	// Call is the input that actually runs, so it can contain secrets a gate added.
 	Call      *ToolCall `json:"call,omitempty"`
-	Rewritten bool      `json:"rewritten,omitempty"` // call_started: a gate changed the input
+	Rewritten bool      `json:"rewritten,omitempty"` // a gate changed the input
+	IsError   bool      `json:"is_error,omitempty"`  // call_done: the result is an error
 }
 
 // Events returns up to limit events after seq, oldest first. A limit of zero
@@ -47,8 +52,7 @@ func addEvent(ctx context.Context, tx *sql.Tx, e Event) error {
 		return fmt.Errorf("failed to encode event: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
-		`INSERT INTO events (submission_seq, body) VALUES (?, ?)`,
-		e.Submission, string(body)); err != nil {
+		`INSERT INTO events (body) VALUES (?)`, string(body)); err != nil {
 		return fmt.Errorf("failed to insert event: %w", err)
 	}
 	return nil
@@ -85,8 +89,8 @@ func loadEvents(ctx context.Context, q querier, after int64, limit int) ([]Event
 	return out, nil
 }
 
-// deliver runs after a commit, so a failure here must never fail the commit:
-// observedSeq stays put and the next commit retries.
+// deliver runs after a commit, so a failure here must never fail the commit: observedSeq stays
+// put and the next commit, if there is one, retries. Events always has what was missed.
 func (h *Harness) deliver(ctx context.Context) {
 	if h.opts.Observer == nil {
 		return

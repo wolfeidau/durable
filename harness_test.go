@@ -1355,7 +1355,7 @@ func TestEventsFollowCommitOrder(t *testing.T) {
 
 	want := []string{
 		"submission:queued", "message:user", "submission:running", "message:assistant",
-		"call_started", "message:tool", "message:assistant", "submission:done",
+		"call_started", "message:tool", "call_done", "message:assistant", "submission:done",
 	}
 	got := c.all()
 	require.Equal(t, want, eventSummary(got))
@@ -1439,13 +1439,13 @@ func TestEventsHonourAfterAndLimit(t *testing.T) {
 
 	all, err := h.Events(ctx, 0, 0)
 	require.NoError(t, err)
-	require.Len(t, all, 8)
+	require.Len(t, all, 9)
 
 	page, err := h.Events(ctx, all[1].Seq, 3)
 	require.NoError(t, err)
 	require.Equal(t, all[2:5], page)
 
-	none, err := h.Events(ctx, all[7].Seq, 10)
+	none, err := h.Events(ctx, all[8].Seq, 10)
 	require.NoError(t, err)
 	require.Empty(t, none)
 }
@@ -1642,7 +1642,7 @@ func TestObserverMayCallHistoryAndEvents(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("deadlock: Observer calling History never returned")
 	}
-	require.EqualValues(t, 8, calls.Load())
+	require.EqualValues(t, 9, calls.Load())
 }
 
 func TestSubmitRacingRunDeliversInOrder(t *testing.T) {
@@ -1684,11 +1684,102 @@ func TestDeliverIgnoresCancelledContext(t *testing.T) {
 	require.NoError(t, err)
 	got = nil
 
-	_, err = h.db.ExecContext(ctx, `INSERT INTO events (submission_seq, body) VALUES (1, '{"kind":"submission","submission":1,"status":"cancelled"}')`)
+	_, err = h.db.ExecContext(ctx, `INSERT INTO events (body) VALUES ('{"kind":"submission","submission":1,"status":"cancelled"}')`)
 	require.NoError(t, err)
 	cancelled, cancel := context.WithCancel(ctx)
 	cancel()
 	h.deliver(cancelled)
 	require.Len(t, got, 1)
 	require.Equal(t, StatusCancelled, got[0].Status)
+}
+
+func TestNilInputRunsWithoutRewriteNote(t *testing.T) {
+	ctx := context.Background()
+	model := modelFunc(func(_ context.Context, hist []Message, _ []ToolSpec) (Message, error) {
+		if hist[len(hist)-1].Role == RoleTool {
+			return Message{Text: "done"}, nil
+		}
+		return Message{ToolCalls: []ToolCall{{ID: "c1", Name: "write_file"}}}, nil
+	})
+	write := &fakeTool{name: "write_file"}
+	var got []Event
+	h := openWith(t, ctx, Options{Model: model, Tools: []Tool{write}, LeaseTTL: ttl, Observer: func(e Event) { got = append(got, e) }})
+	defer h.Close()
+
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.EqualValues(t, 1, write.runs.Load())
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.NotContains(t, hist[2].Text, Rewritten)
+	for _, e := range got {
+		require.False(t, e.Rewritten)
+	}
+}
+
+func TestReplayedCallHasItsOwnEvent(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	opts := func(w Tool) Options {
+		return Options{Model: gateModel(), Tools: []Tool{w}, LeaseTTL: ttl, Gate: rewriteGate(`{"x":1}`)}
+	}
+	crashCtx, cancel := context.WithCancel(ctx)
+	write := &fakeTool{name: "write_file", replay: ReplaySafe, crashOn: 1, cancel: cancel}
+	h1, err := Open(crashCtx, path, opts(write))
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "a", "go")
+	h1.abandon()
+
+	h2, err := Open(ctx, path, opts(write))
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.EqualValues(t, 2, write.runs.Load())
+	evs, err := h2.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	var replayed []Event
+	for _, e := range evs {
+		if e.Kind == EventCallReplayed {
+			replayed = append(replayed, e)
+		}
+	}
+	require.Len(t, replayed, 1)
+	require.True(t, replayed[0].Rewritten)
+	require.JSONEq(t, `{"x":1}`, string(replayed[0].Call.Input))
+}
+
+func TestCallDoneCoversCallsThatNeverRan(t *testing.T) {
+	ctx := context.Background()
+	h, c := observed(t, func(context.Context, ToolCall) (Decision, error) {
+		return Decision{Action: ActionDeny}, nil
+	})
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+
+	got := c.all()
+	require.Equal(t, []string{
+		"submission:queued", "message:user", "submission:running", "message:assistant",
+		"message:tool", "call_done", "message:assistant", "submission:done",
+	}, eventSummary(got))
+	done := got[5]
+	require.True(t, done.IsError)
+	require.Equal(t, "c1", done.Call.ID)
+	require.Equal(t, "write_file", done.Call.Name)
+	require.JSONEq(t, "null", string(done.Call.Input), "call_done must not copy input that may hold secrets")
+}
+
+func TestCallDoneReportsRewriteAndSuccess(t *testing.T) {
+	ctx := context.Background()
+	h, c := observed(t, rewriteGate(`{"x":1}`))
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	for _, e := range c.all() {
+		if e.Kind == EventCallDone {
+			require.True(t, e.Rewritten)
+			require.False(t, e.IsError)
+			return
+		}
+	}
+	require.Fail(t, "no call_done event")
 }
