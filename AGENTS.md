@@ -28,6 +28,7 @@ mise run check:tidy
 - Wrappers around a tool must forward the optional interfaces `Recoverer` and `ReadOnlyTool`, because embedding `Tool` doesn't promote them.
 - The system prompt and tool order must not change within a session. They feed the prompt cache and stored thinking blocks.
 - MCP tools are pinned per session, and server hints never change replay or approval, because a hint is only the server's claim.
+- The skill catalog is pinned per session, for the same reason as the tool order: it feeds the `skill` tool's description and so the prompt prefix.
 
 ## Code conventions
 

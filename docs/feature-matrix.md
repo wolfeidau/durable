@@ -36,8 +36,8 @@ writers across processes, and bash orphans are stopped on recovery.
 | Hook can replace a tool result | No | Yes: `tool_result` | Yes: `afterTool` | Yes: `updatedToolOutput` |
 | MCP client | Yes: stdio, HTTP | Yes: stdio, HTTP | Ext: tool-based bridge | Yes |
 | Deferred tools, tool search | No | Yes | Yes | Yes: on by default |
-| Skills | No | Yes: Agent Skills spec | n/d | Yes |
-| Slash commands, prompt templates | No | Yes | n/a: library | Yes: skills |
+| Skills | Yes: Agent Skills spec | Yes: Agent Skills spec | n/d | Yes |
+| Slash commands, prompt templates | Part: `/skill:` | Yes | n/a: library | Yes: skills |
 | Context files | Yes: `AGENTS.md` | Yes: `AGENTS.md`, `CLAUDE.md` | Ext: prompt sections | Yes: `CLAUDE.md`, `.claude/rules/` |
 | Replace or append system prompt | Part: library only | Yes: `SYSTEM.md`, `APPEND_SYSTEM.md` | Yes: sections | Yes: output styles, SDK |
 | Plugin packaging | No | Yes: npm, git, local | Part: extension registry | Yes: plugins, marketplaces |
@@ -120,7 +120,7 @@ prerequisites for a modular harness. Items 5 to 9 are features on top.
 | 3 | Done: `Options.Observer` and `Events` expose every commit | Enables JSON output, telemetry, UI and usage tracking; the CLI doesn't use it yet | M |
 | 4 | Done: `AGENTS.md` only, pinned per session in the CLI | Cheapest large gain; config for hooks and MCP also needs a loader | S |
 | 5 | Done: `mcp` package and `~/.durable/mcp.json`, pinned per session | Opens up the existing tool ecosystem | M |
-| 6 | Add skills using the Agent Skills spec | The same skills work in Pi and Claude Code | S |
+| 6 | Done: `skills` package, pinned per session in `skills.json` | The same format as Claude Code, and `.agents/skills` is shared with Pi | S |
 | 7 | Add subprocess hooks using Claude Code's JSON contract | The only practical runtime extension in Go, and existing hooks may carry over | M |
 | 8 | Add steering and durable subagents | README next steps 2 and 3. Subagents need multiple conversations per store first | L |
 | 9 | Add a package format | Wait until items 5 to 7 give it something to bundle | M |
@@ -146,7 +146,7 @@ Modularity here has to keep the crash guarantees, which sets four rules.
 4. **Pin the prefix per session.** Context files, skill listings and tool order all feed the
    prompt cache and stored thinking blocks. Snapshot them when the session starts, and don't
    reread them on resume. The CLI does this for `AGENTS.md` in `instructions.md` and for MCP
-   tools in `mcp-tools.json`, both beside the session database.
+   tools in `mcp-tools.json`, and for skills in `skills.json`, all beside the session database.
 
 Go also changes the extension model. Pi loads TypeScript into its process, which Go can't do
 well, because `plugin` is fragile and needs matching builds. So use three tiers: Go interfaces

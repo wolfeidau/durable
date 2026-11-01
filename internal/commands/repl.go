@@ -10,8 +10,10 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"unicode"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/skills"
 )
 
 // readLines feeds stdin lines to one channel shared by the prompt and approval.
@@ -33,11 +35,14 @@ func readLines(r io.Reader) <-chan string {
 	return ch
 }
 
+const skillPrefix = "/skill:"
+
 type repl struct {
-	h     *durable.Harness
-	lines <-chan string
-	sigs  <-chan os.Signal
-	out   io.Writer
+	h      *durable.Harness
+	skills []skills.Skill
+	lines  <-chan string
+	sigs   <-chan os.Signal
+	out    io.Writer
 	// piped reports turn failures in the exit status, because a script cannot read the transcript.
 	piped      bool
 	failed     bool  // a submission failed; later turns do not undo that
@@ -162,11 +167,41 @@ func (r *repl) run(ctx context.Context) error {
 			continue
 		}
 
+		prompt, ok := r.expandSkill(ctx, line)
+		if !ok {
+			continue
+		}
 		id := randomID()
-		if stop, err := r.work(ctx, func(c context.Context) (durable.Submission, error) { return r.h.Prompt(c, id, line) }); stop {
+		if stop, err := r.work(ctx, func(c context.Context) (durable.Submission, error) { return r.h.Prompt(c, id, prompt) }); stop {
 			return err
 		}
 	}
+}
+
+// expandSkill turns a /skill:<name> [text] line into the prompt to submit; other lines pass through.
+// ok is false when the line was rejected and nothing should be submitted.
+func (r *repl) expandSkill(ctx context.Context, line string) (prompt string, ok bool) {
+	rest, found := strings.CutPrefix(line, skillPrefix)
+	if !found {
+		return line, true
+	}
+	name, text := rest, ""
+	if i := strings.IndexFunc(rest, unicode.IsSpace); i >= 0 {
+		name, text = rest[:i], strings.TrimSpace(rest[i:])
+	}
+	s, known := skills.Find(r.skills, name)
+	if name == "" || !known {
+		r.failed = true
+		fmt.Fprintf(r.out, "unknown skill %q; the skills in this session are listed when it starts, or start a new --session to reload them\n", name)
+		return "", false
+	}
+	expanded, err := skills.Expand(ctx, s, text)
+	if err != nil {
+		r.failed = true
+		fmt.Fprintf(r.out, "error: failed to load skill %q: %v\n", name, err)
+		return "", false
+	}
+	return expanded, true
 }
 
 // work runs a turn and reports earlier submissions it resumed that failed, which no caller waits on.
