@@ -61,6 +61,9 @@ func newServer(t *testing.T, replies ...reply) *fakeServer {
 
 func ok(body string) reply { return reply{status: 200, body: body} }
 
+// stubReply is for tests that only inspect the request.
+func stubReply() reply { return ok(completed(fakeapi.ResponsesMessageItem("msg_stub", "ok"))) }
+
 func (f *fakeServer) model(cfg Config) *Model {
 	cfg.BaseURL = f.srv.URL + "/v1"
 	if cfg.APIKey == "" {
@@ -136,7 +139,7 @@ func TestText(t *testing.T) {
 }
 
 func TestBaseURLTrailingSlash(t *testing.T) {
-	f := newServer(t, ok(completed()))
+	f := newServer(t, stubReply())
 	m := New(Config{BaseURL: f.srv.URL + "/v1/", APIKey: "k", Model: "m"})
 	_, err := m.Generate(context.Background(), prompt, nil)
 	require.NoError(t, err)
@@ -224,7 +227,7 @@ func TestToolArguments(t *testing.T) {
 func TestReasoningReplayedByteForByte(t *testing.T) {
 	rs := `{"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"a<b>&c"}`
 	c := fakeapi.ResponsesCallItem("fc_1", "call_1", "bash", `{"command":"ls"}`)
-	f := newServer(t, ok(fakeapi.ResponsesItem(0, rs)+fakeapi.ResponsesItem(1, c)+completed(rs, c)), ok(completed()))
+	f := newServer(t, ok(fakeapi.ResponsesItem(0, rs)+fakeapi.ResponsesItem(1, c)+completed(rs, c)), stubReply())
 	out, err := generate(t, f, Config{})
 	require.NoError(t, err)
 	require.Equal(t, "["+rs+","+c+"]", string(out.Raw))
@@ -240,7 +243,7 @@ func TestReasoningReplayedByteForByte(t *testing.T) {
 }
 
 func TestHistoryWithoutRaw(t *testing.T) {
-	f := newServer(t, ok(completed()))
+	f := newServer(t, stubReply())
 	history := []durable.Message{
 		{Role: durable.RoleUser, Text: "run it"},
 		{Role: durable.RoleAssistant, Text: "ok", ToolCalls: []durable.ToolCall{
@@ -273,7 +276,7 @@ func mustJSON(t *testing.T, v any) string {
 }
 
 func TestEmptyToolResult(t *testing.T) {
-	f := newServer(t, ok(completed()))
+	f := newServer(t, stubReply())
 	history := []durable.Message{
 		{Role: durable.RoleUser, Text: "x"},
 		{Role: durable.RoleAssistant, ToolCalls: []durable.ToolCall{{ID: "c", Name: "bash"}}},
@@ -285,7 +288,7 @@ func TestEmptyToolResult(t *testing.T) {
 }
 
 func TestRequestBody(t *testing.T) {
-	f := newServer(t, ok(completed()), ok(completed()))
+	f := newServer(t, stubReply(), stubReply())
 	_, err := generate(t, f, Config{System: "be brief", SessionID: "sess-1"})
 	require.NoError(t, err)
 	b := f.body(t, 0)
@@ -310,14 +313,14 @@ func TestRequestBody(t *testing.T) {
 }
 
 func TestMaxTokensPassedThrough(t *testing.T) {
-	f := newServer(t, ok(completed()))
+	f := newServer(t, stubReply())
 	_, err := generate(t, f, Config{MaxTokens: 2000})
 	require.NoError(t, err)
 	require.EqualValues(t, 2000, f.body(t, 0)["max_output_tokens"])
 }
 
 func TestTools(t *testing.T) {
-	f := newServer(t, ok(completed()))
+	f := newServer(t, stubReply())
 	specs := []durable.ToolSpec{
 		{Name: "a", Description: "da", Schema: json.RawMessage(`{"type":"object","properties":{"x":{"type":"string"}},"required":["x"]}`)},
 		{Name: "b", Description: "db"},
@@ -331,7 +334,7 @@ func TestTools(t *testing.T) {
 }
 
 func TestNilAndEmptyInput(t *testing.T) {
-	f := newServer(t, ok(completed()))
+	f := newServer(t, stubReply())
 	_, err := f.model(Config{}).Generate(context.Background(), nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, []any{}, f.body(t, 0)["input"])
@@ -375,6 +378,10 @@ func TestStreamErrors(t *testing.T) {
 		{"error event transient", fakeapi.ResponsesError("server_error", "boom"), true, "boom"},
 		{"error event rate limit", fakeapi.ResponsesError("rate_limit_exceeded", "slow"), true, "slow"},
 		{"error event permanent", fakeapi.ResponsesError("invalid_prompt", "nope"), false, "invalid_prompt"},
+		{"numeric code retries like HTTP", fakeapi.ResponsesError("524", "upstream timeout"), true, "upstream timeout"},
+		{"numeric code unknown 5xx", fakeapi.Event("error", `{"type":"error","code":520,"message":"odd"}`), true, "odd"},
+		{"numeric code permanent", fakeapi.ResponsesError("400", "bad"), false, "bad"},
+		{"completed with no output", completed(), true, "no output"},
 		{"failed transient", fakeapi.ResponsesFailed("server_error", "boom"), true, "boom"},
 		{"failed permanent", fakeapi.ResponsesFailed("invalid_prompt", "nope"), false, "nope"},
 		{"nested error event", fakeapi.Event("error", `{"type":"error","error":{"code":"overloaded","message":"busy"}}`), true, "busy"},

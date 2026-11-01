@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -146,12 +147,16 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 	if resp.StatusCode >= 300 {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 		err := fmt.Errorf("responses API returned status %d: %s", resp.StatusCode, m.redactText(strings.TrimSpace(string(b))))
-		if s := resp.StatusCode; s == 408 || s == 409 || s == 429 || s >= 500 {
+		if retryableStatus(resp.StatusCode) {
 			return durable.Message{}, durable.Transient(err)
 		}
 		return durable.Message{}, err
 	}
 	return m.readStream(ctx, resp.Body)
+}
+
+func retryableStatus(s int) bool {
+	return s == 408 || s == 409 || s == 429 || s >= 500
 }
 
 func (m *Model) redactText(s string) string {
@@ -336,6 +341,10 @@ func (st *streamState) complete(ev streamEvent) (*durable.Message, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Committing this would finish the submission with no reply.
+	if len(items) == 0 {
+		return nil, durable.Transient(errors.New("response completed with no output"))
+	}
 	msg, err := toResult(items)
 	if err != nil {
 		return nil, err
@@ -456,8 +465,14 @@ func (m *Model) classifyStream(code any, message string) error {
 		c = fmt.Sprint(code)
 	}
 	err := fmt.Errorf("responses API error (code %q): %s", c, m.redactText(message))
+	if s, convErr := strconv.Atoi(c); convErr == nil {
+		if retryableStatus(s) {
+			return durable.Transient(err)
+		}
+		return err
+	}
 	switch c {
-	case "server_error", "rate_limit_exceeded", "rate_limit_error", "overloaded", "overloaded_error", "api_error", "timeout", "service_unavailable", "408", "409", "429", "500", "502", "503", "504", "529":
+	case "server_error", "rate_limit_exceeded", "rate_limit_error", "overloaded", "overloaded_error", "api_error", "timeout", "service_unavailable":
 		return durable.Transient(err)
 	}
 	return err

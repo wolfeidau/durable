@@ -231,7 +231,7 @@ func routeLine(r route) (line, warning string) {
 		model = claude.DefaultModel
 	}
 	line = fmt.Sprintf("[model] %s via %s: %s", r.Provider, r.Protocol, model)
-	if r.Protocol == protocolResponses && strings.HasPrefix(model, "anthropic/") {
+	if r.Protocol == protocolResponses && strings.HasPrefix(strings.TrimPrefix(model, "~"), "anthropic/") {
 		warning = fmt.Sprintf("[model] warning: %s on %s misses Anthropic prompt caching and can cost several times more; start a new --session with --protocol %s", model, protocolResponses, protocolMessages)
 	}
 	return line, warning

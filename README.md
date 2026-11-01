@@ -16,7 +16,7 @@ go build -o durable ./cmd/durable
 ```
 
 Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default),
-`--model` (default `claude-sonnet-5-5` on `anthropic`, required on `openrouter`),
+`--model` (default `claude-sonnet-5-5` on `anthropic`, required for a new `openrouter` session),
 `--effort` (default `medium` on `anthropic-messages`, unset on `openai-responses`),
 `--session` (default `default`), `--yes`, `--no-context`, `--version`, `--api-token` and
 `--api-token-from-1password`.

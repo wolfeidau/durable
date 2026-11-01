@@ -36,7 +36,7 @@ func waitLive(t *testing.T, a *agent, what string, cond func() bool) {
 	deadline := time.Now().Add(liveTimeout)
 	for !cond() {
 		out := a.out.String()
-		if strings.Contains(out, "failed: ") || time.Now().After(deadline) {
+		if strings.Contains(out, "failed: model failed:") || time.Now().After(deadline) {
 			t.Fatalf("waiting for %s: %s", what, out)
 		}
 		time.Sleep(100 * time.Millisecond)

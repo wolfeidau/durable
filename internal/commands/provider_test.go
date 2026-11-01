@@ -118,6 +118,8 @@ func TestRouteLine(t *testing.T) {
 
 	_, warn = routeLine(route{Provider: "openrouter", Protocol: "openai-responses", Model: "anthropic/claude-sonnet-5-5"})
 	require.Contains(t, warn, "--protocol anthropic-messages")
+	_, warn = routeLine(route{Provider: "openrouter", Protocol: "openai-responses", Model: "~anthropic/claude-sonnet-latest"})
+	require.Contains(t, warn, "--protocol anthropic-messages")
 	_, warn = routeLine(route{Provider: "openrouter", Protocol: "anthropic-messages", Model: "anthropic/claude-sonnet-5-5"})
 	require.Empty(t, warn)
 }
