@@ -121,7 +121,7 @@ prerequisites for a modular harness. Items 5 to 8 are features on top.
 | 4 | Done: `AGENTS.md` only, pinned per session in the CLI | Cheapest large gain; config for hooks and MCP also needs a loader | S |
 | 5 | Done: `mcp` package and `~/.durable/mcp.json`, pinned per session | Opens up the existing tool ecosystem | M |
 | 6 | Done: `skills` package, pinned per session in `skills.json` | The same format as Claude Code, and `.agents/skills` is shared with Pi | S |
-| 7 | Done: `hooks` package and `~/.durable/hooks.json`, not pinned; only `PreToolUse` and `PostToolUse` so far | The only practical runtime extension in Go. Existing Claude Code hooks need adapting; see the README | M |
+| 7 | Done: `hooks` package and `~/.durable/hooks.json`, not pinned; only `PreToolUse` and `PostToolUse` so far | The only practical runtime extension in Go. Existing Claude Code hooks need adapting; see [hooks](hooks.md) | M |
 | 8 | Add steering and durable subagents | README next steps 2 and 3. Subagents need multiple conversations per store first | L |
 
 Leave out for now: a TUI, more providers beyond Anthropic and OpenRouter, codemode and the

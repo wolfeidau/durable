@@ -1,19 +1,42 @@
 # durable
 
-A small durable harness for a Go coding agent, modeled on the ideas in Pi Durable.
+A small durable harness for a Go coding agent, modeled on the ideas in
+[Pi Durable](https://github.com/earendil-works/pi/blob/main/packages/durable/README.md).
 Every step of a run is committed to SQLite before the next one starts, so you can
 `kill -9` the agent mid-run, start it again, and it picks up where it stopped.
 
-## Running the agent
+For how it compares with Pi, Pi Durable and Claude Code, see the [feature matrix](docs/feature-matrix.md).
 
-`cmd/durable` is a small coding agent built on the harness. It uses Claude by default, or
-a model through OpenRouter, and has five tools (`read_file`, `list_files`, `grep`,
-`edit_file`, `bash`).
+## Features
+
+- **Crash-safe runs:** every step commits to SQLite first, and `kill -9` resumes automatically.
+- **No double side effects:** per-tool replay rules, unknown-outcome results and orphaned `bash` cleanup.
+- **Single writer:** a lease fences processes, and `synchronous=FULL` survives power loss.
+- **Models:** Anthropic and OpenRouter, pinned per session.
+- **Extensions:** MCP tools, Agent Skills, `AGENTS.md`, and `PreToolUse` and `PostToolUse` hooks.
+- **Embeddable:** a Go library with two interfaces, `Model` and `Tool`, and reusable adapters and tools.
+
+Not included: a TUI, parallel tool calls, subagents, an OS sandbox or usage tracking.
+See the [feature matrix](docs/feature-matrix.md).
+
+## Quick start
+
+You need Go 1.27, plus cgo and a C toolchain because of `mattn/go-sqlite3`. There are no released
+binaries yet, so build from source.
 
 ```sh
 go build -o durable ./cmd/durable
 ./durable --api-token-from-1password 'op://<vault>/<item>/<field>'
 ```
+
+To resume after a crash or a quit, run the agent again in the same directory. Unfinished work
+continues before the first prompt.
+
+## Using the agent
+
+`cmd/durable` is a small coding agent built on the harness. It uses Claude by default, or a model
+through OpenRouter. It has five coding tools (`read_file`, `list_files`, `grep`, `edit_file`,
+`bash`), plus a `skill` tool when the session has skills the model can load.
 
 Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default),
 `--model` (default `claude-sonnet-5-5` on `anthropic`, required for a new `openrouter` session),
@@ -21,167 +44,45 @@ Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default)
 `--session` (default `default`), `--yes`, `--no-context`, `--version`, `--api-token` and
 `--api-token-from-1password`.
 
-- **Providers and protocols:** the provider is where requests go and which key they use.
-  The protocol is the wire format, and it is also the format of the stored model replies.
-
-  | Provider | Key | Default protocol | Allowed protocols |
-  |---|---|---|---|
-  | `anthropic` | SDK defaults | `anthropic-messages` | `anthropic-messages` |
-  | `openrouter` | `OPENROUTER_API_KEY` | `openai-responses` | `openai-responses`, `anthropic-messages` |
-
-  ```sh
-  ./durable                                                    # anthropic, anthropic-messages
-  ./durable --provider openrouter --model openai/gpt-5.6-luna  # openai-responses
-  ./durable --provider openrouter --protocol anthropic-messages --model anthropic/claude-sonnet-5-5
-  ```
-
-  Every start prints a `[model] <provider> via <protocol>: <model>` line showing the route.
-  `openai-responses` is the OpenRouter default for every model, but an `anthropic/*` model
-  on it loses Anthropic prompt caching and can cost several times more, so the agent prints
-  a warning. Use `--protocol anthropic-messages` for Claude models. The `OPENROUTER_API_KEY`
-  variable, `--api-token` or `--api-token-from-1password` supplies the key, and
-  `OPENROUTER_BASE_URL` overrides the root URL (without `/v1`). The OpenRouter route
-  ignores `ANTHROPIC_*` from the environment, so neither key goes to the wrong service.
-  The provider, protocol and OpenRouter model are pinned in `provider.json` next to the
-  session database when the session first starts, because stored replies only replay under
-  the protocol that wrote them. Changing any of them needs a new `--session`, and a
-  mismatched flag is an error. Sessions that predate this feature stay `anthropic`.
-  Limits on OpenRouter: server-side compaction exists only on the direct `anthropic`
-  provider, so a long session fails at the model's context limit. `anthropic-messages` via
-  OpenRouter also leaves out server-side fallbacks, and sends thinking block binding only
-  to Claude models, because OpenRouter rejects it on other models. `--effort`
-  is sent to `openai-responses` only when set, and a value the model doesn't support fails
-  with the provider's error.
-
-- **Credentials:** `--api-token-from-1password` reads the key with the `op` CLI when the
-  agent starts. `--api-token` also works, but the key is then visible in the process list
-  and shell history. With neither flag, the SDK's defaults apply (`ANTHROPIC_API_KEY`, or
-  `ant auth login`). `bash` commands don't inherit `ANTHROPIC_*`, `OPENROUTER_*` or `OP_*` variables, but
-  `bash` isn't sandboxed, so an approved command can still reach anything you can.
-- **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers
-  the working directory and `--session`. To resume after a crash or a quit, run the agent
-  again in the same directory. Unfinished work continues before the first prompt.
-- **Project instructions:** a new session loads `AGENTS.md` files into the system prompt, in
-  this order: `~/.durable/AGENTS.md`, then each `AGENTS.md` from the repository root (the
-  nearest ancestor with a `.git` entry) down to the working directory. The walk stops at the
-  root, and with no repository only the working directory is read. `CLAUDE.md` isn't read, and
-  `@path` imports stay as literal text. Files are limited to 32 KiB each and 64 KiB in total,
-  counting file content but not the wrapper tags; anything over is cut, marked `[truncated]`
-  and reported at startup. The budget is spent from the working directory upward, so the most
-  specific files are kept. A project `AGENTS.md` symlink that resolves outside the repository
-  is refused, as is anything that isn't a regular file; an in-repository symlink must be
-  relative. The `~/.durable` file may be a symlink. Files containing NUL bytes are skipped, and
-  a `.git` owned by another user isn't treated as a repository root. The text is pinned in
-  `instructions.md` next to the session database when the session first starts, even if no
-  prompt is sent and even if the first request fails, so a resume uses the same prompt and
-  prints a `[context]` line saying pinned instructions are in use. To reload, start a new
-  `--session` or delete the session directory; deleting only `session.sqlite` keeps the pin.
-  Sessions that predate this feature keep an empty pin, so `AGENTS.md` isn't loaded for them.
-  `--no-context` skips loading for a new session.
-  **A cloned repository's `AGENTS.md` goes into the system prompt, so treat it as untrusted
-  input, especially with `--yes`.**
-- **MCP tools:** a new session connects to the servers in `~/.durable/mcp.json`, which uses
-  the `mcpServers` shape from Claude Code. Stdio and streamable HTTP servers work; `sse`
-  entries and OAuth don't. A project `.mcp.json` is never read, because a repository must not
-  be able to start commands. `env` and `headers` values can use `${VAR}`. An unset variable
-  skips that server: it stops a new session from starting, and on a resume it is a warning.
-  The same goes for an invalid file. `headers` go only to the configured URL's scheme and host,
-  not to a redirect elsewhere. `timeoutSeconds` limits each call (default 10 minutes). A stdio
-  server runs in a fresh empty temp folder, removed when it stops, so a cloned repository
-  can't influence it (for example `npx` resolving a package from the project). A relative
-  `command` no longer resolves in the repository; `"useWorkspaceCwd": true` runs that server
-  in the workspace again. This doesn't sandbox the server, which still runs as you. Stdio
-  servers don't inherit `ANTHROPIC_*`, `OPENROUTER_*` or `OP_*` unless you pass them this way, and their stderr goes to
-  `mcp-<server>.log` next to the session database. Tools are named `mcp__<server>__<tool>`
-  and pinned in `mcp-tools.json` when the session first starts, so a resume uses the same list
-  without connecting, and a server connects on its first call. A server that fails at session
-  start is reported and has no tools in that session. To reload, start a new `--session`.
-  Sessions that predate this feature keep an empty pin. Server hints are ignored: every MCP
-  call asks unless you use `--yes`, and a call interrupted by a crash, a timeout or a lost
-  connection is never retried and is reported as an unknown outcome. Nothing stops a server
-  after a crash: one that ignores stdin closing keeps running, and an HTTP call may finish.
-  **Tool descriptions and results come from the server, so treat them as untrusted input.**
-- **Skills:** a new session loads [Agent Skills](https://agentskills.io/specification) from
-  `.durable/skills` then `.agents/skills` in each project directory, nearest first up to the
-  repository root, then `~/.durable/skills` and `~/.agents/skills`. The first skill of a name
-  wins and a shadowed one gets a warning. `.claude/skills` isn't scanned, and Claude Code reads only that location, so a skill
-  meant for both needs a copy. A project skill
-  that resolves outside the repository is skipped. The model loads one with the `skill` tool,
-  which lists the skills in its description and needs no approval to read, while scripts a
-  skill mentions run through `bash` and ask as usual. The catalog is pinned in `skills.json`
-  next to the session database when the session first starts, so a resume uses the same tool;
-  to reload, start a new `--session`. Sessions that predate this feature keep an empty pin,
-  and `--no-context` skips skills for a new session. `/skill:<name> [text]` loads a skill into
-  your own prompt, including one with `disable-model-invocation`, which the model never sees.
-  `allowed-tools` is ignored. Compaction may drop a loaded skill's instructions, and the model
-  can load it again.
-  **A cloned repository's skills go into the model's context, so treat them as untrusted
-  input, especially with `--yes`.**
-- **Hooks:** `~/.durable/hooks.json` runs commands around tool calls, using the JSON contract
-  from Claude Code's hooks. Only `PreToolUse` and `PostToolUse` exist, and each event starts
-  one process:
-
-  ```json
-  {
-    "hooks": {
-      "PreToolUse": [
-        { "matcher": "bash", "hooks": [{ "type": "command", "command": "/path/to/policy.sh", "timeout": 30 }] }
-      ]
-    }
-  }
-  ```
-
-  The hook gets JSON on stdin (`hook_protocol`, currently 1, then `session_id`, `cwd`,
-  `permission_mode`, `hook_event_name`, `tool_name`, `tool_input`, `tool_use_id`, plus
-  `tool_response` for `PostToolUse`) and answers with JSON on stdout. Unknown fields in a
-  JSON answer are a failure, and so is `"continue": false`. Handlers need `"type": "command"` and a `command`, which runs
-  under `bash -c`; `"args"` (even `[]`) runs it directly with no shell. A `matcher` is empty
-  or `*` for every tool, a name or `a|b` list, or a Go regexp.
-  - **`PreToolUse`:** exit 2 denies with stderr as the reason. Under `hookSpecificOutput`,
-    `permissionDecision` is `allow`, `deny` or `ask`, and `updatedInput` replaces the input.
-    Several hooks combine as deny, then ask, then allow. A hook `allow` skips the approval
-    prompt, and with no decision the normal approval applies. `additionalContext` is ignored. A top-level `decision` is a failure.
-  - **`PostToolUse`:** `hookSpecificOutput.updatedToolOutput` (a string or
-    `{"output": "..."}`) replaces the result before it reaches the model and the session
-    database, and `additionalContext` or a top-level `"decision": "block"` with `reason`
-    appends text. Exit 2 appends stderr.
-  - **Trust and scope:** hooks come only from the user's file, never from the repository. A
-    broken file refuses to start, including on resume. Hooks apply under `--yes` too, where
-    a hook `ask` denies. Changes apply at the next start, because hooks aren't pinned.
-  - **Failure:** hooks fail closed. A timeout (default 60 seconds), bad output, a non-zero
-    exit other than 2 or a start failure denies a `PreToolUse` call, and withholds a
-    `PostToolUse` result, unless the handler sets `"onFailure": "continue"`. The model sees a
-    fixed message, and the cause goes to `hooks.log` next to the session database.
-  - **Process:** hooks run in an empty temp folder, unless `"useWorkspaceCwd": true`, in
-    order, and don't inherit `ANTHROPIC_*`, `OPENROUTER_*` or `OP_*`. Stdout over 1 MiB is a
-    failure.
-
-  Differences from Claude Code:
-  - Tool names are durable's, so `bash` not `Bash`. A matcher naming no tool prints a
-    `[hooks] warning` at startup.
-  - `tool_response` is `{"output", "is_error"}`, not tool-specific.
-  - `PostToolUse` also runs for tool errors, because there is no separate failure event.
-  - Failures block by default, where Claude Code lets the call proceed.
-  - Hooks run one after another in config order, not concurrently.
-  - Only `type: "command"` works, and `if`, `async`, `http` and other fields are load errors.
-  - Fields we don't support in a hook's answer fail the hook instead of being ignored,
-    including `updatedMCPToolOutput` and `"continue": false`.
-  - An event name with the wrong case, such as `preToolUse`, is a load error. Other
-    unsupported events print a warning.
-
-  Limits: a `PreToolUse` hook can run more than once after a crash, so it must be safe to
-  repeat. `PostToolUse` doesn't run for a call a crash interrupted, which is recorded as an
-  unknown outcome with no output. Nothing stops a running hook after `kill -9`. **Hooks run
-  as you and aren't sandboxed, and they aren't a security boundary:** an approved `bash`
-  command can edit `~/.durable/hooks.json`, and the change applies at the next start.
+- **Credentials:** `--api-token-from-1password` reads the key with the `op` CLI when the agent
+  starts. `--api-token` also works, but the key is then visible in the process list and shell
+  history. With neither flag, the SDK's defaults apply (`ANTHROPIC_API_KEY`, or `ant auth login`).
+  `bash` commands don't inherit `ANTHROPIC_*`, `OPENROUTER_*` or `OP_*` variables, but `bash` isn't
+  sandboxed, so an approved command can still reach anything you can.
+- **Sessions** live in `~/.durable/sessions/<hash>/session.sqlite`, where the hash covers the
+  working directory and `--session`. To resume after a crash or a quit, run the agent again in the
+  same directory. Unfinished work continues before the first prompt.
 - **Approval:** every tool shows the call and asks `y/N`, except built-in tools that declare
-  themselves read-only (`read_file`, `list_files`, `grep`).
-- **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so
-  use `--yes` only where the model may run anything you could.
-- **Ctrl-C** during a turn (including an approval prompt or a resumed task) cancels the
-  task durably: a restart won't resume it. `kill -9` and SIGTERM still resume. At the
-  prompt, Ctrl-C or Ctrl-D exits. A second Ctrl-C exits without waiting for the turn:
-  the task resumes on restart, after waiting out the session lease.
+  themselves read-only (`read_file`, `list_files`, `grep`, and `skill`).
+- **`--yes` skips approval, and `bash` is not sandboxed.** Approval is the only guard, so use
+  `--yes` only where the model may run anything you could. It also covers MCP tools.
+- **Turn limit:** a submission fails permanently after 50 model turns (`Options.MaxTurns`, default
+  50). The CLI has no flag to change it, and retrying needs a new prompt.
+- **Ctrl-C** during a turn (including an approval prompt or a resumed task) cancels the task
+  durably: a restart won't resume it. `kill -9` and SIGTERM still resume. At the prompt, Ctrl-C or
+  Ctrl-D exits. A second Ctrl-C exits without waiting for the turn: the task resumes on restart,
+  after waiting out the session lease.
+
+## Extending it
+
+- **Providers:** `anthropic` is the default, and `openrouter` reaches other models over
+  `openai-responses` or `anthropic-messages`. The provider, protocol and OpenRouter model are pinned
+  per session. See [docs/providers.md](docs/providers.md).
+- **Project instructions:** a new session loads `AGENTS.md` files into the system prompt, from
+  `~/.durable` and from the repository root down to the working directory. **A cloned repository's
+  `AGENTS.md` goes into the system prompt, so treat it as untrusted input, especially with
+  `--yes`.** `--no-context` skips loading. See [docs/context.md](docs/context.md).
+- **Skills:** a new session loads [Agent Skills](https://agentskills.io/specification) from
+  `.durable/skills`, `.agents/skills` and the matching folders in `~/`. **A cloned repository's
+  skills go into the model's context, so treat them as untrusted input, especially with `--yes`.**
+  See [docs/context.md](docs/context.md#skills).
+- **MCP tools:** a new session connects to the servers in `~/.durable/mcp.json`. Every MCP call asks
+  unless you use `--yes`, and a stdio server is not sandboxed. **Tool descriptions and results come
+  from the server, so treat them as untrusted input.** See [docs/mcp.md](docs/mcp.md).
+- **Hooks:** `~/.durable/hooks.json` runs commands before and after tool calls, using the JSON
+  contract from Claude Code's hooks. **Hooks run as you and aren't sandboxed, and they aren't a
+  security boundary:** an approved `bash` command can edit `~/.durable/hooks.json`, and the change
+  applies at the next start. See [docs/hooks.md](docs/hooks.md).
 
 ## Wiring it into your agent
 
@@ -217,13 +118,27 @@ sub, err := h.Prompt(ctx, requestID, userInput) // requestID: a UUID per input, 
 
 The agent's own parts are public, so you can reuse them instead of writing your own.
 `claude.New` returns a `Model` for Anthropic's Messages API, `responses.New` returns one for
-OpenAI-style Responses APIs such as OpenRouter's, and `tools.All` returns the five coding tools scoped to a
-workspace root. Its `stateDir` holds crash bookkeeping, so keep it outside the workspace:
+OpenAI-style Responses APIs such as OpenRouter's, and `tools.All` returns the five coding tools
+scoped to a workspace root. Its `stateDir` holds crash bookkeeping, so keep it outside the
+workspace:
 
 ```go
 toolset, err := tools.All(workspace, filepath.Dir(path))
 model := claude.New(anthropic.NewClient(), claude.Config{System: systemPrompt})
 ```
+
+Three more packages hold the extensions, and each works with any `Tool` list:
+
+- `mcp` turns MCP server tools into `Tool`s. `mcp.LoadConfig` reads the `mcpServers` file,
+  `mcp.NewPool` owns one lazily connected session per server, `Pool.Discover` lists the tools to pin,
+  and `Pool.Tools` builds `Tool`s from a pinned list without connecting. Close the pool when done.
+  It is separate from `tools` so importing `tools` doesn't link the MCP SDK.
+- `hooks` runs `PreToolUse` and `PostToolUse` commands. `hooks.LoadConfig` reads the file and
+  `hooks.New` returns a `Runner`. `Runner.Gate(base)` returns a `ToolGate` for `Options.Gate`, and
+  `Runner.Wrap(tools)` wraps the tools for `Options.Tools`.
+- `skills` finds [Agent Skills](https://agentskills.io/specification). `skills.Discover` scans
+  sources, and `skills.Tool` returns the read-only `skill` tool, or nil when no skill is visible to
+  the model. `skills.Expand` loads a skill into your own prompt text.
 
 ## How it works
 
@@ -296,7 +211,8 @@ says the command was still running and has been stopped. If it cannot be stopped
 the recorded ID is not usable, the result says the command may still be running.
 Limits: a descendant that closes the inherited descriptor and leaves the group escapes
 detection; a crash between starting the command and writing the ID is reported as
-may-still-be-running; Unix only. OS sandboxing is out of scope.
+may-still-be-running; Unix only. OS sandboxing is deferred; see
+[#9](https://github.com/wolfeidau/durable/issues/9).
 
 **Exactly-once input.** `submissions.request_id` is unique. Submitting an ID twice
 returns the first submission.
@@ -314,7 +230,9 @@ overlapping calls wait for each other instead of executing the same tool twice.
 
 **Model failures.** An error from `Generate` fails the submission at once, with the
 error text in `Submission.Error`, and `Run` moves on to the next one. `failed` is
-terminal, so retrying needs a new request ID. Wrap errors worth retrying (rate limits,
+terminal, so retrying needs a new request ID. A submission also fails once it has made
+`MaxTurns` model calls (default 50), with `stopped after 50 model turns` in `Submission.Error`.
+Wrap errors worth retrying (rate limits,
 outages, network faults) with `durable.Transient`: they are retried up to
 `ModelAttempts` times (default 4) with `ModelBackoff` doubling between tries (default
 1s, so 1s, 2s, 4s). If they still fail, `Run` returns the error and the submission
@@ -336,30 +254,32 @@ and later the adapter sends `prefix_mismatch_behavior: "drop_block"`, so the API
 those blocks and the session carries on without that reasoning, instead of failing with
 a 400. It also restarts the prompt cache.
 
-**Long sessions.** On the direct Anthropic provider, the adapter turns on server-side compaction on Claude 5 and later.
-When a request reaches 150,000 input tokens, the API summarizes the older history into a
-compaction block at the start of the reply, and the agent prints `[compacting history]`.
-The block is stored in `Raw` like any other content, and the API ignores everything
-before it on later requests. Nothing is rewritten, so the transcript stays append-only
-and a crash needs no special handling. The whole transcript is still sent, so tokens
-drop but request size keeps growing. Every later request must enable compaction, so a
-session that has compacted can't continue on an older `--model`.
+**Long sessions.** On the direct Anthropic provider, the adapter turns on server-side compaction on
+Claude 5 and later. The trigger is the API's default, currently 150,000 input tokens per the API,
+and this repo doesn't set it. When a request reaches it, the API summarizes the older history into a
+compaction block at the start of the reply, and the agent prints `[compacting history]`. The block
+is stored in `Raw` like any other content, and the API ignores everything before it on later
+requests. Nothing is rewritten, so the transcript stays append-only and a crash needs no special
+handling. The whole transcript is still sent, so tokens drop but request size keeps growing. Every
+later request must enable compaction, so a session that has compacted can't continue on an older
+`--model`.
 
 **Events.** Every state change inserts a row into `events` in the same transaction, so an
 event exists only if its change committed. Kinds are `submission` (queued, then each
-status change, with `Error` when failed), `message` (a transcript entry, without `Raw`)
+status change, with `Error` when failed), `message` (a transcript entry, without `Raw`),
 `call_started` (the input that actually runs, with `Rewritten` set when a gate changed
 it), `call_replayed` (a `ReplaySafe` call running again after a crash) and `call_done` (a
-call's result, whether it ran or not, with the text in the `message` event before it). `Options.Observer` is called after each commit with the new events in `Seq`
-order. It is live only: events from before `Open` are not replayed. To catch up, call
-`Events(ctx, after, limit)` after `Open` and before `Run`, then drop any `Seq` you have
-already seen. A crash between commit and delivery loses only the callback, and a failed
-delivery is retried on the next commit, if there is one. So `Observer` alone isn't a complete
-feed: reconcile with `Events` if you need every event, which gives at-least-once across
-restarts. `Observer` runs synchronously on the committing goroutine,
-so a slow one slows the agent. It may call `Events` or `History`, but not `Submit`, `Run`
-or `Cancel`, which deadlock, and it must not panic. `Event.Call.Input` is the effective input and can hold
-secrets a gate added; treat the log accordingly.
+call's result, whether it ran or not, with the text in the `message` event before it).
+
+`Options.Observer` is called after each commit with the new events in `Seq` order. It is live only:
+events from before `Open` are not replayed. To catch up, call `Events(ctx, after, limit)` after
+`Open` and before `Run`, then drop any `Seq` you have already seen. A crash between commit and
+delivery loses only the callback, and a failed delivery is retried on the next commit, if there is
+one. So `Observer` alone isn't a complete feed: reconcile with `Events` if you need every event,
+which gives at-least-once across restarts. `Observer` runs synchronously on the committing
+goroutine, so a slow one slows the agent. It may call `Events` or `History`, but not `Submit`, `Run`
+or `Cancel`, which deadlock, and it must not panic. `Event.Call.Input` is the effective input and
+can hold secrets a gate added; treat the log accordingly.
 
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
@@ -389,7 +309,9 @@ model call.
 
 ## Built with AI
 
-This project is built with AI-assisted development workflows using tools including [OpenAI Codex](https://developers.openai.com/codex/), [Claude Code](https://claude.ai/code), and [Cursor](https://cursor.com).
+This project is built with AI-assisted development workflows using tools including
+[OpenAI Codex](https://developers.openai.com/codex/), [Claude Code](https://claude.ai/code), and
+[Cursor](https://cursor.com).
 
 ## License
 
