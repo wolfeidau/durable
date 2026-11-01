@@ -2,7 +2,30 @@
 
 This repository is public. Keep secrets and private details out of commits, code, tests, issues and pull requests, including API keys, 1Password references (vault, item or field names), account details and private paths. Use placeholders such as `op://<vault>/<item>/<field>`.
 
-When running something that needs a credential, keep it out of command output and logs: pass it to the one command that needs it, and never print, write or commit it.
+When running something that needs a credential, keep it out of command output and logs: pass it to the one command that needs it, and never print, write or commit it. Tool errors can echo a secret reference, so silence or redact their stderr.
+
+## Verification
+
+Fast loop, skipping the real-binary tests in `cmd/durable`, which take about 30s:
+
+```sh
+go test . ./claude ./internal/... ./tools/...
+```
+
+Before finishing, after your last edit:
+
+```sh
+go vet ./... && go test -race -count=1 ./...
+mise exec -- golangci-lint run ./...
+```
+
+## Durability invariants
+
+- A state change and its events commit in the same transaction.
+- `migrate` only runs `CREATE TABLE IF NOT EXISTS`, so a new table reaches existing sessions but a new or changed column doesn't.
+- The database pool has one connection, so close a cursor before running another query or calling a callback.
+- Wrappers around a tool must forward the optional interfaces `Recoverer` and `ReadOnlyTool`, because embedding `Tool` doesn't promote them.
+- The system prompt and tool order must not change within a session. They feed the prompt cache and stored thinking blocks.
 
 ## Code conventions
 
@@ -48,3 +71,9 @@ Use `github.com/stretchr/testify/require` for assertions. Prefer `require` over 
 require.NoError(t, err)
 require.Equal(t, http.StatusCreated, resp.StatusCode)
 ```
+
+- Fake models must also cover nil or empty input, not just `{}`.
+- Every new flag or caller needs a real-binary test in `cmd/durable`, because unit tests don't protect the wiring.
+- Tests that run the binary must use a temporary `HOME`.
+- When a test fails, fix the code. Change the test's data only if the test is wrong.
+- Real-binary tests run their own `go build`, so mutation checks on them need `GOFLAGS=-overlay=<file>`, not `go test -overlay`.
