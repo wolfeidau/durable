@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Set here rather than in environment, because go is only on PATH after the mise plugin's pre-command.
+GO_CACHE_VERSION="$(go env GOVERSION)"
+export GO_CACHE_VERSION
+buildkite-agent cache restore

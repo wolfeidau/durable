@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# A failed run may have left partial output, and the next build must not inherit it.
+if [[ "${BUILDKITE_COMMAND_EXIT_STATUS:-1}" != "0" ]]; then
+  exit 0
+fi
+buildkite-agent cache save

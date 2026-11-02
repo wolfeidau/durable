@@ -6,30 +6,17 @@ steps:
         commands:
           - mise run check:tidy
           - golangci-lint run --verbose --timeout 3m
-        # One volume per step, because concurrent jobs fork it and the last to pass replaces it.
-        cache:
-          name: go-lint
-          paths:
-            - /go-cache
-        env:
-          GOCACHE: /go-cache/build
-          GOMODCACHE: /go-cache/mod
-          GOLANGCI_LINT_CACHE: /go-cache/lint
         plugins:
           - mise#v1.1.5: ~
+          - ./.buildkite/plugins/go-cache:
+              name: go_lint
 
       - label: ":go: test"
         artifact_paths:
           - coverage.out
           - tests.json
         command: go test -race -count=1 -json -coverprofile=coverage.out -coverpkg=./... ./... > tests.json
-        cache:
-          name: go-test
-          paths:
-            - /go-cache
         env:
-          GOCACHE: /go-cache/build
-          GOMODCACHE: /go-cache/mod
           # The tests' go build inherits -race, so it reuses go test's packages and the real binary is checked too.
           GOFLAGS: -race
           # Each real-binary run would otherwise sleep 1s at exit.
@@ -38,3 +25,5 @@ steps:
           - mise#v1.1.5: ~
           - wolfeidau/go-test-annotate#v1.0.0:
               file: tests.json
+          - ./.buildkite/plugins/go-cache:
+              name: go_test

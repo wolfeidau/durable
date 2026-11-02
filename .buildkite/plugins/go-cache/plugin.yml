@@ -1,0 +1,13 @@
+name: Go Cache
+description: Restores and saves Go caches with Buildkite Cache
+author: https://github.com/wolfeidau
+requirements:
+  - go
+configuration:
+  properties:
+    name:
+      description: The entry in .buildkite/cache.yml to use
+      type: string
+  required:
+    - name
+  additionalProperties: false
