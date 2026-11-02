@@ -49,7 +49,7 @@ func TestOpenRouterLive(t *testing.T) {
 	if key == "" || os.Getenv("DURABLE_SMOKE") != "1" {
 		t.Skip("set OPENROUTER_API_KEY and DURABLE_SMOKE=1 to run against the real API")
 	}
-	bin := buildBinary(t)
+	bin := binPath
 	for _, tc := range []struct {
 		name string
 		args []string

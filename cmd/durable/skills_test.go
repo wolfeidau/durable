@@ -41,7 +41,7 @@ func chatOnce(t *testing.T, bin, ws, home, reply, prompt string, wantRequests in
 }
 
 func TestSkillAppearsInToolsWithoutChangingSystem(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	_, base := chatOnce(t, bin, ws, home, textReply("hi"), "go", 1)
 
@@ -59,7 +59,7 @@ func TestSkillAppearsInToolsWithoutChangingSystem(t *testing.T) {
 }
 
 func TestNoSkillsLeavesRequestUnchanged(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	_, plain := chatOnce(t, bin, ws, home, textReply("hi"), "go", 1)
 
@@ -75,7 +75,7 @@ func TestNoSkillsLeavesRequestUnchanged(t *testing.T) {
 }
 
 func TestSkillToolRunsWithoutApproval(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
 	a, api := chatOnce(t, bin, ws, home, skillCall(t, "demo", nil), "load it", 2)
@@ -85,7 +85,7 @@ func TestSkillToolRunsWithoutApproval(t *testing.T) {
 }
 
 func TestSkillToolRefusesPathEscape(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "secret"), []byte("TOPSECRETVALUE"), 0o600))
@@ -99,7 +99,7 @@ func TestSkillToolRefusesPathEscape(t *testing.T) {
 }
 
 func TestSkillCatalogIsPinnedAcrossRuns(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
 	api := newFakeAPIReply(t, textReply("hi"))
@@ -118,7 +118,7 @@ func TestSkillCatalogIsPinnedAcrossRuns(t *testing.T) {
 }
 
 func TestNoContextSkipsSkills(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
 	a, api := chatOnce(t, bin, ws, home, textReply("hi"), "go", 1, "--no-context")
@@ -128,7 +128,7 @@ func TestNoContextSkipsSkills(t *testing.T) {
 }
 
 func TestSkillSlashCommandExpandsHiddenSkill(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "secretive", "User only.", "disable-model-invocation: true\n")
 	a, api := chatOnce(t, bin, ws, home, textReply("hi"), "/skill:secretive do it", 1)
@@ -143,7 +143,7 @@ func TestSkillSlashCommandExpandsHiddenSkill(t *testing.T) {
 }
 
 func TestUnknownSkillSlashCommandSubmitsNothing(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("hi"))
 	a := startAgent(t, bin, ws, home, api.srv.URL)
@@ -159,7 +159,7 @@ func TestUnknownSkillSlashCommandSubmitsNothing(t *testing.T) {
 }
 
 func TestProjectSkillShadowsUserAndEscapeIsSkipped(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	require.NoError(t, os.Mkdir(filepath.Join(ws, ".git"), 0o755))
 	writeSkill(t, userSkills(home), "x", "user version", "")
@@ -180,7 +180,7 @@ func TestProjectSkillShadowsUserAndEscapeIsSkipped(t *testing.T) {
 }
 
 func TestSessionThatPredatesSkillsGetsNone(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("hi"))
 	a := startAgent(t, bin, ws, home, api.srv.URL)

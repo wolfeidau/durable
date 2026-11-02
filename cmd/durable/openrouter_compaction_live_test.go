@@ -111,7 +111,7 @@ func requireLiveKey(t *testing.T) string {
 // Real summaries and real usage figures, then a crash, against the real service.
 func TestOpenRouterCompactionLive(t *testing.T) {
 	key := requireLiveKey(t)
-	bin := buildBinary(t)
+	bin := binPath
 	for _, tc := range liveCompactionModels {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -162,7 +162,7 @@ func TestOpenRouterCompactionLive(t *testing.T) {
 // The overflow patterns are text matching, so this checks them against what providers really send.
 func TestOpenRouterOverflowTextLive(t *testing.T) {
 	key := requireLiveKey(t)
-	bin := buildBinary(t)
+	bin := binPath
 	for _, model := range []string{"z-ai/glm-5.3-flash", "openai/gpt-6-luna"} {
 		t.Run(model, func(t *testing.T) {
 			window := liveContextLength(t, key, model)

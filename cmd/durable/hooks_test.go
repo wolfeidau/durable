@@ -70,7 +70,7 @@ func finish(t *testing.T, a *agent) {
 }
 
 func TestHookDenyStopsBashAndReasonReachesModel(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	writeHooks(t, home, map[string][]map[string]any{
@@ -89,13 +89,13 @@ func TestHookDenyStopsBashAndReasonReachesModel(t *testing.T) {
 }
 
 func TestHookTimeoutIsKilledAndDeniedThenSessionContinues(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	hang := hookScript(t, `echo $$ > `+pidFile+`; sleep 60`)
 	writeHooks(t, home, map[string][]map[string]any{
-		hooks.PreToolUse: {hookHandler(hang, map[string]any{"timeout": 1})},
+		hooks.PreToolUse: {hookHandler(hang, map[string]any{"timeout": 3})},
 	})
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
@@ -122,7 +122,7 @@ func mustRead(t *testing.T, path string) []byte {
 }
 
 func TestHookUpdatedInputRunsRewrittenCommand(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	rewrite := hookScript(t, `echo '{"hookSpecificOutput":{"updatedInput":{"command":"echo rewritten >> marker.txt"}}}'`)
 	writeHooks(t, home, map[string][]map[string]any{hooks.PreToolUse: {hookHandler(rewrite, nil)}})
@@ -144,7 +144,7 @@ func TestHooksApplyUnderYes(t *testing.T) {
 		"ask":  {`echo '{"hookSpecificOutput":{"permissionDecision":"ask"}}'`, "A policy blocked this tool call"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			bin := buildBinary(t)
+			bin := binPath
 			ws, home := newWorkspace(t)
 			writeHooks(t, home, map[string][]map[string]any{hooks.PreToolUse: {hookHandler(hookScript(t, tc.body), nil)}})
 			api := newFakeAPI(t, "echo ran >> marker.txt")
@@ -168,7 +168,7 @@ func TestHookPayloadCarriesSessionAndMode(t *testing.T) {
 		"yes":     {[]string{"--yes"}, "bypassPermissions"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			bin := buildBinary(t)
+			bin := binPath
 			ws, home := newWorkspace(t)
 			capture := filepath.Join(t.TempDir(), "stdin.json")
 			// exit 0 with an allow, so the call also runs without a prompt.
@@ -221,7 +221,7 @@ func TestPostToolUseRedactsRequestAndDatabase(t *testing.T) {
 		"failure": "printf 'SECRET''MARKER-123'; exit 1",
 	} {
 		t.Run(name, func(t *testing.T) {
-			bin := buildBinary(t)
+			bin := binPath
 			ws, home := newWorkspace(t)
 			seen := filepath.Join(t.TempDir(), "seen.json")
 			body := `cat > ` + seen + `; echo '{"hookSpecificOutput":{"updatedToolOutput":"redacted-by-hook"}}'`
@@ -260,7 +260,7 @@ func TestPostToolUseRedactsRequestAndDatabase(t *testing.T) {
 func TestKillDuringPostToolUseHookRecordsUnknownOutcome(t *testing.T) {
 	// kill -9 leaves the hook's temp directory behind.
 	t.Setenv("TMPDIR", t.TempDir())
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	hookMarker := filepath.Join(t.TempDir(), "hook.txt")
@@ -286,7 +286,7 @@ func TestKillDuringPostToolUseHookRecordsUnknownOutcome(t *testing.T) {
 }
 
 func TestRepositoryHooksFileIsIgnored(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	deny := mustJSON(t, map[string]any{"hooks": map[string]any{hooks.PreToolUse: []any{
 		map[string]any{"hooks": []any{hookHandler(hookScript(t, `exit 2`), nil)}},
@@ -304,7 +304,7 @@ func TestRepositoryHooksFileIsIgnored(t *testing.T) {
 var pinFileNames = []string{"instructions.md", "mcp-tools.json", "provider.json", "skills.json"}
 
 func TestInvalidHooksConfigRefusesNewSession(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeHooksRaw(t, filepath.Join(home, ".durable", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"x","if":"y"}]}]}}`)
 	api := newFakeAPI(t, "echo ran >> marker.txt")
@@ -322,7 +322,7 @@ func TestInvalidHooksConfigRefusesNewSession(t *testing.T) {
 }
 
 func TestInvalidHooksConfigRefusesResume(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt")
@@ -345,7 +345,7 @@ func TestInvalidHooksConfigRefusesResume(t *testing.T) {
 func TestHooksDoNotSeeCredentials(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "sk-openrouter-test")
 	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "op-token-test")
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	envFile := filepath.Join(t.TempDir(), "env.txt")
 	writeHooks(t, home, map[string][]map[string]any{hooks.PreToolUse: {hookHandler(hookScript(t, `env > `+envFile), nil)}})
@@ -365,7 +365,7 @@ func TestHooksDoNotSeeCredentials(t *testing.T) {
 }
 
 func TestUnknownMatcherNameWarns(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	body := mustJSON(t, map[string]any{"hooks": map[string]any{hooks.PreToolUse: []any{
 		map[string]any{"matcher": "Bash", "hooks": []any{hookHandler(hookScript(t, `exit 2`), nil)}},

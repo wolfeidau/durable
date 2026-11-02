@@ -202,7 +202,7 @@ func pairedCalls(t *testing.T, path, body string) int {
 }
 
 func TestCompactionOnEachProtocol(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -239,7 +239,7 @@ func TestCompactionOnEachProtocol(t *testing.T) {
 }
 
 func TestKillAfterCompactionResumesWithSummary(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -269,7 +269,7 @@ func TestKillAfterCompactionResumesWithSummary(t *testing.T) {
 }
 
 func TestOverflowForcesCompactionAndRetries(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -294,7 +294,7 @@ func TestOverflowForcesCompactionAndRetries(t *testing.T) {
 }
 
 func TestModelsFailureStillStarts(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -315,7 +315,7 @@ func TestModelsFailureStillStarts(t *testing.T) {
 }
 
 func TestDirectAnthropicHasNoCompaction(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	var mu sync.Mutex
 	var paths []string
@@ -341,7 +341,7 @@ func TestDirectAnthropicHasNoCompaction(t *testing.T) {
 }
 
 func TestSummariserUsesTheSessionEffort(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newCompactAPI(t, "/v1/messages", 1000, step{usage: 900}, step{usage: 50})
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))

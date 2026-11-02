@@ -96,16 +96,6 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-func buildBinary(t *testing.T) string {
-	t.Helper()
-	bin := filepath.Join(t.TempDir(), "durable")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "go", "build", "-o", bin, ".").CombinedOutput()
-	require.NoError(t, err, string(out))
-	return bin
-}
-
 type agent struct {
 	cmd   *exec.Cmd
 	stdin io.WriteCloser
@@ -233,7 +223,7 @@ func newWorkspace(t *testing.T) (workspace, home string) {
 }
 
 func TestKillDuringToolCallReportsUnknownOutcome(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt; sleep 5")
@@ -257,7 +247,7 @@ func TestKillDuringToolCallReportsUnknownOutcome(t *testing.T) {
 }
 
 func TestKillDuringApprovalKeepsCallPending(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt")
@@ -283,7 +273,7 @@ func TestKillDuringApprovalKeepsCallPending(t *testing.T) {
 }
 
 func TestInterruptCancelsAndDoesNotResume(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt; sleep 30")
@@ -319,7 +309,7 @@ func TestInterruptCancelsAndDoesNotResume(t *testing.T) {
 }
 
 func TestKillStopsOrphanedCommand(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	pidFile := filepath.Join(ws, "pid.txt")
 	marker := filepath.Join(ws, "marker.txt")
@@ -376,7 +366,7 @@ func runPrompt(t *testing.T, api *fakeAPI, want int, a *agent, prompt string) {
 }
 
 func TestInstructionsArePinnedAcrossRestart(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	agents := filepath.Join(ws, "AGENTS.md")
 	require.NoError(t, os.WriteFile(agents, []byte("marker ALPHA-ONE"), 0o644))
@@ -401,7 +391,7 @@ func TestInstructionsArePinnedAcrossRestart(t *testing.T) {
 }
 
 func TestOlderSessionKeepsEmptyPin(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, "true")
 
@@ -423,7 +413,7 @@ func TestOlderSessionKeepsEmptyPin(t *testing.T) {
 }
 
 func TestNoContextSkipsAgentsFile(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	require.NoError(t, os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte("marker HIDDEN"), 0o644))
 	api := newFakeAPI(t, "true")
@@ -434,7 +424,7 @@ func TestNoContextSkipsAgentsFile(t *testing.T) {
 }
 
 func TestEscapingSymlinkWarnsAndIsNotSent(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	outside := filepath.Join(t.TempDir(), "secret.md")
 	require.NoError(t, os.WriteFile(outside, []byte("marker OUTSIDE-SECRET"), 0o644))
@@ -450,7 +440,7 @@ func TestEscapingSymlinkWarnsAndIsNotSent(t *testing.T) {
 }
 
 func TestFailedTokenLookupDoesNotPin(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	agents := filepath.Join(ws, "AGENTS.md")
 	require.NoError(t, os.WriteFile(agents, []byte("marker DRAFT"), 0o644))
@@ -487,7 +477,7 @@ func TestVersionFlagReportsLinkedVersion(t *testing.T) {
 func TestVersionFlagReportsModuleVersion(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	bin := buildBinary(t)
+	bin := binPath
 	out, err := exec.CommandContext(ctx, "go", "version", "-m", bin).CombinedOutput()
 	require.NoError(t, err, string(out))
 	match := regexp.MustCompile(`(?m)^\s+mod\s+\S+\s+(\S+)`).FindSubmatch(out)
@@ -504,7 +494,7 @@ func TestVersionFlagReportsModuleVersion(t *testing.T) {
 }
 
 func TestReplyTextStreamsToStdout(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("streamed-reply-text"))
 

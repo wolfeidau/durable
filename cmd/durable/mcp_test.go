@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,7 +27,28 @@ func TestMain(m *testing.M) {
 		runFakeServer()
 		return
 	}
-	os.Exit(m.Run())
+	os.Exit(runTests(m))
+}
+
+// binPath is the real binary, built once because linking it per test dominated the suite's run time.
+var binPath string
+
+func runTests(m *testing.M) int {
+	dir, err := os.MkdirTemp("", "durable-test-*")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	defer os.RemoveAll(dir)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	binPath = filepath.Join(dir, "durable")
+	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binPath, ".").CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to build binary: %v\n%s", err, out)
+		return 1
+	}
+	return m.Run()
 }
 
 // runFakeServer is a stdio MCP server whose tools, delay, marker file, read-only hint and working-directory report file come from the environment.
@@ -115,7 +138,7 @@ func waitExit(t *testing.T, a *agent) error {
 }
 
 func TestMCPToolRoundTrip(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "echo"})
 	api := newFakeAPIReply(t, mcpCall("mcp__fake__echo"))
@@ -136,7 +159,7 @@ func TestMCPToolRoundTrip(t *testing.T) {
 }
 
 func TestMCPReadOnlyHintStillPrompts(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	// kill -9 leaves the server's temp directory behind.
 	t.Setenv("TMPDIR", t.TempDir())
@@ -151,7 +174,7 @@ func TestMCPReadOnlyHintStillPrompts(t *testing.T) {
 }
 
 func TestMCPKillDuringCallThenServerRemoved(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	// kill -9 leaves the server's temp directory behind.
 	t.Setenv("TMPDIR", t.TempDir())
@@ -180,7 +203,7 @@ func TestMCPKillDuringCallThenServerRemoved(t *testing.T) {
 }
 
 func TestMCPToolListIsPinnedAcrossRuns(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "alpha,beta"})
 	api := newFakeAPIReply(t, textReply("hi"))
@@ -200,7 +223,7 @@ func TestMCPToolListIsPinnedAcrossRuns(t *testing.T) {
 }
 
 func TestInvalidMCPConfigFailsWithoutPinning(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "mcp.json"), []byte("{nope"), 0o600))
@@ -220,7 +243,7 @@ func TestInvalidMCPConfigFailsWithoutPinning(t *testing.T) {
 }
 
 func TestMissingMCPServerCommandWarnsAndChatWorks(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeMCPServers(t, home, map[string]any{"fake": map[string]any{"command": filepath.Join(home, "no-such-server")}})
 	api := newFakeAPIReply(t, textReply("hi"))
@@ -246,7 +269,7 @@ func runCwdTest(t *testing.T, useWorkspaceCwd bool) (ws, got, tmp string) {
 	t.Helper()
 	tmp = t.TempDir()
 	t.Setenv("TMPDIR", tmp)
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	cwdFile := filepath.Join(home, "cwd.txt")
 	extra := map[string]any{}
@@ -295,7 +318,7 @@ func mustReadDir(t *testing.T, dir string) []string {
 
 func TestInvalidMCPConfigOnResumeWarnsAndCompletesRun(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "slow", "FAKE_MCP_SLEEP": "5s", "FAKE_MCP_MARKER": marker})
@@ -327,7 +350,7 @@ func unsetVarConfig(t *testing.T, home string) {
 }
 
 func TestUnsetMCPVariableFailsNewSessionWithoutPinning(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	unsetVarConfig(t, home)
 	api := newFakeAPIReply(t, textReply("hi"))
@@ -346,7 +369,7 @@ func TestUnsetMCPVariableFailsNewSessionWithoutPinning(t *testing.T) {
 }
 
 func TestUnsetMCPVariableOnExistingSessionWarns(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	writeMCPConfig(t, home, map[string]string{"FAKE_MCP_TOOLS": "echo"})
 	api := newFakeAPIReply(t, textReply("hi"))

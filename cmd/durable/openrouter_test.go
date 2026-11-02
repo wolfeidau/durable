@@ -206,7 +206,7 @@ func pinFiles(t *testing.T, dir string) []string {
 }
 
 func TestOpenRouterDefaultProtocolUsesResponses(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "echo ran >> marker.txt")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
@@ -225,7 +225,7 @@ func TestOpenRouterDefaultProtocolUsesResponses(t *testing.T) {
 }
 
 func TestOpenRouterMessagesProtocolUsesGatewayMode(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
@@ -247,7 +247,7 @@ func TestOpenRouterMessagesProtocolUsesGatewayMode(t *testing.T) {
 }
 
 func TestKillDuringBashResumesOnEachProtocol(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -289,7 +289,7 @@ func TestKillDuringBashResumesOnEachProtocol(t *testing.T) {
 }
 
 func TestOpenRouterRouteCannotChangeOnResume(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
@@ -310,7 +310,7 @@ func TestOpenRouterRouteCannotChangeOnResume(t *testing.T) {
 }
 
 func TestProviderRejectsUnsupportedProtocol(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	env := routerEnv(home, "http://127.0.0.1:1", unusedAnthropic(t))
 
@@ -321,7 +321,7 @@ func TestProviderRejectsUnsupportedProtocol(t *testing.T) {
 }
 
 func TestAnthropicModelOnResponsesWarns(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
@@ -334,7 +334,7 @@ func TestAnthropicModelOnResponsesWarns(t *testing.T) {
 }
 
 func TestFailedOpenRouterStartLeavesNoPin(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
@@ -362,7 +362,7 @@ func TestFailedOpenRouterStartLeavesNoPin(t *testing.T) {
 }
 
 func TestResumedOpenRouterSessionStillNeedsKey(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
@@ -379,7 +379,7 @@ func TestResumedOpenRouterSessionStillNeedsKey(t *testing.T) {
 }
 
 func TestCorruptProviderPinIsAStartupError(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	env := routerEnv(home, "http://127.0.0.1:1", unusedAnthropic(t))
 	dir := sessionDir(t, ws)
@@ -390,7 +390,7 @@ func TestCorruptProviderPinIsAStartupError(t *testing.T) {
 }
 
 func TestSessionWithoutProviderPinStaysAnthropic(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("hi"))
 
@@ -423,7 +423,7 @@ func parseEnv(raw string) map[string]string {
 }
 
 func TestBashDoesNotSeeOpenRouterKey(t *testing.T) {
-	bin := buildBinary(t)
+	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "env -0 > env.txt")
 	env := append(routerEnv(home, api.srv.URL, unusedAnthropic(t)),
