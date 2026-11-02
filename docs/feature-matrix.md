@@ -50,7 +50,7 @@ writers across processes, and bash orphans are stopped on recovery.
 
 | Capability | durable | Pi | Pi Durable | Claude Code |
 |---|---|---|---|---|
-| Streaming output | Part: `OnText`, not committed | Yes | Yes: committed view | Yes |
+| Streaming output | Part: `OnDelta` for text and `bash` output, not committed | Yes | Yes: committed view | Yes |
 | Steering during a run | No | Yes | Yes: `whenBusy: "steer"` | Yes: queued messages |
 | Queued follow-ups | Part: `Submit` between runs | Yes | Yes: durable inbox | Yes |
 | Parallel tool calls | No: one at a time | Yes: default | Yes: task per call | Yes |

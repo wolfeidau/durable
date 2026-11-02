@@ -77,6 +77,10 @@ type Options struct {
 	Observer func(Event)
 	// Compactor, if set, may shrink the context before each model call. Nil disables compaction.
 	Compactor Compactor
+	// OnDelta, if set, receives model text and bash output as they happen. It is called synchronously and in
+	// order, possibly from a tool's goroutine, and is never persisted. It must not block, call the harness or panic.
+	// Buffer and drop on your own side, and rebuild from Events after a reconnect.
+	OnDelta func(Delta)
 }
 
 // Harness drives one durable session stored in one SQLite database.
@@ -472,7 +476,7 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission, surfaceOverflow
 	if err != nil {
 		return false, err
 	}
-	reply, err := h.generate(ctx, mc.Request())
+	reply, err := h.generate(ctx, sub, mc.Request())
 	if err != nil {
 		if ctx.Err() != nil || isTransient(err) {
 			return false, err
@@ -508,9 +512,12 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission, surfaceOverflow
 
 // generate retries transient model errors with backoff. It returns the last
 // error as is; the caller decides whether it is transient.
-func (h *Harness) generate(ctx context.Context, history []Message) (Message, error) {
+func (h *Harness) generate(ctx context.Context, sub Submission, history []Message) (Message, error) {
+	mctx := withSink(ctx, h.opts.OnDelta, sub.Seq, "")
 	reply, _, err := retryTransient(ctx, h, "model", func() (Message, bool, error) {
-		reply, err := h.opts.Model.Generate(ctx, history, h.specs)
+		// Every attempt resets, because a later Run or a retry after compaction can follow partial text too.
+		emitReset(mctx)
+		reply, err := h.opts.Model.Generate(mctx, history, h.specs)
 		return reply, true, err
 	})
 	return reply, err
@@ -601,7 +608,7 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 		c.Input = call.Input
 	}
 
-	out, err := tool.Execute(ctx, c.ToolCall)
+	out, err := tool.Execute(withSink(ctx, h.opts.OnDelta, sub.Seq, c.ID), c.ToolCall)
 	if ctx.Err() != nil {
 		// Treat cancellation as the process going away: leave the call
 		// "started" so the next run applies the replay rule.

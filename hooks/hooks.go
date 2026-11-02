@@ -326,11 +326,16 @@ func (r *Runner) Wrap(tools []durable.Tool) []durable.Tool {
 
 // Execute runs the tool, then the hooks. Tool errors reach the hooks, and stay errors.
 func (t hookTool) Execute(ctx context.Context, call durable.ToolCall) (string, error) {
-	out, err := t.Tool.Execute(ctx, call)
+	hooks := t.r.matching(PostToolUse, call.Name)
+	runCtx := ctx
+	if len(hooks) > 0 {
+		// A hook may redact or withhold the result, so live output must not bypass it.
+		runCtx = durable.WithoutToolOutput(ctx)
+	}
+	out, err := t.Tool.Execute(runCtx, call)
 	if ctx.Err() != nil {
 		return out, err
 	}
-	hooks := t.r.matching(PostToolUse, call.Name)
 	if len(hooks) == 0 {
 		return out, err
 	}

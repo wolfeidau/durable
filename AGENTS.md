@@ -34,6 +34,8 @@ mise run check:tidy
 - A model request is built from `loadContext`, never `loadHistory`.
 - Compaction never rewrites `messages`, and `History` stays the full transcript.
 - An approved call runs its stored input and is never re-gated, and `recordResult` closes any pending approval, so a finished call leaves no stale prompt.
+- Deltas (`Options.OnDelta`) are never durable: they add no events and no rows, and the committed message and `call_done` stay authoritative.
+- Live tool output must not bypass `PostToolUse` hooks, because a hook can redact or withhold the result. `hookTool.Execute` decides before the tool runs and passes `durable.WithoutToolOutput(ctx)` when any hook matches.
 
 ## Code conventions
 

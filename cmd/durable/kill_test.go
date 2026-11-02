@@ -502,3 +502,16 @@ func TestVersionFlagReportsModuleVersion(t *testing.T) {
 	require.NoError(t, err, string(out))
 	require.Equal(t, want+" (none, unknown)\n", string(out))
 }
+
+func TestReplyTextStreamsToStdout(t *testing.T) {
+	bin := buildBinary(t)
+	ws, home := newWorkspace(t)
+	api := newFakeAPIReply(t, textReply("streamed-reply-text"))
+
+	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	_, err := io.WriteString(a.stdin, "go\n")
+	require.NoError(t, err)
+	eventually(t, "streamed reply", func() bool { return strings.Contains(a.out.String(), "streamed-reply-text") })
+	closeAndWait(t, a)
+	require.Equal(t, 1, strings.Count(a.out.String(), "streamed-reply-text"))
+}

@@ -159,11 +159,11 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 			System:    buildPrompt(pinned.Text),
 			Effort:    c.Effort,
 			SessionID: sessionID,
-			OnText:    func(s string) { fmt.Fprint(out, s) },
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
 		}),
 		Tools:    withDisplay(toolset, out, shown),
 		LeaseTTL: c.LeaseTTL,
+		OnDelta:  printText(out),
 	}
 	addCompaction(ctx, out, &opts, rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: c.Effort, SessionID: sessionID})
 	var base durable.ToolGate
@@ -191,7 +191,16 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	return r.run(ctx)
 }
 
-// addCompaction summarises with the session's own model, built without OnText so the summary stays off the terminal.
+// printText streams model text to the terminal and ignores the other delta kinds.
+func printText(out io.Writer) func(durable.Delta) {
+	return func(d durable.Delta) {
+		if d.Kind == durable.DeltaText {
+			fmt.Fprint(out, d.Text)
+		}
+	}
+}
+
+// addCompaction summarises with the session's own model, and the harness gives the Compactor no delta sink, so the summary stays off the terminal.
 func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt route, spec providerSpec, args modelArgs) {
 	// The direct anthropic route keeps server-side compaction.
 	if rt.Provider != providerOpenRouter {

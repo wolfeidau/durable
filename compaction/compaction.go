@@ -18,7 +18,7 @@ const (
 )
 
 type Config struct {
-	Model         durable.Model // summariser: the caller builds it with no OnText
+	Model         durable.Model // summariser: the harness gives it no delta sink
 	ContextWindow int64         // 0 disables the threshold; Force still compacts
 	ReserveTokens int64         // default 16384
 	KeepTokens    int64         // default 20000

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/wolfeidau/durable"
 )
@@ -19,6 +20,7 @@ const (
 	defaultTimeoutSeconds = 120
 	maxTimeoutSeconds     = 600
 	maxOutputBytes        = 30 * 1024
+	maxLiveOutputBytes    = 1 << 20
 	waitDelay             = 2 * time.Second
 )
 
@@ -69,11 +71,13 @@ func runBash(ctx context.Context, root, state, command string, timeout time.Dura
 	defer lock.release()
 
 	out := newBoundedWriter(maxOutputBytes)
+	// One writer for both streams keeps os/exec to a single copy goroutine, so deltas stay in order.
+	live := &liveWriter{dst: out, emit: func(s string) { durable.EmitToolOutput(ctx, s) }}
 	cmd := exec.CommandContext(tctx, "bash", "-c", command)
 	cmd.Dir = root
 	cmd.Env = ScrubEnv(os.Environ())
-	cmd.Stdout = out
-	cmd.Stderr = out
+	cmd.Stdout = live
+	cmd.Stderr = live
 	cmd.ExtraFiles = []*os.File{lock.f}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {
@@ -169,4 +173,49 @@ func (w *boundedWriter) String() string {
 		return string(w.head) + string(tail)
 	}
 	return fmt.Sprintf("%s\n... [%d bytes omitted] ...\n%s", w.head, omitted, tail)
+}
+
+const liveCapMarker = "\n... [live output stopped; the final result is complete] ...\n"
+
+// liveWriter forwards writes to dst unchanged and emits the same bytes as valid UTF-8 text.
+type liveWriter struct {
+	dst    *boundedWriter
+	emit   func(string)
+	held   []byte // incomplete trailing rune, kept for the next write
+	sent   int
+	capped bool
+}
+
+func (w *liveWriter) Write(p []byte) (int, error) {
+	_, _ = w.dst.Write(p)
+	if w.capped {
+		return len(p), nil
+	}
+	buf := append(slices.Clone(w.held), p...)
+	cut := len(buf)
+	for i := len(buf) - 1; i >= 0 && i >= len(buf)-utf8.UTFMax; i-- {
+		if utf8.RuneStart(buf[i]) {
+			if !utf8.FullRune(buf[i:]) {
+				cut = i
+			}
+			break
+		}
+	}
+	w.held = append([]byte(nil), buf[cut:]...)
+	if cut == 0 {
+		return len(p), nil
+	}
+	chunk := buf[:cut]
+	if room := maxLiveOutputBytes - w.sent; len(chunk) > room {
+		chunk = chunk[:room]
+		w.capped = true
+	}
+	w.sent += len(chunk)
+	if s := strings.ToValidUTF8(string(chunk), "\uFFFD"); s != "" {
+		w.emit(s)
+	}
+	if w.capped {
+		w.emit(liveCapMarker)
+	}
+	return len(p), nil
 }

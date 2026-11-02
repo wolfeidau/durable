@@ -43,8 +43,6 @@ type Config struct {
 	Effort string
 	// SessionID is sent as x-session-id so a gateway keeps the session on one upstream.
 	SessionID string
-	// OnText receives streamed text deltas. A retried stream may repeat text.
-	OnText func(string)
 	// HTTPClient defaults to DefaultHTTPClient.
 	HTTPClient *http.Client
 }
@@ -262,7 +260,7 @@ func (m *Model) readStream(ctx context.Context, body io.Reader) (durable.Message
 		if payload == "[DONE]" {
 			return nil, nil
 		}
-		return st.handle(payload)
+		return st.handle(ctx, payload)
 	}
 
 	for {
@@ -296,7 +294,7 @@ func (m *Model) endOfStream(ctx context.Context, readErr error) error {
 	return durable.Transient(errors.New("stream ended before a terminal response event"))
 }
 
-func (st *streamState) handle(payload string) (*durable.Message, error) {
+func (st *streamState) handle(ctx context.Context, payload string) (*durable.Message, error) {
 	var ev streamEvent
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
 		return nil, durable.Transient(fmt.Errorf("failed to decode stream event: %w", err))
@@ -304,8 +302,8 @@ func (st *streamState) handle(payload string) (*durable.Message, error) {
 	switch ev.Type {
 	case "response.output_text.delta":
 		var s string
-		if st.m.cfg.OnText != nil && json.Unmarshal(ev.Delta, &s) == nil {
-			st.m.cfg.OnText(s)
+		if json.Unmarshal(ev.Delta, &s) == nil {
+			durable.EmitText(ctx, s)
 		}
 	case "response.output_item.added":
 		var it item
