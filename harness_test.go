@@ -2291,6 +2291,23 @@ func TestDeferApprovalsWinsOverAsk(t *testing.T) {
 	require.Zero(t, asked.Load())
 }
 
+func TestAwaitingApprovalErrorNamesTheCall(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, deferOpts(gateModel(), nil, &fakeTool{name: "write_file"}))
+	defer h.Close()
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+
+	first := h.Run(ctx)
+	a, ok, err := h.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	for _, got := range []error{first, h.Run(ctx)} {
+		require.ErrorIs(t, got, ErrAwaitingApproval)
+		require.ErrorContains(t, got, `tool "write_file" call "`+a.Call.ID+`"`)
+	}
+}
+
 func TestDeferApprovalsStillHonoursGateAllowAndDeny(t *testing.T) {
 	ctx := context.Background()
 	write := &fakeTool{name: "write_file"}

@@ -144,7 +144,7 @@ func (h *Harness) askCall(ctx context.Context, sub Submission, c storedCall, cal
 		if err != nil {
 			return call, "", false, err
 		}
-		return call, "", false, ErrAwaitingApproval
+		return call, "", false, fmt.Errorf("%w: tool %q call %q", ErrAwaitingApproval, call.Name, call.ID)
 	}
 	if h.opts.Ask == nil {
 		return call, Denied, true, nil
@@ -167,7 +167,7 @@ func (h *Harness) resolveStored(ctx context.Context, call ToolCall, stored Appro
 	if stored.Status == ApprovalPending {
 		switch {
 		case h.opts.DeferApprovals:
-			return call, "", false, ErrAwaitingApproval
+			return call, "", false, fmt.Errorf("%w: tool %q call %q", ErrAwaitingApproval, call.Name, call.ID)
 		case h.opts.Ask == nil:
 			// Closed as cancelled by finishCall; never auto-allow.
 			return call, Denied, true, nil
