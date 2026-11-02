@@ -442,22 +442,36 @@ func TestParentContextEndedReturnsError(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
+// parseEnv reads `env -0` output; NUL keeps a multi-line value from looking like a variable.
+func parseEnv(raw string) map[string]string {
+	env := map[string]string{}
+	for kv := range strings.SplitSeq(raw, "\x00") {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			env[name] = value
+		}
+	}
+	return env
+}
+
 func TestEnvIsScrubbed(t *testing.T) {
 	t.Setenv("ANTHROPIC_API_KEY", "sk-anthropic")
 	t.Setenv("OPENROUTER_API_KEY", "sk-openrouter")
 	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "op-token")
 	t.Setenv("DURABLE_TEST_VISIBLE", "visible")
+	t.Setenv("DURABLE_TEST_NOTE", "mentions OPENROUTER_API_KEY\nOPENROUTER_API_KEY=not-a-variable")
 	out := filepath.Join(t.TempDir(), "env")
-	r := preRunner(t, fmt.Sprintf(`env > %q`, out))
+	r := preRunner(t, fmt.Sprintf(`env -0 > %q`, out))
 	gate(t, r, nil, bashCall)
 
 	b, err := os.ReadFile(out)
 	require.NoError(t, err)
-	env := string(b)
-	require.NotContains(t, env, "ANTHROPIC_")
-	require.NotContains(t, env, "OPENROUTER_")
-	require.NotContains(t, env, "OP_SERVICE")
-	require.Contains(t, env, "DURABLE_TEST_VISIBLE=visible")
+	env := parseEnv(string(b))
+	for name := range env {
+		require.False(t, strings.HasPrefix(name, "ANTHROPIC_"), name)
+		require.False(t, strings.HasPrefix(name, "OPENROUTER_"), name)
+		require.False(t, strings.HasPrefix(name, "OP_SERVICE"), name)
+	}
+	require.Equal(t, "visible", env["DURABLE_TEST_VISIBLE"])
 }
 
 func TestTempCwdIsRemoved(t *testing.T) {
