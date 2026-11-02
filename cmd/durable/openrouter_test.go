@@ -411,11 +411,23 @@ func TestSessionWithoutProviderPinStaysAnthropic(t *testing.T) {
 		"uses provider anthropic, not openrouter")
 }
 
+// parseEnv reads `env -0` output; NUL keeps a multi-line value from looking like a variable.
+func parseEnv(raw string) map[string]string {
+	env := map[string]string{}
+	for kv := range strings.SplitSeq(raw, "\x00") {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			env[name] = value
+		}
+	}
+	return env
+}
+
 func TestBashDoesNotSeeOpenRouterKey(t *testing.T) {
 	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
-	api := newRouterAPI(t, "env > env.txt")
-	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
+	api := newRouterAPI(t, "env -0 > env.txt")
+	env := append(routerEnv(home, api.srv.URL, unusedAnthropic(t)),
+		"DURABLE_TEST_NOTE=mentions OPENROUTER_API_KEY\nOPENROUTER_API_KEY=not-a-variable")
 
 	a := startRouterAgent(t, bin, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
 	runRouterPrompt(t, api, a)
@@ -423,6 +435,8 @@ func TestBashDoesNotSeeOpenRouterKey(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(ws, "env.txt"))
 	require.NoError(t, err)
 	require.NotEmpty(t, got)
-	require.NotContains(t, string(got), "OPENROUTER_")
+	for name := range parseEnv(string(got)) {
+		require.False(t, strings.HasPrefix(name, "OPENROUTER_"), name)
+	}
 	require.NotContains(t, string(got), routerKey)
 }
