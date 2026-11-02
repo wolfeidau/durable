@@ -49,7 +49,6 @@ func TestOpenRouterLive(t *testing.T) {
 	if key == "" || os.Getenv("DURABLE_SMOKE") != "1" {
 		t.Skip("set OPENROUTER_API_KEY and DURABLE_SMOKE=1 to run against the real API")
 	}
-	bin := buildBinary(t)
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -63,13 +62,13 @@ func TestOpenRouterLive(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(ws, "note.txt"), []byte(liveWord+"\n"), 0o600))
 			env := liveEnv(home)
 
-			a := startRouterAgent(t, bin, ws, env, append([]string{"--yes", "--provider", "openrouter"}, tc.args...)...)
+			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes", "--provider", "openrouter"}, tc.args...)...)
 			_, err := io.WriteString(a.stdin, "First use bash to run exactly this command: `echo ran >> marker.txt; sleep 30`. Then read note.txt with read_file and reply with only the word in it.\n")
 			require.NoError(t, err)
 			waitLive(t, a, "bash to run", func() bool { return len(readLinesOf(t, filepath.Join(ws, "marker.txt"))) > 0 })
 			a.kill(t)
 
-			b := startRouterAgent(t, bin, ws, env, "--yes")
+			b := startRouterAgent(t, binPath, ws, env, "--yes")
 			_, err = io.WriteString(b.stdin, "Now reply with only that word from note.txt in uppercase.\n")
 			require.NoError(t, err)
 			// Only the model writes the uppercase form, so tool output can't satisfy this.

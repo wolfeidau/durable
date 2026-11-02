@@ -6,7 +6,7 @@ When running something that needs a credential, keep it out of command output an
 
 ## Verification
 
-Fast loop, skipping the real-binary tests in `cmd/durable`, which take about 30s:
+Fast loop, skipping the real-binary tests in `cmd/durable`, which take about 25s:
 
 ```sh
 go test . ./claude ./internal/... ./tools/...
@@ -18,6 +18,12 @@ Before finishing, after your last edit:
 go vet ./... && go test -race -count=1 ./...
 mise exec -- golangci-lint run ./...
 mise run check:tidy
+```
+
+CI also race-checks the real binary, which `go test -race` alone doesn't. Run this after changing concurrency in `cmd/durable` or anything it calls:
+
+```sh
+GOFLAGS=-race GORACE=atexit_sleep_ms=0 go test -race -count=1 ./cmd/durable
 ```
 
 ## Durability invariants
@@ -86,4 +92,5 @@ require.Equal(t, http.StatusCreated, resp.StatusCode)
 - Every new CLI flag, or new wiring in `chat.go`, needs a real-binary test in `cmd/durable`, because unit tests don't protect it.
 - Tests that run the binary must use a temporary `HOME`.
 - When a test fails, fix the code. Change the test's data only if the test is wrong.
-- Real-binary tests run their own `go build`, so mutation checks on them need `GOFLAGS=-overlay=<file>`, not `go test -overlay`.
+- Real-binary tests share one binary, built by `TestMain`, so use `binPath` rather than building per test. CI builds it with `-race` through `GOFLAGS`.
+- That `TestMain` runs its own `go build`, so mutation checks on them need `GOFLAGS=-overlay=<file>`, not `go test -overlay`.

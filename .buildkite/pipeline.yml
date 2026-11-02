@@ -8,13 +8,22 @@ steps:
           - golangci-lint run --verbose --timeout 3m
         plugins:
           - mise#v1.1.5: ~
+          - ./.buildkite/plugins/go-cache:
+              name: go_lint
 
       - label: ":go: test"
         artifact_paths:
           - coverage.out
           - tests.json
-        command: go test -race -json -coverprofile=coverage.out -coverpkg=./... ./... > tests.json
+        command: go test -race -count=1 -json -coverprofile=coverage.out -coverpkg=./... ./... > tests.json
+        env:
+          # The tests' go build inherits -race, so it reuses go test's packages and the real binary is checked too.
+          GOFLAGS: -race
+          # Each real-binary run would otherwise sleep 1s at exit.
+          GORACE: atexit_sleep_ms=0
         plugins:
           - mise#v1.1.5: ~
           - wolfeidau/go-test-annotate#v1.0.0:
               file: tests.json
+          - ./.buildkite/plugins/go-cache:
+              name: go_test

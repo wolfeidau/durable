@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Runs at pre-exit because vendored plugins' post-command hooks run first, which would miss modules that later plugins download.
+# A failed run may have left partial output, and the next build must not inherit it.
+if [[ "${BUILDKITE_COMMAND_EXIT_STATUS:-1}" != "0" ]]; then
+  exit 0
+fi
+# Branches only restore, because each save grows the archive and main must not inherit what a branch build wrote.
+if [[ "${BUILDKITE_BRANCH:-}" != "${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}" ]]; then
+  echo "Skipping cache save on branch ${BUILDKITE_BRANCH:-unknown}"
+  exit 0
+fi
+buildkite-agent cache save

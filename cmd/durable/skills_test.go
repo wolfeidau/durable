@@ -41,13 +41,12 @@ func chatOnce(t *testing.T, bin, ws, home, reply, prompt string, wantRequests in
 }
 
 func TestSkillAppearsInToolsWithoutChangingSystem(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
-	_, base := chatOnce(t, bin, ws, home, textReply("hi"), "go", 1)
+	_, base := chatOnce(t, binPath, ws, home, textReply("hi"), "go", 1)
 
 	ws2, home2 := newWorkspace(t)
 	writeSkill(t, userSkills(home2), "demo", "Demonstrates things.", "")
-	a, api := chatOnce(t, bin, ws2, home2, textReply("hi"), "go", 1)
+	a, api := chatOnce(t, binPath, ws2, home2, textReply("hi"), "go", 1)
 
 	first := api.requests()[0]
 	tool := toolByName(t, first, "skill")
@@ -59,15 +58,14 @@ func TestSkillAppearsInToolsWithoutChangingSystem(t *testing.T) {
 }
 
 func TestNoSkillsLeavesRequestUnchanged(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
-	_, plain := chatOnce(t, bin, ws, home, textReply("hi"), "go", 1)
+	_, plain := chatOnce(t, binPath, ws, home, textReply("hi"), "go", 1)
 
 	ws2, home2 := newWorkspace(t)
 	for _, d := range []string{userSkills(home2), filepath.Join(home2, ".agents", "skills"), filepath.Join(ws2, ".agents", "skills")} {
 		require.NoError(t, os.MkdirAll(d, 0o755))
 	}
-	a, empty := chatOnce(t, bin, ws2, home2, textReply("hi"), "go", 1)
+	a, empty := chatOnce(t, binPath, ws2, home2, textReply("hi"), "go", 1)
 
 	require.Nil(t, toolByName(t, empty.requests()[0], "skill"))
 	require.Equal(t, toolsOf(t, plain.requests()[0]), toolsOf(t, empty.requests()[0]))
@@ -75,21 +73,19 @@ func TestNoSkillsLeavesRequestUnchanged(t *testing.T) {
 }
 
 func TestSkillToolRunsWithoutApproval(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
-	a, api := chatOnce(t, bin, ws, home, skillCall(t, "demo", nil), "load it", 2)
+	a, api := chatOnce(t, binPath, ws, home, skillCall(t, "demo", nil), "load it", 2)
 
 	require.NotContains(t, a.out.String(), "[y/N]")
 	require.True(t, hasToolResult(t, api.requests()[1], false, "Body of demo."), api.requests()[1])
 }
 
 func TestSkillToolRefusesPathEscape(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "secret"), []byte("TOPSECRETVALUE"), 0o600))
-	_, api := chatOnce(t, bin, ws, home, skillCall(t, "demo", "../../secret"), "load it", 2)
+	_, api := chatOnce(t, binPath, ws, home, skillCall(t, "demo", "../../secret"), "load it", 2)
 
 	reqs := api.requests()
 	require.True(t, hasToolResult(t, reqs[1], true, ""), reqs[1])
@@ -99,16 +95,15 @@ func TestSkillToolRefusesPathEscape(t *testing.T) {
 }
 
 func TestSkillCatalogIsPinnedAcrossRuns(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
 	api := newFakeAPIReply(t, textReply("hi"))
 
-	a := startAgent(t, bin, ws, home, api.srv.URL)
+	a := startAgent(t, binPath, ws, home, api.srv.URL)
 	runPrompt(t, api, 1, a, "first")
 
 	writeSkill(t, userSkills(home), "later", "Added afterwards.", "")
-	b := startAgent(t, bin, ws, home, api.srv.URL)
+	b := startAgent(t, binPath, ws, home, api.srv.URL)
 	runPrompt(t, api, 2, b, "second")
 	require.Contains(t, b.out.String(), "[skills] using 1 pinned skills; start a new --session to reload skills")
 
@@ -118,20 +113,18 @@ func TestSkillCatalogIsPinnedAcrossRuns(t *testing.T) {
 }
 
 func TestNoContextSkipsSkills(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
-	a, api := chatOnce(t, bin, ws, home, textReply("hi"), "go", 1, "--no-context")
+	a, api := chatOnce(t, binPath, ws, home, textReply("hi"), "go", 1, "--no-context")
 
 	require.Nil(t, toolByName(t, api.requests()[0], "skill"))
 	require.NotContains(t, a.out.String(), "[skills]")
 }
 
 func TestSkillSlashCommandExpandsHiddenSkill(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	writeSkill(t, userSkills(home), "secretive", "User only.", "disable-model-invocation: true\n")
-	a, api := chatOnce(t, bin, ws, home, textReply("hi"), "/skill:secretive do it", 1)
+	a, api := chatOnce(t, binPath, ws, home, textReply("hi"), "/skill:secretive do it", 1)
 
 	first := api.requests()[0]
 	require.Nil(t, toolByName(t, first, "skill"))
@@ -143,10 +136,9 @@ func TestSkillSlashCommandExpandsHiddenSkill(t *testing.T) {
 }
 
 func TestUnknownSkillSlashCommandSubmitsNothing(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("hi"))
-	a := startAgent(t, bin, ws, home, api.srv.URL)
+	a := startAgent(t, binPath, ws, home, api.srv.URL)
 	_, err := io.WriteString(a.stdin, "/skill:nope\nplain\n")
 	require.NoError(t, err)
 	eventually(t, "API requests", func() bool { return len(api.requests()) == 1 })
@@ -159,7 +151,6 @@ func TestUnknownSkillSlashCommandSubmitsNothing(t *testing.T) {
 }
 
 func TestProjectSkillShadowsUserAndEscapeIsSkipped(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	require.NoError(t, os.Mkdir(filepath.Join(ws, ".git"), 0o755))
 	writeSkill(t, userSkills(home), "x", "user version", "")
@@ -168,7 +159,7 @@ func TestProjectSkillShadowsUserAndEscapeIsSkipped(t *testing.T) {
 	writeSkill(t, outside, "esc", "escaped skill", "")
 	require.NoError(t, os.Symlink(filepath.Join(outside, "esc"), filepath.Join(ws, ".agents", "skills", "esc")))
 
-	a, api := chatOnce(t, bin, ws, home, textReply("hi"), "go", 1)
+	a, api := chatOnce(t, binPath, ws, home, textReply("hi"), "go", 1)
 
 	desc, _ := toolByName(t, api.requests()[0], "skill")["description"].(string)
 	require.Contains(t, desc, "- x: project version")
@@ -180,10 +171,9 @@ func TestProjectSkillShadowsUserAndEscapeIsSkipped(t *testing.T) {
 }
 
 func TestSessionThatPredatesSkillsGetsNone(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("hi"))
-	a := startAgent(t, bin, ws, home, api.srv.URL)
+	a := startAgent(t, binPath, ws, home, api.srv.URL)
 	runPrompt(t, api, 1, a, "first")
 
 	pins, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", "skills.json"))
@@ -192,7 +182,7 @@ func TestSessionThatPredatesSkillsGetsNone(t *testing.T) {
 	require.NoError(t, os.Remove(pins[0]))
 	writeSkill(t, userSkills(home), "demo", "Demonstrates things.", "")
 
-	b := startAgent(t, bin, ws, home, api.srv.URL)
+	b := startAgent(t, binPath, ws, home, api.srv.URL)
 	runPrompt(t, api, 2, b, "second")
 	require.Nil(t, toolByName(t, api.requests()[1], "skill"))
 	require.NotContains(t, b.out.String(), "[skills]")

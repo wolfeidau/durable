@@ -1,0 +1,19 @@
+caches:
+  - name: go_test
+    cache_key:
+      - durable-go-test-v1
+      - { agent: os }
+      - { agent: arch }
+      - { env: GO_CACHE_VERSION, fallback_limit: true }
+      - { checksum: [go.mod, go.sum, "**/*.go"] }
+    target_paths:
+      - ~/.cache/durable-go
+  - name: go_lint
+    cache_key:
+      - durable-go-lint-v1
+      - { agent: os }
+      - { agent: arch }
+      - { env: GO_CACHE_VERSION, fallback_limit: true }
+      - { checksum: [go.mod, go.sum, "**/*.go"] }
+    target_paths:
+      - ~/.cache/durable-go

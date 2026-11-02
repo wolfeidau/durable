@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Must match target_paths in .buildkite/cache.yml.
+root="${HOME}/.cache/durable-go"
+export GOMODCACHE="${root}/mod"
+export GOCACHE="${root}/build"
+export GOLANGCI_LINT_CACHE="${root}/lint"
+export BUILDKITE_CACHE_NAMES="${BUILDKITE_PLUGIN_GO_CACHE_NAME}"

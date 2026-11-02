@@ -202,7 +202,6 @@ func pairedCalls(t *testing.T, path, body string) int {
 }
 
 func TestCompactionOnEachProtocol(t *testing.T) {
-	bin := buildBinary(t)
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -210,7 +209,7 @@ func TestCompactionOnEachProtocol(t *testing.T) {
 			api := newCompactAPI(t, tc.path, 1000, step{call: true, usage: 900}, step{usage: 900}, step{call: true, usage: 50}, step{usage: 50})
 			env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-			a := startRouterAgent(t, bin, ws, env, append([]string{"--yes"}, tc.args...)...)
+			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
 			send(t, a, prompt(oldestMarker))
 			waitCounts(t, api, 2, 0)
 			send(t, a, prompt(newestMarker))
@@ -239,21 +238,20 @@ func TestCompactionOnEachProtocol(t *testing.T) {
 }
 
 func TestKillAfterCompactionResumesWithSummary(t *testing.T) {
-	bin := buildBinary(t)
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
 			api := newCompactAPI(t, tc.path, 1000, step{usage: 900}, step{hang: true}, step{usage: 50})
 			env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-			a := startRouterAgent(t, bin, ws, env, append([]string{"--yes"}, tc.args...)...)
+			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
 			send(t, a, prompt(oldestMarker))
 			waitCounts(t, api, 1, 0)
 			send(t, a, prompt(newestMarker))
 			waitCounts(t, api, 2, 1)
 			a.kill(t)
 
-			b := startRouterAgent(t, bin, ws, env, "--yes")
+			b := startRouterAgent(t, binPath, ws, env, "--yes")
 			closeAndWait(t, b)
 
 			mainN, summN := api.counts()
@@ -269,7 +267,6 @@ func TestKillAfterCompactionResumesWithSummary(t *testing.T) {
 }
 
 func TestOverflowForcesCompactionAndRetries(t *testing.T) {
-	bin := buildBinary(t)
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -277,7 +274,7 @@ func TestOverflowForcesCompactionAndRetries(t *testing.T) {
 			api := newCompactAPI(t, tc.path, 0, step{usage: 10}, step{overflow: true}, step{usage: 10})
 			env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-			a := startRouterAgent(t, bin, ws, env, append([]string{"--yes"}, tc.args...)...)
+			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
 			send(t, a, prompt(oldestMarker))
 			waitCounts(t, api, 1, 0)
 			send(t, a, prompt(newestMarker))
@@ -294,7 +291,6 @@ func TestOverflowForcesCompactionAndRetries(t *testing.T) {
 }
 
 func TestModelsFailureStillStarts(t *testing.T) {
-	bin := buildBinary(t)
 	for _, tc := range compactionProtocols {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
@@ -302,7 +298,7 @@ func TestModelsFailureStillStarts(t *testing.T) {
 			api.fail = true
 			env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-			a := startRouterAgent(t, bin, ws, env, append([]string{"--yes"}, tc.args...)...)
+			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
 			send(t, a, "hello\n")
 			waitCounts(t, api, 1, 0)
 			closeAndWait(t, a)
@@ -315,7 +311,6 @@ func TestModelsFailureStillStarts(t *testing.T) {
 }
 
 func TestDirectAnthropicHasNoCompaction(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	var mu sync.Mutex
 	var paths []string
@@ -329,7 +324,7 @@ func TestDirectAnthropicHasNoCompaction(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	a := startAgent(t, bin, ws, home, srv.URL)
+	a := startAgent(t, binPath, ws, home, srv.URL)
 	send(t, a, "hello\n")
 	eventually(t, "the request", func() bool { mu.Lock(); defer mu.Unlock(); return len(paths) == 1 })
 	closeAndWait(t, a)
@@ -341,7 +336,6 @@ func TestDirectAnthropicHasNoCompaction(t *testing.T) {
 }
 
 func TestSummariserUsesTheSessionEffort(t *testing.T) {
-	bin := buildBinary(t)
 	ws, home := newWorkspace(t)
 	api := newCompactAPI(t, "/v1/messages", 1000, step{usage: 900}, step{usage: 50})
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
@@ -352,7 +346,7 @@ func TestSummariserUsesTheSessionEffort(t *testing.T) {
 			args = append(args, tc.args...)
 		}
 	}
-	a := startRouterAgent(t, bin, ws, env, args...)
+	a := startRouterAgent(t, binPath, ws, env, args...)
 	send(t, a, prompt(oldestMarker))
 	waitCounts(t, api, 1, 0)
 	send(t, a, prompt(newestMarker))
