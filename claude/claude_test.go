@@ -117,16 +117,49 @@ func gen(t *testing.T, m *Model, history []durable.Message, tools []durable.Tool
 
 func TestGenerateText(t *testing.T) {
 	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "Hello", ", ", "world")))
-	var got []string
-	m := f.model(Config{System: "be brief", OnText: func(s string) { got = append(got, s) }})
+	m := f.model(Config{System: "be brief"})
 
 	msg, err := gen(t, m, []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
 	require.NoError(t, err)
 	require.Equal(t, durable.RoleAssistant, msg.Role)
 	require.Equal(t, "Hello, world", msg.Text)
 	require.Empty(t, msg.ToolCalls)
-	require.Equal(t, []string{"Hello", ", ", "world"}, got)
 	require.JSONEq(t, `[{"type":"text","text":"Hello, world"}]`, string(msg.Raw))
+}
+
+func TestGenerateStreamsTextDeltas(t *testing.T) {
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "Hello", ", ", "world")))
+	got, sub := streamed(t, f.model(Config{}))
+	require.Equal(t, []string{"Hello", ", ", "world"}, got)
+	require.Equal(t, "Hello, world", sub.Result)
+}
+
+func TestGenerateWithoutSinkEmitsNothing(t *testing.T) {
+	f := newFakeAPI(t, stream("end_turn", fakeapi.TextBlock(0, "Hello")))
+	msg, err := gen(t, f.model(Config{}), []durable.Message{{Role: durable.RoleUser, Text: "hi"}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "Hello", msg.Text)
+}
+
+// streamed runs the model through a harness, the only thing that installs a delta sink.
+func streamed(t *testing.T, m durable.Model) ([]string, durable.Submission) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var got []string
+	h, err := durable.Open(ctx, filepath.Join(t.TempDir(), "s.sqlite"), durable.Options{
+		Model: m,
+		OnDelta: func(d durable.Delta) {
+			if d.Kind == durable.DeltaText {
+				got = append(got, d.Text)
+			}
+		},
+	})
+	require.NoError(t, err)
+	defer h.Close()
+	sub, err := h.Prompt(ctx, "a", "hi")
+	require.NoError(t, err)
+	return got, sub
 }
 
 func TestRequestShape(t *testing.T) {

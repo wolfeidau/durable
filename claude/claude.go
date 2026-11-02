@@ -41,8 +41,6 @@ type Config struct {
 	Effort    string
 	// Gateway drops server-side fallbacks and compaction, and sends thinking block binding only to Claude models.
 	Gateway bool
-	// OnText receives streamed text deltas. A retried stream may repeat text.
-	OnText func(string)
 	// OnCompact is called when the API starts summarizing older history into a compaction block.
 	OnCompact func()
 }
@@ -125,8 +123,8 @@ func (m *Model) Generate(ctx context.Context, history []durable.Message, tools [
 		if m.cfg.OnCompact != nil && ev.Type == "content_block_start" && ev.ContentBlock.Type == "compaction" {
 			m.cfg.OnCompact()
 		}
-		if m.cfg.OnText != nil && ev.Type == "content_block_delta" && ev.Delta.Type == "text_delta" {
-			m.cfg.OnText(ev.Delta.Text)
+		if ev.Type == "content_block_delta" && ev.Delta.Type == "text_delta" {
+			durable.EmitText(ctx, ev.Delta.Text)
 		}
 	}
 	if err := stream.Err(); err != nil {

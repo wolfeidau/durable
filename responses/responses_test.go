@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
@@ -126,16 +127,46 @@ func TestText(t *testing.T) {
 		fakeapi.ResponsesItemAdded(0, `{"type":"message","id":"msg_1","role":"assistant","content":[]}`)+
 			fakeapi.ResponsesTextDelta(0, "hello")+fakeapi.ResponsesTextDelta(0, " wor")+fakeapi.ResponsesTextDelta(0, "ld")+
 			fakeapi.ResponsesItemDone(0, msg)+completed(msg)))
-	var got []string
-	out, err := generate(t, f, Config{OnText: func(s string) { got = append(got, s) }})
+	out, err := generate(t, f, Config{})
 	require.NoError(t, err)
 	require.Equal(t, durable.RoleAssistant, out.Role)
 	require.Equal(t, "hello world", out.Text)
 	require.Empty(t, out.ToolCalls)
-	require.Equal(t, []string{"hello", " wor", "ld"}, got)
 	require.JSONEq(t, "["+msg+"]", string(out.Raw))
 	require.Equal(t, "/v1/responses", f.paths[0])
 	require.Equal(t, "Bearer test-key", f.headers[0].Get("Authorization"))
+}
+
+func TestStreamsTextDeltas(t *testing.T) {
+	msg := fakeapi.ResponsesMessageItem("msg_1", "hello world")
+	f := newServer(t, ok(
+		fakeapi.ResponsesItemAdded(0, `{"type":"message","id":"msg_1","role":"assistant","content":[]}`)+
+			fakeapi.ResponsesTextDelta(0, "hello")+fakeapi.ResponsesTextDelta(0, " wor")+fakeapi.ResponsesTextDelta(0, "ld")+
+			fakeapi.ResponsesItemDone(0, msg)+completed(msg)))
+	got, sub := streamed(t, f.model(Config{}))
+	require.Equal(t, []string{"hello", " wor", "ld"}, got)
+	require.Equal(t, "hello world", sub.Result)
+}
+
+// streamed runs the model through a harness, the only thing that installs a delta sink.
+func streamed(t *testing.T, m durable.Model) ([]string, durable.Submission) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	var got []string
+	h, err := durable.Open(ctx, filepath.Join(t.TempDir(), "s.sqlite"), durable.Options{
+		Model: m,
+		OnDelta: func(d durable.Delta) {
+			if d.Kind == durable.DeltaText {
+				got = append(got, d.Text)
+			}
+		},
+	})
+	require.NoError(t, err)
+	defer h.Close()
+	sub, err := h.Prompt(ctx, "a", "hi")
+	require.NoError(t, err)
+	return got, sub
 }
 
 func TestBaseURLTrailingSlash(t *testing.T) {

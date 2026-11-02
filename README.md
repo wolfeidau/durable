@@ -303,6 +303,14 @@ goroutine, so a slow one slows the agent. It may call `Events` or `History`, but
 or `Cancel`, which deadlock, and it must not panic. `Event.Call.Input` is the effective input and
 can hold secrets a gate added; treat the log accordingly.
 
+**Live deltas.** `Options.OnDelta` receives model text (`DeltaText`) and `bash` output
+(`DeltaToolOutput`) as they happen, and `DeltaReset` before a retried model call. Deltas are a
+best-effort live view and are never persisted, so a client drops partial text on the assistant
+`message` event and partial tool output on `call_done`, and rebuilds from `Events` after a
+reconnect. `OnDelta` runs synchronously, possibly on a tool's goroutine, so it must not block, call
+the harness or panic. A call with a matching `PostToolUse` hook has no live output, because the hook
+may redact or withhold the result.
+
 **What isn't durable:** an in-flight model call. If the process dies mid-stream the
 call is simply made again, which costs tokens but loses nothing.
 
@@ -325,9 +333,9 @@ model call.
 3. **Durable subagents / tasks.** Model a subagent as another submission (or another
    session file) that the parent tool call waits on; the parent's call ID owns it,
    so cancelling one cancels the other.
-4. **Persisting partial streams.** Only worth it if you want clients to see partial
-   output after a reconnect; commit partials to a separate table and discard them
-   when the final message commits.
+4. **Persisting partial streams.** Live deltas are not stored. Only worth it if you want
+   clients to see partial output after a reconnect; commit partials to a separate table and
+   discard them when the final message commits.
 
 ## Built with AI
 

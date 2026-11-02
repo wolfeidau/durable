@@ -762,3 +762,50 @@ func (b bare) Replay() durable.Replay { return b.f.Replay() }
 func (b bare) Execute(ctx context.Context, c durable.ToolCall) (string, error) {
 	return b.f.Execute(ctx, c)
 }
+
+type emitTool struct{ name string }
+
+func (e emitTool) Spec() durable.ToolSpec { return durable.ToolSpec{Name: e.name} }
+func (e emitTool) Replay() durable.Replay { return durable.ReplaySafe }
+func (e emitTool) Execute(ctx context.Context, _ durable.ToolCall) (string, error) {
+	durable.EmitToolOutput(ctx, "live")
+	return "final", nil
+}
+
+type liveModel struct{ tool string }
+
+func (m liveModel) Generate(_ context.Context, hist []durable.Message, _ []durable.ToolSpec) (durable.Message, error) {
+	if hist[len(hist)-1].Role == durable.RoleUser {
+		return durable.Message{Role: durable.RoleAssistant, ToolCalls: []durable.ToolCall{{ID: "c1", Name: m.tool, Input: json.RawMessage(`{}`)}}}, nil
+	}
+	return durable.Message{Role: durable.RoleAssistant, Text: "done"}, nil
+}
+
+// liveDeltas runs a tool that emits output through a real harness, since only the harness installs a sink.
+func liveDeltas(t *testing.T, r *Runner, tool string) []durable.Delta {
+	t.Helper()
+	ctx := context.Background()
+	var ds []durable.Delta
+	h, err := durable.Open(ctx, filepath.Join(t.TempDir(), "s.sqlite"), durable.Options{
+		Model: liveModel{tool: tool}, Tools: r.Wrap([]durable.Tool{emitTool{name: tool}}),
+		OnDelta: func(d durable.Delta) { ds = append(ds, d) },
+	})
+	require.NoError(t, err)
+	defer h.Close()
+	_, err = h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	return ds
+}
+
+func TestMatchingPostHookSuppressesLiveToolOutput(t *testing.T) {
+	r := postRunner(t, `exit 0`, nil)
+	require.Empty(t, liveDeltas(t, r, "bash"))
+}
+
+func TestNonMatchingPostHookStillEmitsLiveToolOutput(t *testing.T) {
+	r := postRunner(t, `exit 0`, nil)
+	ds := liveDeltas(t, r, "grep")
+	require.Len(t, ds, 1)
+	require.Equal(t, durable.DeltaToolOutput, ds[0].Kind)
+	require.Equal(t, "live", ds[0].Text)
+}

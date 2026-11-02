@@ -180,7 +180,6 @@ type modelArgs struct {
 	System    string
 	Effort    string
 	SessionID string
-	OnText    func(string)
 	OnCompact func()
 }
 
@@ -200,7 +199,6 @@ var protocolModels = map[string]func(r route, s providerSpec, a modelArgs) durab
 			System:    a.System,
 			Effort:    a.Effort,
 			Gateway:   s.BaseURL != "",
-			OnText:    a.OnText,
 			OnCompact: a.OnCompact,
 		})
 	},
@@ -212,7 +210,6 @@ var protocolModels = map[string]func(r route, s providerSpec, a modelArgs) durab
 			System:    a.System,
 			Effort:    a.Effort,
 			SessionID: a.SessionID,
-			OnText:    a.OnText,
 		})
 	},
 }
