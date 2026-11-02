@@ -70,7 +70,6 @@ func finish(t *testing.T, a *agent) {
 }
 
 func TestHookDenyStopsBashAndReasonReachesModel(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	writeHooks(t, home, map[string][]map[string]any{
@@ -79,7 +78,7 @@ func TestHookDenyStopsBashAndReasonReachesModel(t *testing.T) {
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
 	// No --yes: the hook denies before the approval prompt.
-	a := startAgent(t, bin, ws, home, api.srv.URL)
+	a := startAgent(t, binPath, ws, home, api.srv.URL)
 	runPrompt(t, api, 2, a, "go")
 
 	require.NoFileExists(t, marker)
@@ -89,7 +88,6 @@ func TestHookDenyStopsBashAndReasonReachesModel(t *testing.T) {
 }
 
 func TestHookTimeoutIsKilledAndDeniedThenSessionContinues(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	pidFile := filepath.Join(t.TempDir(), "pid")
@@ -99,7 +97,7 @@ func TestHookTimeoutIsKilledAndDeniedThenSessionContinues(t *testing.T) {
 	})
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	sendPrompt(t, api, 2, a, "first")
 	require.NoFileExists(t, marker)
 	require.True(t, hasToolResult(t, api.requests()[1], true, hooks.Blocked), api.requests()[1])
@@ -122,13 +120,12 @@ func mustRead(t *testing.T, path string) []byte {
 }
 
 func TestHookUpdatedInputRunsRewrittenCommand(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	rewrite := hookScript(t, `echo '{"hookSpecificOutput":{"updatedInput":{"command":"echo rewritten >> marker.txt"}}}'`)
 	writeHooks(t, home, map[string][]map[string]any{hooks.PreToolUse: {hookHandler(rewrite, nil)}})
 	api := newFakeAPI(t, "echo original >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "go")
 
 	require.Equal(t, []string{"rewritten"}, readLinesOf(t, filepath.Join(ws, "marker.txt")))
@@ -144,12 +141,11 @@ func TestHooksApplyUnderYes(t *testing.T) {
 		"ask":  {`echo '{"hookSpecificOutput":{"permissionDecision":"ask"}}'`, "A policy blocked this tool call"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			bin := binPath
 			ws, home := newWorkspace(t)
 			writeHooks(t, home, map[string][]map[string]any{hooks.PreToolUse: {hookHandler(hookScript(t, tc.body), nil)}})
 			api := newFakeAPI(t, "echo ran >> marker.txt")
 
-			a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+			a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 			runPrompt(t, api, 2, a, "go")
 
 			require.NoFileExists(t, filepath.Join(ws, "marker.txt"))
@@ -168,7 +164,6 @@ func TestHookPayloadCarriesSessionAndMode(t *testing.T) {
 		"yes":     {[]string{"--yes"}, "bypassPermissions"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			bin := binPath
 			ws, home := newWorkspace(t)
 			capture := filepath.Join(t.TempDir(), "stdin.json")
 			// exit 0 with an allow, so the call also runs without a prompt.
@@ -176,7 +171,7 @@ func TestHookPayloadCarriesSessionAndMode(t *testing.T) {
 			writeHooks(t, home, map[string][]map[string]any{hooks.PreToolUse: {hookHandler(hookScript(t, body), nil)}})
 			api := newFakeAPI(t, "true")
 
-			a := startAgent(t, bin, ws, home, api.srv.URL, tc.args...)
+			a := startAgent(t, binPath, ws, home, api.srv.URL, tc.args...)
 			runPrompt(t, api, 2, a, "go")
 
 			var p struct {
@@ -221,14 +216,13 @@ func TestPostToolUseRedactsRequestAndDatabase(t *testing.T) {
 		"failure": "printf 'SECRET''MARKER-123'; exit 1",
 	} {
 		t.Run(name, func(t *testing.T) {
-			bin := binPath
 			ws, home := newWorkspace(t)
 			seen := filepath.Join(t.TempDir(), "seen.json")
 			body := `cat > ` + seen + `; echo '{"hookSpecificOutput":{"updatedToolOutput":"redacted-by-hook"}}'`
 			writeHooks(t, home, map[string][]map[string]any{hooks.PostToolUse: {hookHandler(hookScript(t, body), nil)}})
 			api := newFakeAPI(t, command)
 
-			a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+			a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 			sendPrompt(t, api, 2, a, "go")
 			require.Contains(t, string(mustRead(t, seen)), redactMarker, "the hook must see the raw output")
 
@@ -260,7 +254,6 @@ func TestPostToolUseRedactsRequestAndDatabase(t *testing.T) {
 func TestKillDuringPostToolUseHookRecordsUnknownOutcome(t *testing.T) {
 	// kill -9 leaves the hook's temp directory behind.
 	t.Setenv("TMPDIR", t.TempDir())
-	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	hookMarker := filepath.Join(t.TempDir(), "hook.txt")
@@ -268,13 +261,13 @@ func TestKillDuringPostToolUseHookRecordsUnknownOutcome(t *testing.T) {
 	writeHooks(t, home, map[string][]map[string]any{hooks.PostToolUse: {hookHandler(slow, nil)}})
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	_, err := io.WriteString(a.stdin, "go\n")
 	require.NoError(t, err)
 	eventually(t, "hook start", func() bool { return len(readLinesOf(t, hookMarker)) == 1 })
 	a.kill(t)
 
-	restart(t, bin, ws, home, api.srv.URL, "--yes")
+	restart(t, binPath, ws, home, api.srv.URL, "--yes")
 
 	require.Len(t, readLinesOf(t, marker), 1, "bash must not run twice")
 	require.Len(t, readLinesOf(t, hookMarker), 1, "the hook must not run again on resume")
@@ -286,7 +279,6 @@ func TestKillDuringPostToolUseHookRecordsUnknownOutcome(t *testing.T) {
 }
 
 func TestRepositoryHooksFileIsIgnored(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	deny := mustJSON(t, map[string]any{"hooks": map[string]any{hooks.PreToolUse: []any{
 		map[string]any{"hooks": []any{hookHandler(hookScript(t, `exit 2`), nil)}},
@@ -294,7 +286,7 @@ func TestRepositoryHooksFileIsIgnored(t *testing.T) {
 	writeHooksRaw(t, filepath.Join(ws, ".durable", "hooks.json"), deny)
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "go")
 
 	require.Len(t, readLinesOf(t, filepath.Join(ws, "marker.txt")), 1)
@@ -304,12 +296,11 @@ func TestRepositoryHooksFileIsIgnored(t *testing.T) {
 var pinFileNames = []string{"instructions.md", "mcp-tools.json", "provider.json", "skills.json"}
 
 func TestInvalidHooksConfigRefusesNewSession(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	writeHooksRaw(t, filepath.Join(home, ".durable", "hooks.json"), `{"hooks":{"PreToolUse":[{"hooks":[{"type":"command","command":"x","if":"y"}]}]}}`)
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	require.NoError(t, a.stdin.Close())
 	require.Error(t, waitExit(t, a), a.out.String())
 	require.Contains(t, a.out.String(), "hooks")
@@ -322,18 +313,17 @@ func TestInvalidHooksConfigRefusesNewSession(t *testing.T) {
 }
 
 func TestInvalidHooksConfigRefusesResume(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "first")
 	before := mustReadDir(t, sessionDir(t, ws))
 	require.Len(t, readLinesOf(t, marker), 1)
 
 	writeHooksRaw(t, filepath.Join(home, ".durable", "hooks.json"), `{"hook":{}}`)
-	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	b := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	require.NoError(t, b.stdin.Close())
 	require.Error(t, waitExit(t, b), b.out.String())
 	require.Contains(t, b.out.String(), "failed to parse hooks config")
@@ -345,14 +335,13 @@ func TestInvalidHooksConfigRefusesResume(t *testing.T) {
 func TestHooksDoNotSeeCredentials(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "sk-openrouter-test")
 	t.Setenv("OP_SERVICE_ACCOUNT_TOKEN", "op-token-test")
-	bin := binPath
 	ws, home := newWorkspace(t)
 	envFile := filepath.Join(t.TempDir(), "env.txt")
 	writeHooks(t, home, map[string][]map[string]any{hooks.PreToolUse: {hookHandler(hookScript(t, `env > `+envFile), nil)}})
 	api := newFakeAPI(t, "true")
 
 	// startAgent also sets ANTHROPIC_API_KEY=dummy.
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "go")
 
 	env := string(mustRead(t, envFile))
@@ -365,7 +354,6 @@ func TestHooksDoNotSeeCredentials(t *testing.T) {
 }
 
 func TestUnknownMatcherNameWarns(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	body := mustJSON(t, map[string]any{"hooks": map[string]any{hooks.PreToolUse: []any{
 		map[string]any{"matcher": "Bash", "hooks": []any{hookHandler(hookScript(t, `exit 2`), nil)}},
@@ -373,7 +361,7 @@ func TestUnknownMatcherNameWarns(t *testing.T) {
 	writeHooksRaw(t, filepath.Join(home, ".durable", "hooks.json"), body)
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "go")
 
 	require.Contains(t, a.out.String(), `[hooks] warning: PreToolUse matcher "Bash" matches no tool`)

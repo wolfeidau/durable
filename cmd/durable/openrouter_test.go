@@ -206,12 +206,11 @@ func pinFiles(t *testing.T, dir string) []string {
 }
 
 func TestOpenRouterDefaultProtocolUsesResponses(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "echo ran >> marker.txt")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-	a := startRouterAgent(t, bin, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
+	a := startRouterAgent(t, binPath, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
 	runRouterPrompt(t, api, a)
 
 	paths, bodies, headers := api.snapshot()
@@ -225,12 +224,11 @@ func TestOpenRouterDefaultProtocolUsesResponses(t *testing.T) {
 }
 
 func TestOpenRouterMessagesProtocolUsesGatewayMode(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-	a := startRouterAgent(t, bin, ws, env, "--yes", "--provider", "openrouter", "--protocol", "anthropic-messages", "--model", "anthropic/claude-sonnet-5-5")
+	a := startRouterAgent(t, binPath, ws, env, "--yes", "--provider", "openrouter", "--protocol", "anthropic-messages", "--model", "anthropic/claude-sonnet-5-5")
 	runRouterPrompt(t, api, a)
 
 	paths, bodies, headers := api.snapshot()
@@ -247,7 +245,6 @@ func TestOpenRouterMessagesProtocolUsesGatewayMode(t *testing.T) {
 }
 
 func TestKillDuringBashResumesOnEachProtocol(t *testing.T) {
-	bin := binPath
 	for _, tc := range []struct {
 		name string
 		args []string
@@ -262,14 +259,14 @@ func TestKillDuringBashResumesOnEachProtocol(t *testing.T) {
 			api := newRouterAPI(t, "echo ran >> marker.txt; sleep 5")
 			env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-			a := startRouterAgent(t, bin, ws, env, append([]string{"--yes"}, tc.args...)...)
+			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
 			_, err := io.WriteString(a.stdin, "run it\n")
 			require.NoError(t, err)
 			eventually(t, "marker line", func() bool { return len(readLinesOf(t, marker)) == 1 })
 			a.kill(t)
 
 			// The provider, protocol and model come from the pin.
-			b := startRouterAgent(t, bin, ws, env, "--yes")
+			b := startRouterAgent(t, binPath, ws, env, "--yes")
 			closeAndWait(t, b)
 			require.Contains(t, b.out.String(), "[model] openrouter via ")
 
@@ -289,11 +286,10 @@ func TestKillDuringBashResumesOnEachProtocol(t *testing.T) {
 }
 
 func TestOpenRouterRouteCannotChangeOnResume(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
-	a := startRouterAgent(t, bin, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
+	a := startRouterAgent(t, binPath, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
 	runRouterPrompt(t, api, a)
 
 	for _, tc := range []struct {
@@ -304,29 +300,27 @@ func TestOpenRouterRouteCannotChangeOnResume(t *testing.T) {
 		{[]string{"--protocol", "anthropic-messages"}, "uses protocol openai-responses, not anthropic-messages"},
 		{[]string{"--model", "openai/other"}, "uses model " + routerModel + ", not openai/other"},
 	} {
-		require.Contains(t, failingStart(t, bin, ws, env, tc.args...), tc.want)
+		require.Contains(t, failingStart(t, binPath, ws, env, tc.args...), tc.want)
 	}
 	require.Equal(t, 2, api.count())
 }
 
 func TestProviderRejectsUnsupportedProtocol(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	env := routerEnv(home, "http://127.0.0.1:1", unusedAnthropic(t))
 
-	out := failingStart(t, bin, ws, env, "--provider", "anthropic", "--protocol", "openai-responses")
+	out := failingStart(t, binPath, ws, env, "--provider", "anthropic", "--protocol", "openai-responses")
 	require.Contains(t, out, "provider anthropic does not support protocol")
 	require.Contains(t, out, "anthropic-messages")
 	require.Empty(t, pinFiles(t, sessionDir(t, ws)))
 }
 
 func TestAnthropicModelOnResponsesWarns(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
-	a := startRouterAgent(t, bin, ws, env, "--yes", "--provider", "openrouter", "--model", "anthropic/claude-sonnet-5-5")
+	a := startRouterAgent(t, binPath, ws, env, "--yes", "--provider", "openrouter", "--model", "anthropic/claude-sonnet-5-5")
 	runRouterPrompt(t, api, a)
 	require.Contains(t, a.out.String(), "[model] openrouter via openai-responses: anthropic/claude-sonnet-5-5")
 	require.Contains(t, a.out.String(), "[model] warning:")
@@ -334,14 +328,13 @@ func TestAnthropicModelOnResponsesWarns(t *testing.T) {
 }
 
 func TestFailedOpenRouterStartLeavesNoPin(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 	dir := sessionDir(t, ws)
 	require.NoError(t, os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte("marker DRAFT"), 0o644))
 
-	out := failingStart(t, bin, ws, env, "--provider", "openrouter")
+	out := failingStart(t, binPath, ws, env, "--provider", "openrouter")
 	require.Contains(t, out, "--model is required")
 
 	var noKey []string
@@ -350,7 +343,7 @@ func TestFailedOpenRouterStartLeavesNoPin(t *testing.T) {
 			noKey = append(noKey, kv)
 		}
 	}
-	out = failingStart(t, bin, ws, noKey, "--provider", "openrouter", "--model", routerModel)
+	out = failingStart(t, binPath, ws, noKey, "--provider", "openrouter", "--model", routerModel)
 	require.Contains(t, out, "OPENROUTER_API_KEY")
 
 	require.Empty(t, pinFiles(t, dir))
@@ -362,11 +355,10 @@ func TestFailedOpenRouterStartLeavesNoPin(t *testing.T) {
 }
 
 func TestResumedOpenRouterSessionStillNeedsKey(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "true")
 	env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
-	a := startRouterAgent(t, bin, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
+	a := startRouterAgent(t, binPath, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
 	runRouterPrompt(t, api, a)
 
 	var noKey []string
@@ -375,39 +367,37 @@ func TestResumedOpenRouterSessionStillNeedsKey(t *testing.T) {
 			noKey = append(noKey, kv)
 		}
 	}
-	require.Contains(t, failingStart(t, bin, ws, noKey), "OPENROUTER_API_KEY")
+	require.Contains(t, failingStart(t, binPath, ws, noKey), "OPENROUTER_API_KEY")
 }
 
 func TestCorruptProviderPinIsAStartupError(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	env := routerEnv(home, "http://127.0.0.1:1", unusedAnthropic(t))
 	dir := sessionDir(t, ws)
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "provider.json"), []byte("{not json"), 0o600))
 
-	require.Contains(t, failingStart(t, bin, ws, env), "provider")
+	require.Contains(t, failingStart(t, binPath, ws, env), "provider")
 }
 
 func TestSessionWithoutProviderPinStaysAnthropic(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("hi"))
 
-	a := startAgent(t, bin, ws, home, api.srv.URL)
+	a := startAgent(t, binPath, ws, home, api.srv.URL)
 	runPrompt(t, api, 1, a, "first")
 	require.Contains(t, a.out.String(), "[model] anthropic via anthropic-messages: claude-sonnet-5-5")
 
 	pin := filepath.Join(sessionDir(t, ws), "provider.json")
 	require.NoError(t, os.Remove(pin))
-	b := startAgent(t, bin, ws, home, api.srv.URL)
+	b := startAgent(t, binPath, ws, home, api.srv.URL)
 	runPrompt(t, api, 2, b, "second")
 	require.Contains(t, b.out.String(), "[model] anthropic via anthropic-messages")
 	pinned, err := os.ReadFile(pin)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"provider":"anthropic","protocol":"anthropic-messages"}`, string(pinned))
 
-	require.Contains(t, failingStart(t, bin, ws, routerEnv(home, "http://127.0.0.1:1", api.srv.URL), "--provider", "openrouter", "--model", routerModel),
+	require.Contains(t, failingStart(t, binPath, ws, routerEnv(home, "http://127.0.0.1:1", api.srv.URL), "--provider", "openrouter", "--model", routerModel),
 		"uses provider anthropic, not openrouter")
 }
 
@@ -423,13 +413,12 @@ func parseEnv(raw string) map[string]string {
 }
 
 func TestBashDoesNotSeeOpenRouterKey(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newRouterAPI(t, "env -0 > env.txt")
 	env := append(routerEnv(home, api.srv.URL, unusedAnthropic(t)),
 		"DURABLE_TEST_NOTE=mentions OPENROUTER_API_KEY\nOPENROUTER_API_KEY=not-a-variable")
 
-	a := startRouterAgent(t, bin, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
+	a := startRouterAgent(t, binPath, ws, env, "--yes", "--provider", "openrouter", "--model", routerModel)
 	runRouterPrompt(t, api, a)
 
 	got, err := os.ReadFile(filepath.Join(ws, "env.txt"))

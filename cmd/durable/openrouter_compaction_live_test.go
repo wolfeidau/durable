@@ -111,14 +111,13 @@ func requireLiveKey(t *testing.T) string {
 // Real summaries and real usage figures, then a crash, against the real service.
 func TestOpenRouterCompactionLive(t *testing.T) {
 	key := requireLiveKey(t)
-	bin := binPath
 	for _, tc := range liveCompactionModels {
 		t.Run(tc.name, func(t *testing.T) {
 			ws, home := newWorkspace(t)
 			proxy := newLiveProxy(t)
 			env := append(liveEnv(home), "OPENROUTER_BASE_URL="+proxy.srv.URL)
 
-			a := startRouterAgent(t, bin, ws, env, append([]string{"--yes", "--provider", "openrouter"}, tc.args...)...)
+			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes", "--provider", "openrouter"}, tc.args...)...)
 			turns := []struct{ prompt, ack string }{
 				{"The project codeword is " + liveCodeword + ". Remember it. Reply with only ACK-ONE. Notes: " + liveFiller(liveEarly, 24000), "ACK-ONE"},
 				{"Use bash to run `echo tool-ran`, then reply with only ACK-TWO. Notes: " + liveFiller("MIDFILLER", 16000), "ACK-TWO"},
@@ -133,7 +132,7 @@ func TestOpenRouterCompactionLive(t *testing.T) {
 			waitLive(t, a, "ACK-FOUR", func() bool { return strings.Contains(a.out.String(), "ACK-FOUR") })
 			a.kill(t)
 
-			b := startRouterAgent(t, bin, ws, env, "--yes")
+			b := startRouterAgent(t, binPath, ws, env, "--yes")
 			send(t, b, "What was the project codeword? Reply with only the codeword.\n")
 			waitLive(t, b, "the codeword", func() bool { return strings.Contains(b.out.String(), liveCodeword) })
 			closeAndWait(t, b)
@@ -162,12 +161,11 @@ func TestOpenRouterCompactionLive(t *testing.T) {
 // The overflow patterns are text matching, so this checks them against what providers really send.
 func TestOpenRouterOverflowTextLive(t *testing.T) {
 	key := requireLiveKey(t)
-	bin := binPath
 	for _, model := range []string{"z-ai/glm-5.3-flash", "openai/gpt-6-luna"} {
 		t.Run(model, func(t *testing.T) {
 			window := liveContextLength(t, key, model)
 			ws, home := newWorkspace(t)
-			a := startRouterAgent(t, bin, ws, liveEnv(home), "--yes", "--provider", "openrouter", "--model", model)
+			a := startRouterAgent(t, binPath, ws, liveEnv(home), "--yes", "--provider", "openrouter", "--model", model)
 			send(t, a, "Reply with OK. "+liveFiller("OVERFLOW", int(window)*6)+"\n")
 			waitLiveFailure(t, a)
 

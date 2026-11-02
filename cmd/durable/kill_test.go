@@ -223,18 +223,17 @@ func newWorkspace(t *testing.T) (workspace, home string) {
 }
 
 func TestKillDuringToolCallReportsUnknownOutcome(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt; sleep 5")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	_, err := io.WriteString(a.stdin, "run it\n")
 	require.NoError(t, err)
 	eventually(t, "marker line", func() bool { return len(readLinesOf(t, marker)) == 1 })
 	a.kill(t)
 
-	restart(t, bin, ws, home, api.srv.URL, "--yes")
+	restart(t, binPath, ws, home, api.srv.URL, "--yes")
 
 	require.Len(t, readLinesOf(t, marker), 1, "bash must not run twice")
 	reqs := api.requests()
@@ -247,19 +246,18 @@ func TestKillDuringToolCallReportsUnknownOutcome(t *testing.T) {
 }
 
 func TestKillDuringApprovalKeepsCallPending(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL)
+	a := startAgent(t, binPath, ws, home, api.srv.URL)
 	_, err := io.WriteString(a.stdin, "run it\n")
 	require.NoError(t, err)
 	eventually(t, "approval prompt", func() bool { return strings.Contains(a.out.String(), "[y/N]") })
 	require.Empty(t, readLinesOf(t, marker))
 	a.kill(t)
 
-	restart(t, bin, ws, home, api.srv.URL, "--yes")
+	restart(t, binPath, ws, home, api.srv.URL, "--yes")
 
 	require.Len(t, readLinesOf(t, marker), 1, "the pending call must run exactly once")
 	reqs := api.requests()
@@ -273,12 +271,11 @@ func TestKillDuringApprovalKeepsCallPending(t *testing.T) {
 }
 
 func TestInterruptCancelsAndDoesNotResume(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo ran >> marker.txt; sleep 30")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	_, err := io.WriteString(a.stdin, "run it\n")
 	require.NoError(t, err)
 	eventually(t, "marker line", func() bool { return len(readLinesOf(t, marker)) == 1 })
@@ -301,7 +298,7 @@ func TestInterruptCancelsAndDoesNotResume(t *testing.T) {
 		t.Fatalf("agent did not exit: %s", a.out.String())
 	}
 
-	restart(t, bin, ws, home, api.srv.URL, "--yes")
+	restart(t, binPath, ws, home, api.srv.URL, "--yes")
 
 	require.Len(t, readLinesOf(t, marker), 1, "bash must not run again")
 	require.Len(t, api.requests(), 2, "a cancelled task must not resume")
@@ -309,13 +306,12 @@ func TestInterruptCancelsAndDoesNotResume(t *testing.T) {
 }
 
 func TestKillStopsOrphanedCommand(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	pidFile := filepath.Join(ws, "pid.txt")
 	marker := filepath.Join(ws, "marker.txt")
 	api := newFakeAPI(t, "echo $$ > pid.txt; sleep 4; echo late >> marker.txt")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	_, err := io.WriteString(a.stdin, "run it\n")
 	require.NoError(t, err)
 	eventually(t, "pid file", func() bool { return len(readLinesOf(t, pidFile)) == 1 })
@@ -325,7 +321,7 @@ func TestKillStopsOrphanedCommand(t *testing.T) {
 	killedAt := time.Now()
 	require.NoError(t, syscall.Kill(pid, 0), "the command must outlive the agent")
 
-	restart(t, bin, ws, home, api.srv.URL, "--yes")
+	restart(t, binPath, ws, home, api.srv.URL, "--yes")
 
 	require.Eventually(t, func() bool { return syscall.Kill(pid, 0) == syscall.ESRCH }, 5*time.Second, 20*time.Millisecond)
 	reqs := api.requests()
@@ -366,18 +362,17 @@ func runPrompt(t *testing.T, api *fakeAPI, want int, a *agent, prompt string) {
 }
 
 func TestInstructionsArePinnedAcrossRestart(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	agents := filepath.Join(ws, "AGENTS.md")
 	require.NoError(t, os.WriteFile(agents, []byte("marker ALPHA-ONE"), 0o644))
 	api := newFakeAPI(t, "true")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "first")
 	require.Contains(t, a.out.String(), "[context] AGENTS.md")
 
 	require.NoError(t, os.WriteFile(agents, []byte("marker BETA-TWO"), 0o644))
-	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	b := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 3, b, "second")
 	require.NotContains(t, b.out.String(), "[context] AGENTS.md")
 	require.Equal(t, 1, strings.Count(b.out.String(), "[context]"))
@@ -391,11 +386,10 @@ func TestInstructionsArePinnedAcrossRestart(t *testing.T) {
 }
 
 func TestOlderSessionKeepsEmptyPin(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, "true")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "first")
 
 	pins, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", "instructions.md"))
@@ -404,7 +398,7 @@ func TestOlderSessionKeepsEmptyPin(t *testing.T) {
 	require.NoError(t, os.Remove(pins[0]))
 	require.NoError(t, os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte("marker LATE-ADD"), 0o644))
 
-	b := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	b := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 3, b, "second")
 	require.Contains(t, b.out.String(), "[context] using pinned instructions (0 bytes)")
 	reqs := api.requests()
@@ -413,25 +407,23 @@ func TestOlderSessionKeepsEmptyPin(t *testing.T) {
 }
 
 func TestNoContextSkipsAgentsFile(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	require.NoError(t, os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte("marker HIDDEN"), 0o644))
 	api := newFakeAPI(t, "true")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes", "--no-context")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes", "--no-context")
 	runPrompt(t, api, 2, a, "first")
 	require.NotContains(t, systemOf(t, api.requests()[0]), "HIDDEN")
 }
 
 func TestEscapingSymlinkWarnsAndIsNotSent(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	outside := filepath.Join(t.TempDir(), "secret.md")
 	require.NoError(t, os.WriteFile(outside, []byte("marker OUTSIDE-SECRET"), 0o644))
 	require.NoError(t, os.Symlink(outside, filepath.Join(ws, "AGENTS.md")))
 	api := newFakeAPI(t, "true")
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "first")
 	require.Contains(t, a.out.String(), "[context] warning:")
 	for _, r := range api.requests() {
@@ -440,13 +432,12 @@ func TestEscapingSymlinkWarnsAndIsNotSent(t *testing.T) {
 }
 
 func TestFailedTokenLookupDoesNotPin(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	agents := filepath.Join(ws, "AGENTS.md")
 	require.NoError(t, os.WriteFile(agents, []byte("marker DRAFT"), 0o644))
 	api := newFakeAPI(t, "true")
 
-	cmd := exec.Command(bin, "--api-token-from-1password", "op://vault/item/field")
+	cmd := exec.Command(binPath, "--api-token-from-1password", "op://vault/item/field")
 	cmd.Dir = ws
 	cmd.Env = []string{"HOME=" + home, "PATH=" + t.TempDir(), "ANTHROPIC_BASE_URL=" + api.srv.URL}
 	out, err := cmd.CombinedOutput()
@@ -456,7 +447,7 @@ func TestFailedTokenLookupDoesNotPin(t *testing.T) {
 	require.Empty(t, pins)
 
 	require.NoError(t, os.WriteFile(agents, []byte("marker FINAL"), 0o644))
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	runPrompt(t, api, 2, a, "first")
 	require.Contains(t, systemOf(t, api.requests()[0]), "FINAL")
 }
@@ -477,8 +468,7 @@ func TestVersionFlagReportsLinkedVersion(t *testing.T) {
 func TestVersionFlagReportsModuleVersion(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	bin := binPath
-	out, err := exec.CommandContext(ctx, "go", "version", "-m", bin).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "go", "version", "-m", binPath).CombinedOutput()
 	require.NoError(t, err, string(out))
 	match := regexp.MustCompile(`(?m)^\s+mod\s+\S+\s+(\S+)`).FindSubmatch(out)
 	require.NotNil(t, match, string(out))
@@ -488,17 +478,16 @@ func TestVersionFlagReportsModuleVersion(t *testing.T) {
 		want = "dev"
 	}
 
-	out, err = exec.CommandContext(ctx, bin, "--version").CombinedOutput()
+	out, err = exec.CommandContext(ctx, binPath, "--version").CombinedOutput()
 	require.NoError(t, err, string(out))
 	require.Equal(t, want+" (none, unknown)\n", string(out))
 }
 
 func TestReplyTextStreamsToStdout(t *testing.T) {
-	bin := binPath
 	ws, home := newWorkspace(t)
 	api := newFakeAPIReply(t, textReply("streamed-reply-text"))
 
-	a := startAgent(t, bin, ws, home, api.srv.URL, "--yes")
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
 	_, err := io.WriteString(a.stdin, "go\n")
 	require.NoError(t, err)
 	eventually(t, "streamed reply", func() bool { return strings.Contains(a.out.String(), "streamed-reply-text") })
