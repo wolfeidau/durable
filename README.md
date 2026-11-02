@@ -304,10 +304,10 @@ or `Cancel`, which deadlock, and it must not panic. `Event.Call.Input` is the ef
 can hold secrets a gate added; treat the log accordingly.
 
 **Live deltas.** `Options.OnDelta` receives model text (`DeltaText`) and `bash` output
-(`DeltaToolOutput`) as they happen, and `DeltaReset` before a retried model call. Deltas are a
-best-effort live view and are never persisted, so a client drops partial text on the assistant
-`message` event and partial tool output on `call_done`, and rebuilds from `Events` after a
-reconnect. `OnDelta` runs synchronously, possibly on a tool's goroutine, so it must not block, call
+(`DeltaToolOutput`) as they happen, and `DeltaReset` before every model attempt. Deltas are a
+best-effort live view and are never persisted. A client drops partial text on `DeltaReset`, the
+assistant `message` event or a terminal `submission` event, drops partial tool output on
+`call_done`, and rebuilds from `Events` after a reconnect. `OnDelta` runs synchronously, possibly on a tool's goroutine, so it must not block, call
 the harness or panic. A call with a matching `PostToolUse` hook has no live output, because the hook
 may redact or withhold the result.
 

@@ -788,7 +788,11 @@ func liveDeltas(t *testing.T, r *Runner, tool string) []durable.Delta {
 	var ds []durable.Delta
 	h, err := durable.Open(ctx, filepath.Join(t.TempDir(), "s.sqlite"), durable.Options{
 		Model: liveModel{tool: tool}, Tools: r.Wrap([]durable.Tool{emitTool{name: tool}}),
-		OnDelta: func(d durable.Delta) { ds = append(ds, d) },
+		OnDelta: func(d durable.Delta) {
+			if d.Kind != durable.DeltaReset {
+				ds = append(ds, d)
+			}
+		},
 	})
 	require.NoError(t, err)
 	defer h.Close()

@@ -514,11 +514,9 @@ func (h *Harness) modelStep(ctx context.Context, sub Submission, surfaceOverflow
 // error as is; the caller decides whether it is transient.
 func (h *Harness) generate(ctx context.Context, sub Submission, history []Message) (Message, error) {
 	mctx := withSink(ctx, h.opts.OnDelta, sub.Seq, "")
-	attempt := 0
 	reply, _, err := retryTransient(ctx, h, "model", func() (Message, bool, error) {
-		if attempt++; attempt > 1 {
-			emitReset(mctx)
-		}
+		// Every attempt resets, because a later Run or a retry after compaction can follow partial text too.
+		emitReset(mctx)
 		reply, err := h.opts.Model.Generate(mctx, history, h.specs)
 		return reply, true, err
 	})

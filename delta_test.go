@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -93,6 +94,7 @@ func TestTextDeltasArriveInOrderAndMatchTheCommittedMessage(t *testing.T) {
 	sub, err := h.Prompt(ctx, "a", "hi")
 	require.NoError(t, err)
 	require.Equal(t, []Delta{
+		{Kind: DeltaReset, Submission: sub.Seq},
 		{Kind: DeltaText, Submission: sub.Seq, Text: "he"},
 		{Kind: DeltaText, Submission: sub.Seq, Text: "llo"},
 	}, log.all())
@@ -101,7 +103,19 @@ func TestTextDeltasArriveInOrderAndMatchTheCommittedMessage(t *testing.T) {
 	require.Equal(t, hist[len(hist)-1].Text, joinText(log.all(), DeltaText))
 }
 
-func TestDeltaResetFiresOncePerRetryNotOnTheFirstAttempt(t *testing.T) {
+func deltaKinds(ds []Delta) []DeltaKind {
+	var kinds []DeltaKind
+	for _, d := range ds {
+		kinds = append(kinds, d.Kind)
+	}
+	return kinds
+}
+
+func withoutResets(ds []Delta) []Delta {
+	return slices.DeleteFunc(slices.Clone(ds), func(d Delta) bool { return d.Kind == DeltaReset })
+}
+
+func TestDeltaResetFiresBeforeEveryAttempt(t *testing.T) {
 	ctx := context.Background()
 	var log deltaLog
 	var calls atomic.Int32
@@ -117,32 +131,63 @@ func TestDeltaResetFiresOncePerRetryNotOnTheFirstAttempt(t *testing.T) {
 
 	_, err := h.Prompt(ctx, "a", "hi")
 	require.NoError(t, err)
-	var kinds []DeltaKind
-	for _, d := range log.all() {
-		kinds = append(kinds, d.Kind)
-	}
-	require.Equal(t, []DeltaKind{DeltaText, DeltaReset, DeltaText, DeltaReset, DeltaText}, kinds)
+	require.Equal(t, []DeltaKind{DeltaReset, DeltaText, DeltaReset, DeltaText, DeltaReset, DeltaText}, deltaKinds(log.all()))
 }
 
-func TestDeltaResetCountsAttemptsPerModelCall(t *testing.T) {
+func TestDeltaResetFiresOnALaterRun(t *testing.T) {
 	ctx := context.Background()
 	var log deltaLog
 	var calls atomic.Int32
-	model := modelFunc(func(ctx context.Context, hist []Message, _ []ToolSpec) (Message, error) {
-		if calls.Add(1) == 2 {
-			return Message{}, Transient(errors.New("flaky"))
+	model := modelFunc(func(ctx context.Context, _ []Message, _ []ToolSpec) (Message, error) {
+		EmitText(ctx, "partial")
+		if calls.Add(1) == 1 {
+			return Message{}, Transient(errors.New("outage"))
 		}
-		return callOnce()(ctx, hist, nil)
+		return Message{Role: RoleAssistant, Text: "partial"}, nil
 	})
-	h := openWith(t, ctx, Options{Model: model, Tools: []Tool{&emitTool{name: "t"}}, LeaseTTL: ttl,
-		ModelBackoff: time.Millisecond, OnDelta: log.add})
+	h := openWith(t, ctx, Options{Model: model, LeaseTTL: ttl, ModelAttempts: 1, OnDelta: log.add})
 	defer h.Close()
 
-	_, err := h.Prompt(ctx, "a", "hi")
+	_, err := h.Submit(ctx, "a", "hi")
 	require.NoError(t, err)
-	// Call 1 succeeds, call 2 fails once then succeeds: one reset in total.
-	require.Len(t, log.all(), 1)
-	require.Equal(t, DeltaReset, log.all()[0].Kind)
+	require.Error(t, h.Run(ctx))
+	require.NoError(t, h.Run(ctx))
+	require.Equal(t, []DeltaKind{DeltaReset, DeltaText, DeltaReset, DeltaText}, deltaKinds(log.all()))
+}
+
+func TestDeltaResetFiresAfterOverflowCompaction(t *testing.T) {
+	ctx := context.Background()
+	var log deltaLog
+	var calls atomic.Int32
+	model := modelFunc(func(ctx context.Context, _ []Message, _ []ToolSpec) (Message, error) {
+		switch calls.Add(1) {
+		case 2:
+			EmitText(ctx, "stale")
+			return Message{}, ContextOverflow(errors.New("prompt is too long"))
+		case 3:
+			EmitText(ctx, "fresh")
+			return Message{Role: RoleAssistant, Text: "fresh"}, nil
+		}
+		return Message{Role: RoleAssistant, Text: "first"}, nil
+	})
+	comp := compactorFunc(func(_ context.Context, req CompactRequest) (Compaction, bool, error) {
+		return Compaction{Summary: "summary", FirstKept: 1}, req.Force, nil
+	})
+	h := openWith(t, ctx, Options{Model: model, Compactor: comp, LeaseTTL: ttl, OnDelta: log.add})
+	defer h.Close()
+
+	_, err := h.Prompt(ctx, "a", "one")
+	require.NoError(t, err)
+	sub, err := h.Prompt(ctx, "b", "two")
+	require.NoError(t, err)
+	require.Equal(t, "fresh", sub.Result)
+
+	ds := log.all()
+	last := len(ds) - 1
+	for ds[last].Kind != DeltaReset {
+		last--
+	}
+	require.Equal(t, "fresh", joinText(ds[last:], DeltaText))
 }
 
 func TestCompactorEmitsNoDeltas(t *testing.T) {
@@ -166,7 +211,7 @@ func TestCompactorEmitsNoDeltas(t *testing.T) {
 	require.NoError(t, err)
 	require.Positive(t, compacts.Load())
 	require.Equal(t, "reply", joinText(log.all(), DeltaText))
-	require.Len(t, log.all(), 1)
+	require.Equal(t, []DeltaKind{DeltaReset, DeltaText}, deltaKinds(log.all()))
 }
 
 func TestToolDeltasCarryCallIDAndSubmission(t *testing.T) {
@@ -183,7 +228,7 @@ func TestToolDeltasCarryCallIDAndSubmission(t *testing.T) {
 	require.Equal(t, []Delta{
 		{Kind: DeltaToolOutput, Submission: sub.Seq, CallID: "c1", Text: "a"},
 		{Kind: DeltaToolOutput, Submission: sub.Seq, CallID: "c1", Text: "b"},
-	}, log.all())
+	}, withoutResets(log.all()))
 }
 
 func TestToolDeltasOnReplaySafeReplay(t *testing.T) {
@@ -209,7 +254,7 @@ func TestToolDeltasOnReplaySafeReplay(t *testing.T) {
 
 	require.EqualValues(t, 2, tool.runs.Load())
 	want := Delta{Kind: DeltaToolOutput, Submission: 1, CallID: "c1", Text: "x"}
-	require.Equal(t, []Delta{want, want}, log.all())
+	require.Equal(t, []Delta{want, want}, withoutResets(log.all()))
 }
 
 func TestDeltasAddNoEvents(t *testing.T) {
@@ -269,5 +314,5 @@ func TestDeltasHandleNilAndEmptyInput(t *testing.T) {
 	sub, err := h.Prompt(ctx, "a", "")
 	require.NoError(t, err)
 	require.Equal(t, StatusDone, sub.Status)
-	require.Empty(t, log.all())
+	require.Empty(t, withoutResets(log.all()))
 }

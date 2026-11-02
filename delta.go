@@ -6,7 +6,7 @@ import "context"
 type DeltaKind string
 
 const (
-	// DeltaReset tells a consumer to drop partial text, because the model call is being retried.
+	// DeltaReset starts a model attempt, so a consumer drops any partial text from an earlier one.
 	DeltaReset DeltaKind = "reset"
 	// DeltaText is a piece of the assistant's reply.
 	DeltaText DeltaKind = "text"
@@ -15,7 +15,7 @@ const (
 )
 
 // Delta is a live, best-effort view of work in progress. Deltas are never persisted.
-// Drop partial text on the assistant message event and partial tool output on call_done.
+// Drop partial text on DeltaReset, the assistant message event or a terminal submission event, and partial tool output on call_done.
 type Delta struct {
 	Kind       DeltaKind
 	Submission int64

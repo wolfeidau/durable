@@ -130,6 +130,9 @@ func TestBashEmitsInterleavedOutputAndLeavesTheResultUnchanged(t *testing.T) {
 	ds, result := runBashThroughHarness(t, "echo out; echo err >&2; echo end")
 	var live strings.Builder
 	for _, d := range ds {
+		if d.Kind == durable.DeltaReset {
+			continue
+		}
 		require.Equal(t, durable.DeltaToolOutput, d.Kind)
 		require.Equal(t, "c1", d.CallID)
 		live.WriteString(d.Text)
