@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Runs at pre-exit because vendored plugins' post-command hooks run first, which would miss modules that later plugins download.
 # A failed run may have left partial output, and the next build must not inherit it.
 if [[ "${BUILDKITE_COMMAND_EXIT_STATUS:-1}" != "0" ]]; then
   exit 0

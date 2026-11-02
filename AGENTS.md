@@ -20,6 +20,12 @@ mise exec -- golangci-lint run ./...
 mise run check:tidy
 ```
 
+CI also race-checks the real binary, which `go test -race` alone doesn't. Run this after changing concurrency in `cmd/durable` or anything it calls:
+
+```sh
+GOFLAGS=-race GORACE=atexit_sleep_ms=0 go test -race -count=1 ./cmd/durable
+```
+
 ## Durability invariants
 
 - A state change and its events commit in the same transaction.

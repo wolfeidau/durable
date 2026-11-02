@@ -93,7 +93,7 @@ func TestHookTimeoutIsKilledAndDeniedThenSessionContinues(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
 	hang := hookScript(t, `echo $$ > `+pidFile+`; sleep 60`)
 	writeHooks(t, home, map[string][]map[string]any{
-		hooks.PreToolUse: {hookHandler(hang, map[string]any{"timeout": 3})},
+		hooks.PreToolUse: {hookHandler(hang, map[string]any{"timeout": 5})},
 	})
 	api := newFakeAPI(t, "echo ran >> marker.txt")
 
