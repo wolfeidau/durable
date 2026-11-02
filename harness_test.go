@@ -1825,3 +1825,574 @@ func TestPendingCallWithUnknownToolRecordsUnknownTool(t *testing.T) {
 	require.Equal(t, `unknown tool "write_file"`, hist[2].Text)
 	require.True(t, hist[2].IsError)
 }
+
+func deferOpts(model Model, gate ToolGate, tools ...Tool) Options {
+	return Options{Model: model, Tools: tools, LeaseTTL: ttl, Gate: gate, DeferApprovals: true}
+}
+
+func askGate(calls *atomic.Int32) ToolGate {
+	return func(context.Context, ToolCall) (Decision, error) {
+		calls.Add(1)
+		return Decision{Action: ActionAsk}, nil
+	}
+}
+
+func approvalStatuses(t *testing.T, h *Harness) []string {
+	t.Helper()
+	rows, err := h.db.Query(`SELECT status FROM approvals ORDER BY seq`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var s string
+		require.NoError(t, rows.Scan(&s))
+		out = append(out, s)
+	}
+	require.NoError(t, rows.Err())
+	return out
+}
+
+func countKind(evs []Event, kind EventKind) int {
+	n := 0
+	for _, e := range evs {
+		if e.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+// parkOne submits and runs until the first call is parked, returning its approval.
+func parkOne(t *testing.T, ctx context.Context, h *Harness) Approval {
+	t.Helper()
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+	require.ErrorIs(t, h.Run(ctx), ErrAwaitingApproval)
+	a, ok, err := h.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	return a
+}
+
+func TestDeferredApprovalSurvivesRestartAndRunsOnce(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	write := &fakeTool{name: "write_file"}
+	var gated atomic.Int32
+
+	h1, err := Open(ctx, path, deferOpts(gateModel(), askGate(&gated), write))
+	require.NoError(t, err)
+	a := parkOne(t, ctx, h1)
+	require.Equal(t, ApprovalPending, a.Status)
+	require.Equal(t, "c1", a.Call.ID)
+	require.Equal(t, "write_file", a.Call.Name)
+	require.JSONEq(t, `{}`, string(a.Call.Input))
+	require.False(t, a.Rewritten)
+	sub, err := h1.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, sub.Seq, a.Submission)
+	require.Equal(t, StatusRunning, sub.Status)
+	require.Equal(t, callPending, callStatus(t, h1))
+	h1.abandon()
+
+	h2, err := Open(ctx, path, deferOpts(gateModel(), askGate(&gated), write))
+	require.NoError(t, err)
+	defer h2.Close()
+	again, ok, err := h2.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, a, again)
+	require.ErrorIs(t, h2.Run(ctx), ErrAwaitingApproval)
+	require.Equal(t, []string{"pending"}, approvalStatuses(t, h2))
+
+	decided, err := h2.Decide(ctx, a.Seq, true, "alice")
+	require.NoError(t, err)
+	require.Equal(t, ApprovalAllowed, decided.Status)
+	require.Equal(t, "alice", decided.DecidedBy)
+	require.NoError(t, h2.Run(ctx))
+
+	require.EqualValues(t, 1, write.runs.Load())
+	require.EqualValues(t, 1, gated.Load())
+	sub, err = h2.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	_, ok, err = h2.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	evs, err := h2.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, countKind(evs, EventApprovalRequested))
+	require.Equal(t, 1, countKind(evs, EventApprovalDecided))
+	for _, e := range evs {
+		if e.Kind == EventApprovalRequested {
+			require.Equal(t, a.Seq, e.ApprovalSeq)
+			require.Equal(t, "c1", e.Call.ID)
+			require.JSONEq(t, `{}`, string(e.Call.Input))
+		}
+		if e.Kind == EventApprovalDecided {
+			require.Equal(t, ApprovalAllowed, e.Approval)
+			require.Equal(t, "alice", e.DecidedBy)
+		}
+	}
+}
+
+func TestCrashAfterDecideRunsOnceWithoutNewPrompt(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	write := &fakeTool{name: "write_file"}
+	var gated atomic.Int32
+
+	h1, err := Open(ctx, path, deferOpts(gateModel(), askGate(&gated), write))
+	require.NoError(t, err)
+	a := parkOne(t, ctx, h1)
+	_, err = h1.Decide(ctx, a.Seq, true, "alice")
+	require.NoError(t, err)
+	require.Equal(t, callPending, callStatus(t, h1))
+	h1.abandon()
+
+	h2, err := Open(ctx, path, deferOpts(gateModel(), askGate(&gated), write))
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.EqualValues(t, 1, write.runs.Load())
+	require.EqualValues(t, 1, gated.Load(), "the gate must not run again after a decision")
+	evs, err := h2.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, 1, countKind(evs, EventApprovalRequested))
+}
+
+func TestApprovedCallRunsStoredRewriteAndKeepsNote(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	write := &fakeTool{name: "write_file"}
+	gate := func(context.Context, ToolCall) (Decision, error) {
+		return Decision{Action: ActionAsk, Input: json.RawMessage(`{"x":1}`)}, nil
+	}
+
+	h1, err := Open(ctx, path, deferOpts(gateModel(), gate, write))
+	require.NoError(t, err)
+	a := parkOne(t, ctx, h1)
+	require.JSONEq(t, `{"x":1}`, string(a.Call.Input))
+	require.True(t, a.Rewritten)
+	_, err = h1.Decide(ctx, a.Seq, true, "alice")
+	require.NoError(t, err)
+	h1.abandon()
+
+	// The gate that would rewrite is gone, so only the stored input can carry the rewrite.
+	h2, err := Open(ctx, path, deferOpts(gateModel(), func(context.Context, ToolCall) (Decision, error) {
+		return Decision{}, errors.New("gate must not run")
+	}, write))
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.Equal(t, `{"x":1}`, write.input.Load())
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Contains(t, hist[2].Text, Rewritten)
+	evs, err := h2.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	for _, e := range evs {
+		if e.Kind == EventApprovalRequested || e.Kind == EventCallStarted {
+			require.True(t, e.Rewritten, e.Kind)
+		}
+	}
+}
+
+func TestDeclinedApprovalRecordsDeclined(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	h := openWith(t, ctx, deferOpts(gateModel(), nil, write))
+	defer h.Close()
+	a := parkOne(t, ctx, h)
+
+	_, err := h.Decide(ctx, a.Seq, false, "bob")
+	require.NoError(t, err)
+	require.NoError(t, h.Run(ctx))
+	require.Zero(t, write.runs.Load())
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,assistant,tool,assistant", roles(hist))
+	require.Equal(t, Declined, hist[2].Text)
+	require.True(t, hist[2].IsError)
+	require.Equal(t, []string{"declined"}, approvalStatuses(t, h))
+}
+
+func TestCancelWhileParkedClosesApproval(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	c := &collector{}
+	opts := deferOpts(gateModel(), nil, write)
+	opts.Observer = c.observe
+	h := openWith(t, ctx, opts)
+	defer h.Close()
+	a := parkOne(t, ctx, h)
+
+	sub, err := h.Cancel(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, sub.Status)
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,assistant,tool,user", roles(hist))
+	require.Equal(t, CallCancelled, hist[2].Text)
+	assertToolResultsMatch(t, hist)
+	require.Equal(t, []string{"cancelled"}, approvalStatuses(t, h))
+	_, ok, err := h.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	got, err := h.Decide(ctx, a.Seq, true, "alice")
+	require.ErrorIs(t, err, ErrApprovalDecided)
+	require.Equal(t, ApprovalCancelled, got.Status)
+	require.NoError(t, h.Run(ctx))
+	require.Zero(t, write.runs.Load())
+
+	var closing []Event
+	for _, e := range c.all() {
+		if e.Kind == EventApprovalDecided {
+			closing = append(closing, e)
+		}
+	}
+	require.Len(t, closing, 1)
+	require.Equal(t, ApprovalCancelled, closing[0].Approval)
+	require.Equal(t, a.Seq, closing[0].ApprovalSeq)
+}
+
+func TestUnknownToolWhileParkedClosesApproval(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	h1, err := Open(ctx, path, deferOpts(gateModel(), nil, &fakeTool{name: "write_file"}))
+	require.NoError(t, err)
+	parkOne(t, ctx, h1)
+	h1.abandon()
+
+	h2, err := Open(ctx, path, deferOpts(gateModel(), nil))
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "user,assistant,tool,assistant", roles(hist))
+	require.Contains(t, hist[2].Text, "unknown tool")
+	require.Equal(t, []string{"cancelled"}, approvalStatuses(t, h2))
+	sub, err := h2.Get(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+}
+
+func TestDecideRepeatedContradictoryAndUnknown(t *testing.T) {
+	ctx := context.Background()
+	c := &collector{}
+	opts := deferOpts(gateModel(), nil, &fakeTool{name: "write_file"})
+	opts.Observer = c.observe
+	h := openWith(t, ctx, opts)
+	defer h.Close()
+	a := parkOne(t, ctx, h)
+
+	first, err := h.Decide(ctx, a.Seq, true, "alice")
+	require.NoError(t, err)
+	again, err := h.Decide(ctx, a.Seq, true, "bob")
+	require.NoError(t, err)
+	require.Equal(t, first, again, "the same answer is a no-op that keeps the first decider")
+	require.Equal(t, 1, countKind(c.all(), EventApprovalDecided))
+
+	got, err := h.Decide(ctx, a.Seq, false, "bob")
+	require.ErrorIs(t, err, ErrApprovalDecided)
+	require.Equal(t, ApprovalAllowed, got.Status)
+	require.Equal(t, "alice", got.DecidedBy)
+	require.Equal(t, 1, countKind(c.all(), EventApprovalDecided))
+
+	_, err = h.Decide(ctx, 999, true, "alice")
+	require.ErrorIs(t, err, sql.ErrNoRows)
+}
+
+func TestTwoCallsParkInOrder(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	model := modelFunc(func(_ context.Context, hist []Message, _ []ToolSpec) (Message, error) {
+		if hist[len(hist)-1].Role == RoleUser {
+			return Message{ToolCalls: []ToolCall{
+				{ID: "c1", Name: "write_file", Input: json.RawMessage(`{"n":1}`)},
+				{ID: "c2", Name: "write_file", Input: json.RawMessage(`{"n":2}`)},
+			}}, nil
+		}
+		return Message{Text: "done"}, nil
+	})
+	h := openWith(t, ctx, deferOpts(model, nil, write))
+	defer h.Close()
+
+	first := parkOne(t, ctx, h)
+	require.Equal(t, "c1", first.Call.ID)
+	_, err := h.Decide(ctx, first.Seq, true, "alice")
+	require.NoError(t, err)
+	require.ErrorIs(t, h.Run(ctx), ErrAwaitingApproval)
+	require.EqualValues(t, 1, write.runs.Load())
+
+	second, ok, err := h.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "c2", second.Call.ID)
+	require.Greater(t, second.Seq, first.Seq)
+	_, err = h.Decide(ctx, second.Seq, true, "alice")
+	require.NoError(t, err)
+	require.NoError(t, h.Run(ctx))
+	require.EqualValues(t, 2, write.runs.Load())
+	require.Equal(t, `{"n":2}`, write.input.Load())
+}
+
+func TestParkedSubmissionBlocksTheQueue(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	h := openWith(t, ctx, deferOpts(gateModel(), nil, write))
+	defer h.Close()
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+	_, err = h.Submit(ctx, "b", "go")
+	require.NoError(t, err)
+
+	decisions := 0
+	for {
+		err := h.Run(ctx)
+		if !errors.Is(err, ErrAwaitingApproval) {
+			require.NoError(t, err)
+			break
+		}
+		b, err := h.Get(ctx, "b")
+		require.NoError(t, err)
+		if decisions == 0 {
+			require.Equal(t, StatusQueued, b.Status, "b must wait behind the parked a")
+		}
+		a, ok, err := h.PendingApproval(ctx)
+		require.NoError(t, err)
+		require.True(t, ok)
+		_, err = h.Decide(ctx, a.Seq, true, "alice")
+		require.NoError(t, err)
+		decisions++
+	}
+	require.Equal(t, 2, decisions)
+	require.EqualValues(t, 2, write.runs.Load())
+	for _, id := range []string{"a", "b"} {
+		sub, err := h.Get(ctx, id)
+		require.NoError(t, err)
+		require.Equal(t, StatusDone, sub.Status)
+	}
+}
+
+func TestPendingApprovalReopenedWithAsk(t *testing.T) {
+	for name, tc := range map[string]struct {
+		answer     bool
+		wantStatus string
+		wantRuns   int32
+	}{
+		"allow":   {true, "allowed", 1},
+		"decline": {false, "declined", 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "session.sqlite")
+			write := &fakeTool{name: "write_file"}
+			h1, err := Open(ctx, path, deferOpts(gateModel(), nil, write))
+			require.NoError(t, err)
+			parkOne(t, ctx, h1)
+			h1.abandon()
+
+			var seen string
+			c := &collector{}
+			h2, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl, Observer: c.observe,
+				Ask: func(_ context.Context, call ToolCall) (bool, error) { seen = string(call.Input); return tc.answer, nil }})
+			require.NoError(t, err)
+			defer h2.Close()
+			require.NoError(t, h2.Run(ctx))
+			require.JSONEq(t, `{}`, seen)
+			require.Equal(t, tc.wantRuns, write.runs.Load())
+			require.Equal(t, []string{tc.wantStatus}, approvalStatuses(t, h2))
+			var by string
+			require.NoError(t, h2.db.QueryRow(`SELECT decided_by FROM approvals`).Scan(&by))
+			require.Equal(t, "ask", by)
+			require.Equal(t, 1, countKind(c.all(), EventApprovalDecided))
+		})
+	}
+}
+
+func TestDecideWinsOverAskOnAReopenedApproval(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	write := &fakeTool{name: "write_file"}
+	h1, err := Open(ctx, path, deferOpts(gateModel(), nil, write))
+	require.NoError(t, err)
+	a := parkOne(t, ctx, h1)
+	h1.abandon()
+
+	var h2 *Harness
+	h2, err = Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl,
+		Ask: func(ctx context.Context, _ ToolCall) (bool, error) {
+			_, err := h2.Decide(ctx, a.Seq, false, "server")
+			return true, err
+		}})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.Zero(t, write.runs.Load())
+	require.Equal(t, []string{"declined"}, approvalStatuses(t, h2))
+	var by string
+	require.NoError(t, h2.db.QueryRow(`SELECT decided_by FROM approvals`).Scan(&by))
+	require.Equal(t, "server", by)
+}
+
+func TestPendingApprovalAskErrorLeavesItPending(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	write := &fakeTool{name: "write_file"}
+	h1, err := Open(ctx, path, deferOpts(gateModel(), nil, write))
+	require.NoError(t, err)
+	parkOne(t, ctx, h1)
+	h1.abandon()
+
+	boom := errors.New("prompt broke")
+	h2, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl,
+		Ask: func(context.Context, ToolCall) (bool, error) { return false, boom }})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.ErrorIs(t, h2.Run(ctx), boom)
+	require.Equal(t, []string{"pending"}, approvalStatuses(t, h2))
+	require.Equal(t, callPending, callStatus(t, h2))
+	require.Zero(t, write.runs.Load())
+}
+
+func TestPendingApprovalWithNeitherDeferNorAskIsDenied(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	write := &fakeTool{name: "write_file"}
+	h1, err := Open(ctx, path, deferOpts(gateModel(), nil, write))
+	require.NoError(t, err)
+	parkOne(t, ctx, h1)
+	h1.abandon()
+
+	h2, err := Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.Zero(t, write.runs.Load(), "a parked call must never auto-allow")
+	hist, err := h2.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, Denied, hist[2].Text)
+	require.Equal(t, []string{"cancelled"}, approvalStatuses(t, h2))
+}
+
+func TestDeferApprovalsWinsOverAsk(t *testing.T) {
+	ctx := context.Background()
+	var asked atomic.Int32
+	opts := deferOpts(gateModel(), nil, &fakeTool{name: "write_file"})
+	opts.Ask = func(context.Context, ToolCall) (bool, error) { asked.Add(1); return true, nil }
+	h := openWith(t, ctx, opts)
+	defer h.Close()
+	parkOne(t, ctx, h)
+	require.ErrorIs(t, h.Run(ctx), ErrAwaitingApproval)
+	require.Zero(t, asked.Load())
+}
+
+func TestAwaitingApprovalErrorNamesTheCall(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, deferOpts(gateModel(), nil, &fakeTool{name: "write_file"}))
+	defer h.Close()
+	_, err := h.Submit(ctx, "a", "go")
+	require.NoError(t, err)
+
+	first := h.Run(ctx)
+	a, ok, err := h.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	for _, got := range []error{first, h.Run(ctx)} {
+		require.ErrorIs(t, got, ErrAwaitingApproval)
+		require.ErrorContains(t, got, `tool "write_file" call "`+a.Call.ID+`"`)
+	}
+}
+
+func TestDeferApprovalsStillHonoursGateAllowAndDeny(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	h := openWith(t, ctx, deferOpts(gateModel(), func(context.Context, ToolCall) (Decision, error) {
+		return Decision{Action: ActionAllow}, nil
+	}, write))
+	defer h.Close()
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.EqualValues(t, 1, write.runs.Load())
+	require.Empty(t, approvalStatuses(t, h))
+
+	d := openWith(t, ctx, deferOpts(gateModel(), func(context.Context, ToolCall) (Decision, error) {
+		return Decision{Action: ActionDeny}, nil
+	}, write))
+	defer d.Close()
+	sub, err = d.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.EqualValues(t, 1, write.runs.Load())
+	require.Empty(t, approvalStatuses(t, d))
+}
+
+func TestInvalidRewriteIsNeverParked(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	h := openWith(t, ctx, deferOpts(gateModel(), func(context.Context, ToolCall) (Decision, error) {
+		return Decision{Action: ActionAsk, Input: json.RawMessage(`{bad`)}, nil
+	}, write))
+	defer h.Close()
+	sub, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+	require.Equal(t, StatusDone, sub.Status)
+	require.Zero(t, write.runs.Load())
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.Equal(t, InvalidRewrite, hist[2].Text)
+	require.Empty(t, approvalStatuses(t, h))
+}
+
+func TestDecideByStaleOwnerFailsWithLeaseLost(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	h1, err := Open(ctx, path, deferOpts(gateModel(), nil, &fakeTool{name: "write_file"}))
+	require.NoError(t, err)
+	a := parkOne(t, ctx, h1)
+	h1.stopRenew()
+	<-h1.renewDone
+
+	h2 := open(t, ctx, path, gateModel(), &fakeTool{name: "write_file"})
+	defer h2.Close()
+
+	_, err = h1.Decide(ctx, a.Seq, true, "alice")
+	require.ErrorIs(t, err, ErrLeaseLost)
+	h1.db.Close()
+	require.Equal(t, []string{"pending"}, approvalStatuses(t, h2))
+}
+
+func TestDeferredApprovalWithNilInput(t *testing.T) {
+	ctx := context.Background()
+	write := &fakeTool{name: "write_file"}
+	model := modelFunc(func(_ context.Context, hist []Message, _ []ToolSpec) (Message, error) {
+		if hist[len(hist)-1].Role == RoleTool {
+			return Message{Text: "done"}, nil
+		}
+		return Message{ToolCalls: []ToolCall{{ID: "c1", Name: "write_file"}}}, nil
+	})
+	c := &collector{}
+	opts := deferOpts(model, nil, write)
+	opts.Observer = c.observe
+	h := openWith(t, ctx, opts)
+	defer h.Close()
+
+	a := parkOne(t, ctx, h)
+	require.Empty(t, a.Call.Input)
+	require.False(t, a.Rewritten)
+	_, err := h.Decide(ctx, a.Seq, true, "alice")
+	require.NoError(t, err)
+	require.NoError(t, h.Run(ctx))
+	require.EqualValues(t, 1, write.runs.Load())
+	hist, err := h.History(ctx)
+	require.NoError(t, err)
+	require.NotContains(t, hist[2].Text, Rewritten)
+	for _, e := range c.all() {
+		require.False(t, e.Rewritten)
+	}
+}

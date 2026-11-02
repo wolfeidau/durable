@@ -33,6 +33,7 @@ mise run check:tidy
 - The skill catalog is pinned per session, for the same reason as the tool order: it feeds the `skill` tool's description and so the prompt prefix.
 - A model request is built from `loadContext`, never `loadHistory`.
 - Compaction never rewrites `messages`, and `History` stays the full transcript.
+- An approved call runs its stored input and is never re-gated, and `recordResult` closes any pending approval, so a finished call leaves no stale prompt.
 
 ## Code conventions
 

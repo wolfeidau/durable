@@ -90,6 +90,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Capability | durable | Pi | Pi Durable | Claude Code |
 |---|---|---|---|---|
 | Default posture | Ask, except read-only tools | No approval prompts | Host decides | Classifier or ask |
+| Durable approvals | Part: `DeferApprovals`, `Decide`; library only | No | n/d | n/d |
 | Permission modes | Part: default, `--yes` | Ext | Ext | Yes: 6 modes |
 | Allow, ask, deny rules | No | Ext | Ext | Yes |
 | Workspace path scoping | Part: file tools only | No: cwd isn't a boundary | Ext | Yes |

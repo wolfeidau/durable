@@ -24,6 +24,10 @@ const (
 	EventCompacted EventKind = "compacted"
 	// EventCompactionFailed records a compactor error that did not stop the run; Error has the text.
 	EventCompactionFailed EventKind = "compaction_failed"
+	// EventApprovalRequested parks a call for Decide; Call has the post-gate input.
+	EventApprovalRequested EventKind = "approval_requested"
+	// EventApprovalDecided records an answer, or cancelled when the call finished without one.
+	EventApprovalDecided EventKind = "approval_decided"
 )
 
 // Event is one committed state change. Events are append-only and written in
@@ -41,6 +45,10 @@ type Event struct {
 	Call      *ToolCall `json:"call,omitempty"`
 	Rewritten bool      `json:"rewritten,omitempty"` // a gate changed the input
 	IsError   bool      `json:"is_error,omitempty"`  // call_done: the result is an error
+
+	ApprovalSeq int64          `json:"approval_seq,omitempty"` // approval events
+	Approval    ApprovalStatus `json:"approval,omitempty"`     // approval_decided: the answer
+	DecidedBy   string         `json:"decided_by,omitempty"`   // approval_decided: who answered
 }
 
 // Events returns up to limit events after seq, oldest first. A limit of zero
