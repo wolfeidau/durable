@@ -68,10 +68,10 @@ type Options struct {
 	// DeferApprovals parks a call that needs asking as a durable approval instead of calling Ask.
 	// Run then returns ErrAwaitingApproval with the submission still running. Answer with
 	// PendingApproval and Decide, then call Run again. It wins over Ask, and with no Gate every
-	// call parks.
+	// call parks. Decide can land before Run returns, so check PendingApproval before waiting.
 	DeferApprovals bool
 	// Observer, if set, is called synchronously after each commit with the new events, in Seq
-	// order. It may call Events or History, but not Submit, Run or Cancel, which would deadlock.
+	// order. It may call Events or History, but not Submit, Decide, Run or Cancel, which would deadlock.
 	// It must not panic: the state has already committed, and the panic reaches the committing caller.
 	// Delivery isn't guaranteed: reconcile with Events if you need every event.
 	Observer func(Event)

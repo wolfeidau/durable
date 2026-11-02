@@ -182,7 +182,8 @@ Neither `Gate` nor `Ask` runs for calls already `started`.
 `Options.DeferApprovals` makes a call that needs asking durable instead of blocking on `Ask`.
 The harness commits an `approvals` row and an `approval_requested` event, and `Run` returns
 `ErrAwaitingApproval` with the submission still `running`. `PendingApproval` returns the waiting
-request, `Decide(ctx, seq, allow, by)` records the answer, and the next `Run` continues. The call
+request, `Decide(ctx, seq, allow, by)` records the answer, and the next `Run` continues. An answer
+can land before `Run` returns, so check `PendingApproval` before waiting for one. The call
 runs the input stored with the approval and the `Gate` is not run again. Repeating an answer is a
 no-op, and a different one returns `ErrApprovalDecided`. `Cancel`, or a tool that has vanished,
 closes the approval as `cancelled`. It wins over `Ask`; a parked call reopened with only `Ask`
@@ -284,8 +285,11 @@ status change, with `Error` when failed), `message` (a transcript entry, without
 `call_started` (the input that actually runs, with `Rewritten` set when a gate changed
 it), `call_replayed` (a `ReplaySafe` call running again after a crash), `call_done` (a
 call's result, whether it ran or not, with the text in the `message` event before it),
-`compacted` (a client-side compaction, with the summary in the database rather than the event) and
-`compaction_failed` (a compactor error that didn't stop the run, in `Error`).
+`compacted` (a client-side compaction, with the summary in the database rather than the event),
+`compaction_failed` (a compactor error that didn't stop the run, in `Error`),
+`approval_requested` (a call parked for `Decide`, with the input that runs if allowed) and
+`approval_decided` (the answer in `Approval` and who gave it in `DecidedBy`, or `cancelled` when
+the call finished without one).
 
 `Options.Observer` is called after each commit with the new events in `Seq` order. It is live only:
 events from before `Open` are not replayed. To catch up, call `Events(ctx, after, limit)` after

@@ -2214,6 +2214,31 @@ func TestPendingApprovalReopenedWithAsk(t *testing.T) {
 	}
 }
 
+func TestDecideWinsOverAskOnAReopenedApproval(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	write := &fakeTool{name: "write_file"}
+	h1, err := Open(ctx, path, deferOpts(gateModel(), nil, write))
+	require.NoError(t, err)
+	a := parkOne(t, ctx, h1)
+	h1.abandon()
+
+	var h2 *Harness
+	h2, err = Open(ctx, path, Options{Model: gateModel(), Tools: []Tool{write}, LeaseTTL: ttl,
+		Ask: func(ctx context.Context, _ ToolCall) (bool, error) {
+			_, err := h2.Decide(ctx, a.Seq, false, "server")
+			return true, err
+		}})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+	require.Zero(t, write.runs.Load())
+	require.Equal(t, []string{"declined"}, approvalStatuses(t, h2))
+	var by string
+	require.NoError(t, h2.db.QueryRow(`SELECT decided_by FROM approvals`).Scan(&by))
+	require.Equal(t, "server", by)
+}
+
 func TestPendingApprovalAskErrorLeavesItPending(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "session.sqlite")
