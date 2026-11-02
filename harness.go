@@ -65,6 +65,11 @@ type Options struct {
 	// when Gate is nil. Returning false records Declined; an error leaves the call
 	// pending for the next Run. A Gate that asks while Ask is nil denies the call.
 	Ask func(ctx context.Context, call ToolCall) (bool, error)
+	// DeferApprovals parks a call that needs asking as a durable approval instead of calling Ask.
+	// Run then returns ErrAwaitingApproval with the submission still running. Answer with
+	// PendingApproval and Decide, then call Run again. It wins over Ask, and with no Gate every
+	// call parks.
+	DeferApprovals bool
 	// Observer, if set, is called synchronously after each commit with the new events, in Seq
 	// order. It may call Events or History, but not Submit, Run or Cancel, which would deadlock.
 	// It must not panic: the state has already committed, and the panic reaches the committing caller.
@@ -265,8 +270,9 @@ func (h *Harness) Prompt(ctx context.Context, requestID, text string) (Submissio
 // also cancels the context passed to tools). A model error not marked Transient
 // fails its submission at once and Run moves on. A Transient error is retried
 // up to ModelAttempts times, then Run returns it and the submission stays
-// running, so an outage pauses work. Nothing is lost on an early return: calling Run again (in this
-// process or another) continues from the last commit.
+// running, so an outage pauses work. With Options.DeferApprovals it returns ErrAwaitingApproval
+// once a call is parked, also leaving the submission running. Nothing is lost on an early
+// return: calling Run again (in this process or another) continues from the last commit.
 func (h *Harness) Run(ctx context.Context) error {
 	release, err := h.acquire(ctx)
 	if err != nil {
@@ -568,7 +574,7 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 			return err
 		}
 	case c.Status == callPending:
-		call, result, blocked, err := h.decide(ctx, c.ToolCall)
+		call, result, blocked, err := h.decide(ctx, sub, c)
 		if err != nil {
 			return err
 		}
@@ -647,10 +653,13 @@ func recordResult(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall,
 	}); err != nil {
 		return err
 	}
-	return addEvent(ctx, tx, Event{
+	if err := addEvent(ctx, tx, Event{
 		Kind: EventCallDone, Submission: sub.Seq, Rewritten: c.Rewritten, IsError: isErr,
 		Call: &ToolCall{ID: c.ID, Name: c.Name},
-	})
+	}); err != nil {
+		return err
+	}
+	return closeApproval(ctx, tx, sub, c)
 }
 
 // Cancel durably stops a submission: it is marked cancelled and will not

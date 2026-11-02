@@ -50,6 +50,17 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 	is_error    INTEGER NOT NULL DEFAULT 0,
 	PRIMARY KEY (message_seq, position)
 );
+CREATE TABLE IF NOT EXISTS approvals (
+	seq          INTEGER PRIMARY KEY AUTOINCREMENT,
+	message_seq  INTEGER NOT NULL,
+	position     INTEGER NOT NULL,
+	input        TEXT    NOT NULL,            -- post-gate input: what was approved is what runs
+	status       TEXT    NOT NULL,            -- pending | allowed | declined | cancelled
+	decided_by   TEXT,
+	requested_at INTEGER NOT NULL,
+	decided_at   INTEGER,
+	UNIQUE (message_seq, position)
+);
 CREATE TABLE IF NOT EXISTS compactions (
 	seq            INTEGER PRIMARY KEY AUTOINCREMENT,
 	submission_seq INTEGER NOT NULL REFERENCES submissions(seq),
@@ -354,7 +365,72 @@ func lastAssistantCalls(ctx context.Context, q querier, submissionSeq int64) (ca
 	return calls, true, nil
 }
 
+// queryApproval reads one approval with its call and submission. where is a constant fragment
+// over the alias a; it returns sql.ErrNoRows when nothing matches.
+func queryApproval(ctx context.Context, q querier, where string, args ...any) (Approval, error) {
+	var a Approval
+	var pos int
+	var input, body string
+	var by sql.NullString
+	err := q.QueryRowContext(ctx,
+		`SELECT a.seq, a.position, a.input, a.status, a.decided_by, m.submission_seq, m.body, t.call_id, t.name
+		 FROM approvals a
+		 JOIN messages m ON m.seq = a.message_seq
+		 JOIN tool_calls t ON t.message_seq = a.message_seq AND t.position = a.position
+		 WHERE `+where, args...).
+		Scan(&a.Seq, &pos, &input, &a.Status, &by, &a.Submission, &body, &a.Call.ID, &a.Call.Name)
+	if err != nil {
+		return Approval{}, fmt.Errorf("failed to get approval: %w", err)
+	}
+	var msg Message
+	if err := json.Unmarshal([]byte(body), &msg); err != nil {
+		return Approval{}, fmt.Errorf("failed to decode assistant message: %w", err)
+	}
+	// A nil input is stored as "", and an empty RawMessage can't be marshalled.
+	if input != "" {
+		a.Call.Input = json.RawMessage(input)
+	}
+	a.Rewritten = !sameInput(msg.ToolCalls[pos].Input, a.Call.Input)
+	a.DecidedBy = by.String
+	return a, nil
+}
+
 // --- writes (always inside commit) ------------------------------------
+
+// requestApproval parks a call: the row and its event commit together.
+func requestApproval(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall, call ToolCall) error {
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO approvals (message_seq, position, input, status, requested_at) VALUES (?, ?, ?, 'pending', ?)`,
+		c.MessageSeq, c.Position, string(call.Input), nowMillis())
+	if err != nil {
+		return fmt.Errorf("failed to record approval: %w", err)
+	}
+	seq, _ := res.LastInsertId()
+	return addEvent(ctx, tx, Event{
+		Kind: EventApprovalRequested, Submission: sub.Seq, ApprovalSeq: seq,
+		Rewritten: !sameInput(c.Input, call.Input),
+		Call:      &ToolCall{ID: c.ID, Name: c.Name, Input: call.Input},
+	})
+}
+
+// closeApproval cancels a still-pending approval for a call that is finishing without an answer.
+func closeApproval(ctx context.Context, tx *sql.Tx, sub Submission, c storedCall) error {
+	var seq int64
+	err := tx.QueryRowContext(ctx,
+		`UPDATE approvals SET status = 'cancelled', decided_at = ?
+		 WHERE message_seq = ? AND position = ? AND status = 'pending' RETURNING seq`,
+		nowMillis(), c.MessageSeq, c.Position).Scan(&seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to close approval: %w", err)
+	}
+	return addEvent(ctx, tx, Event{
+		Kind: EventApprovalDecided, Submission: sub.Seq, ApprovalSeq: seq,
+		Approval: ApprovalCancelled, Call: &ToolCall{ID: c.ID, Name: c.Name},
+	})
+}
 
 func appendMessage(ctx context.Context, tx *sql.Tx, submissionSeq int64, m Message) (int64, error) {
 	// HTML escaping would rewrite Raw, which must replay byte for byte.

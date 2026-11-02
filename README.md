@@ -179,6 +179,15 @@ closed), and the zero `Decision` asks. A rewrite that isn't valid JSON denies th
 leaves the call `pending`, so the next `Run` decides again unless `Cancel` records its result.
 Neither `Gate` nor `Ask` runs for calls already `started`.
 
+`Options.DeferApprovals` makes a call that needs asking durable instead of blocking on `Ask`.
+The harness commits an `approvals` row and an `approval_requested` event, and `Run` returns
+`ErrAwaitingApproval` with the submission still `running`. `PendingApproval` returns the waiting
+request, `Decide(ctx, seq, allow, by)` records the answer, and the next `Run` continues. The call
+runs the input stored with the approval and the `Gate` is not run again. Repeating an answer is a
+no-op, and a different one returns `ErrApprovalDecided`. `Cancel`, or a tool that has vanished,
+closes the approval as `cancelled`. It wins over `Ask`; a parked call reopened with only `Ask`
+asks then, and with neither it is denied, never allowed. `by` is attribution, not authentication.
+
 Rewritten input is committed with `started`, so replay and `Recover` use it. The stored
 assistant message keeps the model's original arguments, because provider content must replay
 verbatim. The call's result therefore carries the `Rewritten` note, including after a crash or
