@@ -21,13 +21,15 @@ See the [feature matrix](docs/feature-matrix.md).
 
 ## Quick start
 
-You need Go 1.27, plus cgo and a C toolchain because of `mattn/go-sqlite3`. There are no released
-binaries yet, so build from source.
+You need Go 1.27, plus cgo and a C toolchain because of `mattn/go-sqlite3`. Releases are source
+only, with no prebuilt binaries for now, so install with Go:
 
 ```sh
-go build -o durable ./cmd/durable
-./durable --api-token-from-1password 'op://<vault>/<item>/<field>'
+go install github.com/wolfeidau/durable/cmd/durable@latest
+durable --api-token-from-1password 'op://<vault>/<item>/<field>'
 ```
+
+To build a checkout instead, run `go build -o durable ./cmd/durable`.
 
 To resume after a crash or a quit, run the agent again in the same directory. Unfinished work
 continues before the first prompt.

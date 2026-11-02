@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -481,4 +482,23 @@ func TestVersionFlagReportsLinkedVersion(t *testing.T) {
 	out, err = exec.CommandContext(ctx, bin, "--version").CombinedOutput()
 	require.NoError(t, err, string(out))
 	require.Equal(t, "1.2.3 (abc, 2026-11-01)\n", string(out))
+}
+
+func TestVersionFlagReportsModuleVersion(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	bin := buildBinary(t)
+	out, err := exec.CommandContext(ctx, "go", "version", "-m", bin).CombinedOutput()
+	require.NoError(t, err, string(out))
+	match := regexp.MustCompile(`(?m)^\s+mod\s+\S+\s+(\S+)`).FindSubmatch(out)
+	require.NotNil(t, match, string(out))
+	want := string(match[1])
+	// Builds without VCS stamping have no module version to report.
+	if want == "(devel)" {
+		want = "dev"
+	}
+
+	out, err = exec.CommandContext(ctx, bin, "--version").CombinedOutput()
+	require.NoError(t, err, string(out))
+	require.Equal(t, want+" (none, unknown)\n", string(out))
 }
