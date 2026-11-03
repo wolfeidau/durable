@@ -16,9 +16,9 @@ if getent hosts example.com >/dev/null 2>&1; then
 fi
 ok "external DNS blocked"
 
-if curl -sS --max-time 10 -o /dev/null https://example.com 2>/dev/null; then
-  fail "proxy allowed example.com"
-fi
+# Require the proxy's 403, so an unreachable proxy can't pass as a denial.
+status=$(curl -sS --max-time 10 -o /dev/null -w '%{http_connect}' https://example.com 2>/dev/null || true)
+[ "$status" = 403 ] || fail "proxy did not deny example.com (CONNECT status $status)"
 ok "proxy denies example.com"
 
 for url in https://openrouter.ai/api/v1/models https://api.github.com/zen; do
