@@ -15,7 +15,7 @@ COPY --chown=tester:tester . .
 # Warm the build cache while the network is available; runtime has none.
 RUN go test -race -count=1 -run '^$' ./... && go build -race -o /dev/null ./cmd/durable
 
-ENV GOFLAGS="-race -mod=readonly" GOPROXY=off GOTOOLCHAIN=local
+ENV GOPROXY=off GOTOOLCHAIN=local
 
 COPY --chown=tester:tester e2e/egress-check.sh /usr/local/bin/egress-check.sh
 ENTRYPOINT ["/usr/local/bin/egress-check.sh"]
