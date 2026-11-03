@@ -27,3 +27,16 @@ steps:
               file: tests.json
           - ./.buildkite/plugins/go-cache:
               name: go_test
+
+  - label: ":docker: e2e sandbox"
+    depends_on: quality_checks
+    commands:
+      # Live model calls spend the key and run model-chosen commands, so only main builds get it.
+      - |
+        if [ "$$BUILDKITE_BRANCH" = main ]; then
+          OPENROUTER_API_KEY="$$(buildkite-agent secret get OPENROUTER_API_KEY)"
+          export OPENROUTER_API_KEY
+        fi
+      - mise run test:e2e
+    plugins:
+      - mise#v1.1.5: ~
