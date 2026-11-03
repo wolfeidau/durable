@@ -29,14 +29,18 @@ steps:
               name: go_test
 
   - label: ":docker: e2e sandbox"
+    if: build.branch != pipeline.default_branch
     depends_on: quality_checks
-    commands:
-      # Live model calls spend the key and run model-chosen commands, so only main builds get it.
-      - |
-        if [ "$$BUILDKITE_BRANCH" = main ]; then
-          OPENROUTER_API_KEY="$$(buildkite-agent secret get OPENROUTER_API_KEY)"
-          export OPENROUTER_API_KEY
-        fi
-      - mise run test:e2e
+    command: mise run test:e2e
+    plugins:
+      - mise#v1.1.5: ~
+
+  # Live model calls spend the key and run model-chosen commands, so only default-branch builds get it.
+  - label: ":docker: e2e sandbox (live)"
+    if: build.branch == pipeline.default_branch
+    depends_on: quality_checks
+    command: mise run test:e2e
+    secrets:
+      - OPENROUTER_API_KEY
     plugins:
       - mise#v1.1.5: ~
