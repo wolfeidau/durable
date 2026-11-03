@@ -1,3 +1,6 @@
+# A distinct name stops another e2e/compose.yaml from sharing, and tearing down, this stack.
+name: durable-e2e
+
 networks:
   sandbox:
     internal: true

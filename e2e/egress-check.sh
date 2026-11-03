@@ -4,8 +4,9 @@ set -euo pipefail
 fail() { echo "egress-check: FAIL: $1" >&2; exit 1; }
 ok() { echo "egress-check: ok: $1"; }
 
-if curl --noproxy '*' -sS --max-time 5 -o /dev/null https://example.com 2>/dev/null; then
-  fail "direct egress to example.com succeeded"
+# An IP literal tests routing alone, since names already fail to resolve.
+if curl --noproxy '*' -sS --max-time 5 -o /dev/null https://1.1.1.1 2>/dev/null; then
+  fail "direct egress to 1.1.1.1 succeeded"
 fi
 ok "direct egress blocked"
 
