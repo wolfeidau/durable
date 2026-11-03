@@ -1,0 +1,40 @@
+# A distinct name stops another e2e/compose.yaml from sharing, and tearing down, this stack.
+name: durable-e2e
+
+networks:
+  sandbox:
+    internal: true
+  egress: {}
+
+services:
+  proxy:
+    image: ubuntu/squid:6.6-24.04_beta
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+    networks: [sandbox, egress]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3128"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  tests:
+    build:
+      context: ..
+      dockerfile: e2e/Dockerfile
+    networks: [sandbox]
+    # Reap orphans, else killed commands linger as zombies and break kill tests.
+    init: true
+    depends_on:
+      proxy:
+        condition: service_healthy
+    environment:
+      HTTPS_PROXY: http://proxy:3128
+      HTTP_PROXY: http://proxy:3128
+      https_proxy: http://proxy:3128
+      http_proxy: http://proxy:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+      DURABLE_SMOKE: "1"
+      GORACE: atexit_sleep_ms=0
+      OPENROUTER_API_KEY:

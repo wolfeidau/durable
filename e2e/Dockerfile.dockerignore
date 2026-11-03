@@ -1,0 +1,6 @@
+.git
+.claude
+dist
+/durable
+coverage.*
+tests.json

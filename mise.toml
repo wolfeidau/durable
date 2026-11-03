@@ -14,3 +14,10 @@ run = "go mod tidy -diff"
 
 [tasks."check:lint"]
 run = "golangci-lint run --timeout 3m"
+
+[tasks."test:e2e"]
+run = """
+# Show denials before teardown removes the proxy and its log.
+trap 'rc=$?; if [ $rc -ne 0 ]; then docker compose -f e2e/compose.yaml logs --no-log-prefix proxy | grep TCP_DENIED || true; fi; docker compose -f e2e/compose.yaml down; exit $rc' EXIT
+docker compose -f e2e/compose.yaml run --rm --build tests
+"""
