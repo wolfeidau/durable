@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package durable.v1;
+
+option go_package = "github.com/wolfeidau/durable/api/durable/v1;durablev1";
+
+// SessionService drives one durable session. session_id is the 16-hex session directory name.
+service SessionService {
+  // Submit is exactly-once per request_id.
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+  rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
+  // WatchEvents replays committed events after after_seq, then follows new ones.
+  // A stale epoch, or an after_seq past the newest seq, returns FAILED_PRECONDITION with an
+  // EpochMismatch error detail. The client then discards its state and replays from 0.
+  rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
+}
+
+message SubmitRequest {
+  string session_id = 1;
+  string request_id = 2;
+  string text = 3;
+}
+
+message SubmitResponse {
+  Submission submission = 1;
+}
+
+message CancelRequest {
+  string session_id = 1;
+  string request_id = 2;
+}
+
+message CancelResponse {
+  Submission submission = 1;
+}
+
+message DecideApprovalRequest {
+  string session_id = 1;
+  int64 approval_seq = 2;
+  bool allow = 3;
+  // by is free text; there is no user identity.
+  string by = 4;
+}
+
+message DecideApprovalResponse {
+  Approval approval = 1;
+}
+
+message WatchEventsRequest {
+  string session_id = 1;
+  // epoch identifies one copy of the session; empty on the first watch.
+  string epoch = 2;
+  int64 after_seq = 3;
+}
+
+message WatchEventsResponse {
+  oneof item {
+    Event event = 1;
+    Heartbeat heartbeat = 2;
+    Delta delta = 3;
+  }
+}
+
+message Heartbeat {}
+
+// Delta is a placeholder; last_seq lets a client drop deltas older than the events it has.
+message Delta {
+  int64 last_seq = 1;
+}
+
+enum SubmissionStatus {
+  SUBMISSION_STATUS_UNSPECIFIED = 0;
+  SUBMISSION_STATUS_QUEUED = 1;
+  SUBMISSION_STATUS_RUNNING = 2;
+  SUBMISSION_STATUS_DONE = 3;
+  SUBMISSION_STATUS_FAILED = 4;
+  SUBMISSION_STATUS_CANCELLED = 5;
+}
+
+enum ApprovalStatus {
+  APPROVAL_STATUS_UNSPECIFIED = 0;
+  APPROVAL_STATUS_PENDING = 1;
+  APPROVAL_STATUS_ALLOWED = 2;
+  APPROVAL_STATUS_DECLINED = 3;
+  APPROVAL_STATUS_CANCELLED = 4;
+}
+
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_SUBMISSION = 1;
+  EVENT_KIND_MESSAGE = 2;
+  EVENT_KIND_CALL_STARTED = 3;
+  EVENT_KIND_CALL_REPLAYED = 4;
+  EVENT_KIND_CALL_DONE = 5;
+  EVENT_KIND_COMPACTED = 6;
+  EVENT_KIND_COMPACTION_FAILED = 7;
+  EVENT_KIND_APPROVAL_REQUESTED = 8;
+  EVENT_KIND_APPROVAL_DECIDED = 9;
+}
+
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_USER = 1;
+  ROLE_ASSISTANT = 2;
+  ROLE_TOOL = 3;
+}
+
+message Submission {
+  int64 seq = 1;
+  string request_id = 2;
+  string text = 3;
+  SubmissionStatus status = 4;
+  // result is the final assistant text when status is done.
+  string result = 5;
+  // error is the reason when status is failed.
+  string error = 6;
+}
+
+message Approval {
+  int64 seq = 1;
+  int64 submission = 2;
+  ToolCall call = 3;
+  bool rewritten = 4;
+  ApprovalStatus status = 5;
+  string decided_by = 6;
+}
+
+// ToolCall omits input when a gate rewrote it, because the rewrite can hold secrets.
+message ToolCall {
+  string id = 1;
+  string name = 2;
+  // input is the JSON arguments, byte for byte.
+  bytes input = 3;
+}
+
+// Message omits Raw: provider content is replayed server side only.
+message Message {
+  Role role = 1;
+  string text = 2;
+  repeated ToolCall tool_calls = 3;
+  string tool_call_id = 4;
+  bool is_error = 5;
+  int64 context_tokens = 6;
+}
+
+message Event {
+  // seq is the resume cursor within one epoch.
+  int64 seq = 1;
+  string epoch = 2;
+  EventKind kind = 3;
+  // submission is the submission seq.
+  int64 submission = 4;
+  SubmissionStatus status = 5;
+  string error = 6;
+  Message message = 7;
+  ToolCall call = 8;
+  // rewritten means a gate changed the call input, which call then omits.
+  bool rewritten = 9;
+  bool is_error = 10;
+  int64 approval_seq = 11;
+  ApprovalStatus approval = 12;
+  string decided_by = 13;
+}
+
+// EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.
+message EpochMismatch {
+  string epoch = 1;
+  int64 last_seq = 2;
+}
