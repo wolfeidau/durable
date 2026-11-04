@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -202,7 +203,8 @@ func pinFiles(t *testing.T, dir string) []string {
 	t.Helper()
 	m, err := filepath.Glob(filepath.Join(dir, "*.json"))
 	require.NoError(t, err)
-	return m
+	// session.json is the index, not a pin.
+	return slices.DeleteFunc(m, func(p string) bool { return filepath.Base(p) == "session.json" })
 }
 
 func TestOpenRouterDefaultProtocolUsesResponses(t *testing.T) {

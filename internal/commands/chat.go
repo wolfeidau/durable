@@ -60,8 +60,8 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("failed to create session directory: %w", err)
+	if err := createSessionDir(filepath.Dir(path), SessionMeta{CWD: cwd, Name: c.Session, CreatedAt: time.Now().UTC()}); err != nil {
+		return err
 	}
 	toolset, err := tools.All(cwd, filepath.Dir(path))
 	if err != nil {
