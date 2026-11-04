@@ -1269,6 +1269,59 @@ func (x *Event) GetDecidedBy() string {
 	return ""
 }
 
+// EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.
+type EpochMismatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Epoch         string                 `protobuf:"bytes,1,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	LastSeq       int64                  `protobuf:"varint,2,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EpochMismatch) Reset() {
+	*x = EpochMismatch{}
+	mi := &file_durable_v1_durable_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EpochMismatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EpochMismatch) ProtoMessage() {}
+
+func (x *EpochMismatch) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EpochMismatch.ProtoReflect.Descriptor instead.
+func (*EpochMismatch) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *EpochMismatch) GetEpoch() string {
+	if x != nil {
+		return x.Epoch
+	}
+	return ""
+}
+
+func (x *EpochMismatch) GetLastSeq() int64 {
+	if x != nil {
+		return x.LastSeq
+	}
+	return 0
+}
+
 var File_durable_v1_durable_proto protoreflect.FileDescriptor
 
 const file_durable_v1_durable_proto_rawDesc = "" +
@@ -1364,7 +1417,10 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\fapproval_seq\x18\v \x01(\x03R\vapprovalSeq\x126\n" +
 	"\bapproval\x18\f \x01(\x0e2\x1a.durable.v1.ApprovalStatusR\bapproval\x12\x1d\n" +
 	"\n" +
-	"decided_by\x18\r \x01(\tR\tdecidedBy*\xcd\x01\n" +
+	"decided_by\x18\r \x01(\tR\tdecidedBy\"@\n" +
+	"\rEpochMismatch\x12\x14\n" +
+	"\x05epoch\x18\x01 \x01(\tR\x05epoch\x12\x19\n" +
+	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*\xcd\x01\n" +
 	"\x10SubmissionStatus\x12!\n" +
 	"\x1dSUBMISSION_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SUBMISSION_STATUS_QUEUED\x10\x01\x12\x1d\n" +
@@ -1413,7 +1469,7 @@ func file_durable_v1_durable_proto_rawDescGZIP() []byte {
 }
 
 var file_durable_v1_durable_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_durable_v1_durable_proto_goTypes = []any{
 	(SubmissionStatus)(0),          // 0: durable.v1.SubmissionStatus
 	(ApprovalStatus)(0),            // 1: durable.v1.ApprovalStatus
@@ -1434,6 +1490,7 @@ var file_durable_v1_durable_proto_goTypes = []any{
 	(*ToolCall)(nil),               // 16: durable.v1.ToolCall
 	(*Message)(nil),                // 17: durable.v1.Message
 	(*Event)(nil),                  // 18: durable.v1.Event
+	(*EpochMismatch)(nil),          // 19: durable.v1.EpochMismatch
 }
 var file_durable_v1_durable_proto_depIdxs = []int32{
 	14, // 0: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
@@ -1483,7 +1540,7 @@ func file_durable_v1_durable_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_v1_durable_proto_rawDesc), len(file_durable_v1_durable_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

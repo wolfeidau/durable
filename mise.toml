@@ -21,7 +21,8 @@ run = "buf generate"
 run = """
 buf lint
 buf generate
-git diff --exit-code api/
+# git diff ignores untracked files, so check the status instead.
+test -z "$(git status --porcelain api/)" || { git status --porcelain api/; exit 1; }
 """
 
 [tasks."check:lint"]

@@ -11,6 +11,8 @@ service SessionService {
   rpc Cancel(CancelRequest) returns (CancelResponse);
   rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
   // WatchEvents replays committed events after after_seq, then follows new ones.
+  // A stale epoch, or an after_seq past the newest seq, returns FAILED_PRECONDITION with an
+  // EpochMismatch error detail. The client then discards its state and replays from 0.
   rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
 }
 
@@ -159,4 +161,10 @@ message Event {
   int64 approval_seq = 11;
   ApprovalStatus approval = 12;
   string decided_by = 13;
+}
+
+// EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.
+message EpochMismatch {
+  string epoch = 1;
+  int64 last_seq = 2;
 }

@@ -52,6 +52,8 @@ type SessionServiceClient interface {
 	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
 	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
 	// WatchEvents replays committed events after after_seq, then follows new ones.
+	// A stale epoch, or an after_seq past the newest seq, returns FAILED_PRECONDITION with an
+	// EpochMismatch error detail. The client then discards its state and replays from 0.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest]) (*connect.ServerStreamForClient[v1.WatchEventsResponse], error)
 }
 
@@ -128,6 +130,8 @@ type SessionServiceHandler interface {
 	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
 	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
 	// WatchEvents replays committed events after after_seq, then follows new ones.
+	// A stale epoch, or an after_seq past the newest seq, returns FAILED_PRECONDITION with an
+	// EpochMismatch error detail. The client then discards its state and replays from 0.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error
 }
 
