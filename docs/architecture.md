@@ -76,6 +76,15 @@ and one handler serves Connect, gRPC and gRPC-Web.
 
 - **Shape:** unary commands plus one server stream. No bidi, because [browsers can't do it](https://connectrpc.com/docs/web/getting-started/).
 - **Resume:** `WatchEvents(after_seq)` uses `Event.Seq` as the cursor. The client owns reconnecting.
+- **Epoch:** a cursor is only valid within one copy of the session, so `WatchEvents` takes and returns
+  `(epoch, after_seq)`. A restored copy reuses seqs from an older point, and without an epoch a client
+  silently skips the new events up to its old cursor. See below.
+- **Notify, then re-read:** the server's `Observer` only signals that the seq advanced, and each stream
+  reads `Events(cursor, limit)` itself. Catch-up and live tail share one path, so the handoff can't
+  drop or repeat an event, and a slow client only delays its own stream.
+- **Heartbeats:** `WatchEvents` sends one every 15–30s, because approval waits can last hours and
+  proxies close idle streams.
+- **Deltas carry the last committed seq,** so a client drops any delta older than the events it has.
 - **Storage is unchanged:** SQLite stays JSON, because `Raw` must replay byte for byte. Use `bytes` for
   `Raw` and tool input in proto, not `google.protobuf.Struct`.
 - **API types don't mirror `Event`:** the conversion layer redacts `Event.Call`, which can hold
@@ -86,6 +95,23 @@ clients, and care with [stream timeouts and end-of-body errors](https://connectr
 
 Connect doesn't give ACP compatibility. [ACP](https://agentclientprotocol.com/overview/architecture)
 is JSON-RPC and would be a separate adapter.
+
+### The event log is the change feed, with an epoch
+
+The `events` table is already a logical WAL: append-only, ordered by `seq`, and committed with each
+state change. Clients follow it, not a physical WAL as in Litestream, because page-level replication
+would expose the whole file, including `Event.Call` and `Raw`, and can lag committed work.
+
+Litestream's one useful idea here is the generation, which we call the epoch:
+
+- A one-row `session_epoch` table holds a random ID. It's a new table, so `migrate` adds it to
+  existing sessions, and the first open fills it in.
+- A restore or `VACUUM INTO` copy writes a new epoch. A server restart keeps the old one, so clients
+  resume rather than replay.
+- When the client's epoch doesn't match, or its `after_seq` is past the newest seq, the server returns
+  `FAILED_PRECONDITION` with the current epoch. The client discards its state and replays from 0.
+- The seq check also catches most copies restored by hand, which keep the old epoch. Restores should go
+  through the tool.
 
 ### The web UI is the primary client
 
@@ -149,15 +175,65 @@ The API can approve shell commands, so the bar is higher than for a typical dash
 
 `by` on an approval is attribution, not authentication.
 
+## Validation
+
+These tests prove the streaming model before the UI depends on it. Layers 1 to 3 are phase 2's
+acceptance tests, and layer 4 opens phase 3.
+
+### 1. Real-binary tests
+
+These live in `cmd/durable-server`. They share one binary built by `TestMain`, use a temporary `HOME`,
+and drive a scripted fake model.
+
+- **Contiguity:** every client sees strictly increasing seqs with no gaps, and together they match
+  `Events(0)`.
+- **Crash and resume:** `kill -9` the server mid-stream, restart it, and resume from `after_seq` with
+  no gaps or duplicates. The epoch must be unchanged.
+- **Restore:** restore an older copy, then append. A client holding the old cursor gets
+  `FAILED_PRECONDITION`, replays from 0 and sees the new events.
+- **Approvals:** one client decides while another watches. A duplicate decision is idempotent, and
+  the call runs once.
+- **Protocols:** run the suite over Connect, gRPC and gRPC-Web with the connect-go clients.
+- **Redaction:** secrets a gate adds to `Event.Call` never reach the wire.
+- **Auth:** requests with a missing token, a wrong `Origin` or a wrong `Host` are rejected.
+
+### 2. Contention
+
+Run one scripted session with 0, 10 and 50 watchers, one of which never reads. `Run`'s wall time stays
+within a bound, and the stalled watcher doesn't delay the others. This checks the single-connection
+pool under watcher reads.
+
+### 3. Network faults
+
+Add these services to `e2e/compose.yaml`:
+
+- **nginx** in front of the server, with buffering on and a short read timeout. Heartbeats keep the
+  stream open, and events arrive within a latency bound rather than when the stream closes.
+- **toxiproxy** for latency, a reset mid-stream and a stream cut off before it ends. The client
+  resumes from its last seq.
+
+### 4. Browser
+
+Playwright, run from its Docker image, loads a minimal test page that uses connect-web's
+`WatchEvents` behind nginx. It checks that streaming over `fetch` works on HTTP/1.1, then restarts the
+server and checks that the page resumes. If buffering or idle timeouts defeat this, fall back to SSE
+for the browser, which reopens the one-schema decision.
+
+### 5. Remote workers (phase 4)
+
+A worker takes assignments over a server stream and reports through an idempotent unary
+`Complete(call_id, result)`. If the worker crashes after running a call but before `Complete`, the call
+takes the `ReplayNever` unknown-outcome path and doesn't run again.
+
 ## Phases
 
 1. **Live deltas.** Harness only.
 2. **Server and API.** `cmd/durable-server`, `api/`, the four RPCs (`Submit`, `Cancel`,
    `DecideApproval`, `WatchEvents`), a session index and token auth. Session paths are one-way hashes,
-   so the index is what lets the server name a session. A real-binary test kills the server mid-stream
-   and resumes from `after_seq`.
+   so the index is what lets the server name a session. Also the session epoch, and validation
+   layers 1 to 3.
 3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
-   first.
+   first, with validation layer 4.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
