@@ -26,10 +26,13 @@ type RegistryConfig struct {
 	// IdleTimeout closes a session with no holders, run or pending kick for this long. Zero means DefaultIdleTimeout.
 	IdleTimeout time.Duration
 	// OpenTimeout bounds opening a session, which waits while another process holds its lease. Zero means 10s.
-	OpenTimeout           time.Duration
-	APIToken              string
-	APITokenFrom1Password string
-	Logger                *slog.Logger
+	OpenTimeout time.Duration
+	// APIToken is the resolved provider key; empty lets Assemble use the provider's environment variable.
+	APIToken string
+	// RetryBase and RetryCap bound the delay before a failed run is retried; the delay doubles from base. Zero means 5s and 5m.
+	RetryBase time.Duration
+	RetryCap  time.Duration
+	Logger    *slog.Logger
 
 	// assemble is a test seam.
 	assemble func(context.Context, commands.AssembleConfig) (*commands.Assembled, error)
@@ -61,6 +64,12 @@ type entry struct {
 func NewRegistry(ctx context.Context, cfg RegistryConfig) *Registry {
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = DefaultIdleTimeout
+	}
+	if cfg.RetryBase <= 0 {
+		cfg.RetryBase = 5 * time.Second
+	}
+	if cfg.RetryCap <= 0 {
+		cfg.RetryCap = 5 * time.Minute
 	}
 	if cfg.OpenTimeout <= 0 {
 		cfg.OpenTimeout = 10 * time.Second
@@ -124,13 +133,7 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 
 // finishOpen opens the session for the entry's first caller and wakes the others.
 func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry) {
-	octx, cancel := context.WithTimeout(ctx, r.cfg.OpenTimeout)
-	defer cancel()
-	s, err := r.open(octx, dir)
-	// A held lease makes Open wait, so an expired bound means another process has the session.
-	if err != nil && ctx.Err() == nil && octx.Err() != nil {
-		err = connect.NewError(connect.CodeUnavailable, errors.New("session in use"))
-	}
+	s, err := r.open(ctx, dir)
 	r.mu.Lock()
 	// Close can't see an entry with no session, so the opener closes it.
 	lateClose := err == nil && r.closed
@@ -164,15 +167,14 @@ func (r *Registry) open(ctx context.Context, dir string) (*Session, error) {
 	if err != nil {
 		return nil, notFound(err)
 	}
-	s := newSession(r.logger.With(slog.String("session", filepath.Base(dir))))
+	s := newSession(r.logger.With(slog.String("session", filepath.Base(dir))), r.cfg.RetryBase, r.cfg.RetryCap)
 	asm, err := r.cfg.assemble(ctx, commands.AssembleConfig{
-		CWD:                   meta.CWD,
-		Session:               meta.Name,
-		APIToken:              r.cfg.APIToken,
-		APITokenFrom1Password: r.cfg.APITokenFrom1Password,
-		ExistingOnly:          true,
-		Interactive:           false,
-		Observer:              s.observe,
+		CWD:          meta.CWD,
+		Session:      meta.Name,
+		APIToken:     r.cfg.APIToken,
+		ExistingOnly: true,
+		Interactive:  false,
+		Observer:     s.observe,
 	})
 	if err != nil {
 		return nil, notFound(err)
@@ -182,9 +184,15 @@ func (r *Registry) open(ctx context.Context, dir string) (*Session, error) {
 		asm.Close()
 		return nil, fmt.Errorf("session.json does not match directory %s", filepath.Base(dir))
 	}
-	h, err := durable.Open(ctx, asm.Path, asm.Options)
+	// Only the lease wait is bounded: a slow Assemble step must not read as a held session.
+	octx, cancel := context.WithTimeout(ctx, r.cfg.OpenTimeout)
+	defer cancel()
+	h, err := durable.Open(octx, asm.Path, asm.Options)
 	if err != nil {
 		asm.Close()
+		if ctx.Err() == nil && octx.Err() != nil {
+			return nil, connect.NewError(connect.CodeUnavailable, errors.New("session in use"))
+		}
 		return nil, fmt.Errorf("failed to open session: %w", err)
 	}
 	if err := s.start(r.runCtx, h, asm); err != nil {

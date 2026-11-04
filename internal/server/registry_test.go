@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -222,6 +223,74 @@ func TestCloseStopsSessions(t *testing.T) {
 	require.Zero(t, e.open(r))
 	_, _, err = r.Acquire(t.Context(), e.id)
 	require.ErrorIs(t, err, errRegistryClosed)
+}
+
+func TestSlowAssembleIsNotSessionInUse(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.OpenTimeout = 100 * time.Millisecond
+	e.cfg.IdleTimeout = 100 * time.Millisecond
+	inner := e.cfg.assemble
+	var block atomic.Bool
+	e.cfg.assemble = func(ctx context.Context, c commands.AssembleConfig) (*commands.Assembled, error) {
+		if block.Load() {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		time.Sleep(300 * time.Millisecond)
+		return inner(ctx, c)
+	}
+	r := e.registry(t)
+
+	// Slower than OpenTimeout with no lease held still opens.
+	_, release, err := r.Acquire(t.Context(), e.id)
+	require.NoError(t, err)
+	release()
+	require.Eventually(t, func() bool { return e.open(r) == 0 }, 10*time.Second, 10*time.Millisecond)
+
+	// A stuck Assemble ends with the caller's deadline.
+	block.Store(true)
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	_, _, err = r.Acquire(ctx, e.id)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NotEqual(t, connect.CodeUnavailable, connect.CodeOf(err))
+}
+
+type flakyModel struct{ calls atomic.Int32 }
+
+func (m *flakyModel) Generate(context.Context, []durable.Message, []durable.ToolSpec) (durable.Message, error) {
+	if m.calls.Add(1) == 1 {
+		return durable.Message{}, durable.Transient(errors.New("outage"))
+	}
+	return durable.Message{Role: durable.RoleAssistant, Text: "hi"}, nil
+}
+
+func TestFailedRunIsRetriedWithoutAKick(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.RetryBase = 20 * time.Millisecond
+	model := &flakyModel{}
+	e.cfg.assemble = func(ctx context.Context, c commands.AssembleConfig) (*commands.Assembled, error) {
+		c.APIToken = "k"
+		a, err := commands.Assemble(ctx, c)
+		if err == nil {
+			a.Options.Model = model
+			a.Options.ModelAttempts = 1
+		}
+		return a, err
+	}
+	r := e.registry(t)
+	s, release, err := r.Acquire(t.Context(), e.id)
+	require.NoError(t, err)
+	defer release()
+
+	_, err = s.Harness().Submit(t.Context(), "r1", "hello")
+	require.NoError(t, err)
+	s.Kick()
+	require.Eventually(t, func() bool {
+		sub, err := s.Harness().Get(t.Context(), "r1")
+		return err == nil && sub.Status == durable.StatusDone
+	}, 10*time.Second, 10*time.Millisecond)
+	require.GreaterOrEqual(t, model.calls.Load(), int32(2))
 }
 
 func TestAcquireReportsHeldLeaseAsUnavailable(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/server"
 )
 
@@ -41,6 +42,12 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("failed to find home directory: %w", err)
 	}
 
+	// Resolved once so a 1Password reference isn't read on every session open.
+	apiToken, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
+	if err != nil {
+		return fmt.Errorf("failed to resolve API token: %w", err)
+	}
+
 	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", c.Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", c.Addr, err)
@@ -60,12 +67,11 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 	defer cancelBase()
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
-		Home:                  home,
-		IdleTimeout:           c.IdleTimeout,
-		OpenTimeout:           c.OpenTimeout,
-		APIToken:              c.APIToken,
-		APITokenFrom1Password: c.APITokenFrom1Password,
-		Logger:                logger,
+		Home:        home,
+		IdleTimeout: c.IdleTimeout,
+		OpenTimeout: c.OpenTimeout,
+		APIToken:    apiToken,
+		Logger:      logger,
 	})
 	defer registry.Close()
 	srv := &http.Server{

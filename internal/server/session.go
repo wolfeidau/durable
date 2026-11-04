@@ -22,7 +22,12 @@ type Session struct {
 	changed    chan struct{} // closed and replaced when newest advances
 	kicked     bool
 	running    bool
+	retrying   bool // a re-kick is scheduled after a failed run
 	lastActive time.Time
+
+	retryBase, retryCap time.Duration
+	retryDelay          time.Duration // owned by the driver
+	retryTimer          *time.Timer   // guarded by mu
 
 	kick      chan struct{}
 	cancel    context.CancelFunc
@@ -30,8 +35,10 @@ type Session struct {
 	closeOnce sync.Once
 }
 
-func newSession(logger *slog.Logger) *Session {
+func newSession(logger *slog.Logger, retryBase, retryCap time.Duration) *Session {
 	return &Session{
+		retryBase:  retryBase,
+		retryCap:   retryCap,
 		logger:     logger,
 		changed:    make(chan struct{}),
 		kick:       make(chan struct{}, 1),
@@ -97,7 +104,7 @@ func (s *Session) touch() {
 func (s *Session) idleFor() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.kicked || s.running {
+	if s.kicked || s.running || s.retrying {
 		return 0
 	}
 	return time.Since(s.lastActive)
@@ -140,15 +147,38 @@ func (s *Session) drive(ctx context.Context) {
 		s.mu.Unlock()
 
 		err := s.h.Run(ctx)
-		if err != nil && !errors.Is(err, durable.ErrAwaitingApproval) && ctx.Err() == nil {
+		failed := err != nil && !errors.Is(err, durable.ErrAwaitingApproval) && ctx.Err() == nil
+		if failed {
 			s.logger.Error("run failed", slog.Any("error", err))
 		}
 
 		s.mu.Lock()
 		s.running = false
 		s.lastActive = time.Now()
+		if failed {
+			s.scheduleRetryLocked()
+		} else {
+			s.retryDelay = 0
+		}
 		s.mu.Unlock()
 	}
+}
+
+// scheduleRetryLocked re-kicks after a growing delay, so a failed run isn't stranded until a client acts.
+func (s *Session) scheduleRetryLocked() {
+	if s.retryDelay == 0 {
+		s.retryDelay = s.retryBase
+	} else {
+		s.retryDelay = min(s.retryDelay*2, s.retryCap)
+	}
+	s.retrying = true
+	s.retryTimer = time.AfterFunc(s.retryDelay, func() {
+		// Kick first so the session is never briefly idle between the two.
+		s.Kick()
+		s.mu.Lock()
+		s.retrying = false
+		s.mu.Unlock()
+	})
 }
 
 // close stops the driver, then closes the harness and the MCP pool.
@@ -156,6 +186,11 @@ func (s *Session) close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		<-s.done
+		s.mu.Lock()
+		if s.retryTimer != nil {
+			s.retryTimer.Stop()
+		}
+		s.mu.Unlock()
 		if err := s.h.Close(); err != nil {
 			s.logger.Error("failed to close session", slog.Any("error", err))
 		}
