@@ -2,30 +2,20 @@ package commands
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
-	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
 	"golang.org/x/term"
 
 	"github.com/wolfeidau/durable"
-	"github.com/wolfeidau/durable/compaction"
-	"github.com/wolfeidau/durable/hooks"
-	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/mcp"
-	"github.com/wolfeidau/durable/skills"
-	"github.com/wolfeidau/durable/tools"
 )
 
 // The base prompt must stay fixed for the same cache and thinking reasons; pinned instructions are appended per session.
@@ -56,130 +46,44 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
-	path, err := SessionPath(cwd, c.Session)
-	if err != nil {
-		return err
-	}
-	if err := createSessionDir(filepath.Dir(path), SessionMeta{CWD: cwd, Name: c.Session, CreatedAt: time.Now().UTC()}); err != nil {
-		return err
-	}
-	toolset, err := tools.All(cwd, filepath.Dir(path))
-	if err != nil {
-		return fmt.Errorf("failed to build tools: %w", err)
-	}
-
-	// Pin after anything likely to fail, so a failed start doesn't freeze the text.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("failed to find home directory: %w", err)
-	}
-	// Check before openWithNotice creates the database.
-	_, statErr := os.Stat(path)
-	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
-		return fmt.Errorf("failed to check session database: %w", statErr)
-	}
-	// Only the user's file: a repository must not be able to start commands.
-	servers, mcpWarnings, err := mcp.LoadConfig(filepath.Join(home, ".durable", "mcp.json"))
-	if err != nil {
-		// A new session fails before anything is pinned; an existing one must still resume.
-		if statErr != nil {
-			return err
-		}
-		mcpWarnings = append(mcpWarnings, strings.ReplaceAll(err.Error(), "\n", "; "))
-	}
-	// A policy the user configured must not be skipped, so unlike MCP an existing session refuses too.
-	hookCfg, hookWarnings, err := hooks.LoadConfig(filepath.Join(home, ".durable", "hooks.json"))
-	if err != nil {
-		return err
-	}
-	rt, spec, key, err := c.resolveRoute(ctx, filepath.Dir(path), statErr == nil)
-	if err != nil {
-		return err
-	}
-	pinned, err := pinInstructions(filepath.Dir(path), statErr == nil, c.NoContext, func() (instructions, error) {
-		return discoverInstructions(cwd, home)
-	})
-	if err != nil {
-		return err
-	}
-
-	pool := mcp.NewPool(servers, mcp.Options{Root: cwd, LogDir: filepath.Dir(path)})
-	defer pool.Close()
-	mcpPinned, err := pinMCPTools(ctx, filepath.Dir(path), statErr == nil, pool.Discover)
-	if err != nil {
-		return err
-	}
-	toolset = append(toolset, pool.Tools(mcpPinned.Tools)...)
-	skillsPinned, err := pinSkills(filepath.Dir(path), statErr == nil, c.NoContext, func() ([]skills.Skill, []string, error) {
-		srcs, err := skillSources(cwd, home)
-		if err != nil {
-			return nil, nil, err
-		}
-		found, warns := skills.Discover(srcs)
-		return found, warns, nil
-	})
-	if err != nil {
-		return err
-	}
-	// Added before withDisplay and the gate so the read-only tool runs without prompting.
-	if t := skills.Tool(skillsPinned.Skills); t != nil {
-		toolset = append(toolset, t)
-	}
-
 	out := os.Stdout
+	a, err := Assemble(ctx, AssembleConfig{
+		CWD:                   cwd,
+		Session:               c.Session,
+		Provider:              c.Provider,
+		Protocol:              c.Protocol,
+		Model:                 c.Model,
+		Effort:                c.Effort,
+		APIToken:              c.APIToken,
+		APITokenFrom1Password: c.APITokenFrom1Password,
+		NoContext:             c.NoContext,
+		LeaseTTL:              c.LeaseTTL,
+		Yes:                   c.Yes,
+		Interactive:           true,
+		Out:                   out,
+	})
+	if err != nil {
+		return err
+	}
+	defer a.Close()
+
 	sigs := make(chan os.Signal, 2)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sigs)
 	lines := readLines(os.Stdin)
 
-	for _, f := range pinned.Files {
-		fmt.Fprintf(out, "[context] %s\n", f)
-	}
-	for _, w := range pinned.Warnings {
-		fmt.Fprintf(out, "[context] warning: %s\n", w)
-	}
-	if pinned.Pinned {
-		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(pinned.Text))
-	}
-
-	line, warning := routeLine(rt)
-	fmt.Fprintln(out, line)
-	if warning != "" {
-		fmt.Fprintln(out, warning)
-	}
-	printMCP(out, servers, mcpWarnings, mcpPinned)
-	printSkills(out, skillsPinned)
-	printHooks(out, hookCfg, hookWarnings, toolset)
+	a.printReport(out)
 
 	shown := shownCalls{}
-	sessionID := filepath.Base(filepath.Dir(path))
-	opts := durable.Options{
-		Model: protocolModels[rt.Protocol](rt, spec, modelArgs{
-			Key:       key,
-			System:    buildPrompt(pinned.Text),
-			Effort:    c.Effort,
-			SessionID: sessionID,
-			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
-		}),
-		Tools:    withDisplay(toolset, out, shown),
-		LeaseTTL: c.LeaseTTL,
-		OnDelta:  printText(out),
-	}
-	addCompaction(ctx, out, &opts, rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: c.Effort, SessionID: sessionID})
-	var base durable.ToolGate
+	opts := a.Options
+	opts.OnDelta = printText(out)
+	// The display wrapper stays outermost, so the call line prints before the tool, and any hooks, run.
+	opts.Tools = withDisplay(opts.Tools, out, shown)
 	if !c.Yes {
-		base = durable.ReadOnlyGate(toolset)
-		opts.Gate = base
 		opts.Ask = newApprover(lines, out, shown)
 	}
-	if !hookCfg.Empty() {
-		// base comes from the unwrapped tools and the display wrapper stays outermost, so the call line prints before the tool runs.
-		runner := newHookRunner(hookCfg, cwd, filepath.Dir(path), c.Yes)
-		opts.Gate = runner.Gate(base)
-		opts.Tools = withDisplay(runner.Wrap(toolset), out, shown)
-	}
 
-	h, err := openWithNotice(ctx, path, opts, sigs, func() {
+	h, err := openWithNotice(ctx, a.Path, opts, sigs, func() {
 		fmt.Fprintln(out, "waiting for session lease...")
 	})
 	if err != nil {
@@ -187,8 +91,33 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	}
 	defer h.Close()
 
-	r := &repl{h: h, skills: skillsPinned.Skills, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
+	r := &repl{h: h, skills: a.skills.Skills, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
 	return r.run(ctx)
+}
+
+// printReport shows what was pinned or discovered, in the order the CLI always has.
+func (a *Assembled) printReport(out io.Writer) {
+	for _, f := range a.instructions.Files {
+		fmt.Fprintf(out, "[context] %s\n", f)
+	}
+	for _, w := range a.instructions.Warnings {
+		fmt.Fprintf(out, "[context] warning: %s\n", w)
+	}
+	if a.instructions.Pinned {
+		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(a.instructions.Text))
+	}
+
+	line, warning := routeLine(a.route)
+	fmt.Fprintln(out, line)
+	if warning != "" {
+		fmt.Fprintln(out, warning)
+	}
+	printMCP(out, a.mcpServers, a.mcpWarnings, a.mcp)
+	printSkills(out, a.skills)
+	printHooks(out, a.hooks, a.hookWarnings, a.toolset)
+	if a.CompactionNotice != "" {
+		fmt.Fprintln(out, a.CompactionNotice)
+	}
 }
 
 // printText streams model text to the terminal and ignores the other delta kinds.
@@ -198,67 +127,6 @@ func printText(out io.Writer) func(durable.Delta) {
 			fmt.Fprint(out, d.Text)
 		}
 	}
-}
-
-// addCompaction summarises with the session's own model, and the harness gives the Compactor no delta sink, so the summary stays off the terminal.
-func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt route, spec providerSpec, args modelArgs) {
-	// The direct anthropic route keeps server-side compaction.
-	if rt.Provider != providerOpenRouter {
-		return
-	}
-	// The window doesn't feed the prompt prefix, so it isn't pinned and a failed fetch doesn't block the session.
-	window, err := fetchContextWindow(ctx, &http.Client{}, baseURL(spec), args.Key, rt.Model)
-	if err != nil {
-		fmt.Fprintf(out, "[compaction] warning: %s; compaction runs only if the provider reports an overflow\n", err)
-		window = 0
-	} else {
-		fmt.Fprintf(out, "[compaction] context window %d tokens\n", window)
-	}
-	opts.Compactor = compaction.New(compaction.Config{Model: protocolModels[rt.Protocol](rt, spec, args), ContextWindow: window})
-	opts.Observer = func(e durable.Event) {
-		switch e.Kind {
-		case durable.EventCompacted:
-			fmt.Fprintln(out, "\n[compacting history]")
-		case durable.EventCompactionFailed:
-			fmt.Fprintf(out, "\n[compaction] warning: %s\n", e.Error)
-		default:
-		}
-	}
-}
-
-// resolveRoute validates the route and its key before any pin is written, so a failed start doesn't freeze the session.
-func (c *ChatCmd) resolveRoute(ctx context.Context, dir string, existed bool) (route, providerSpec, string, error) {
-	flagToken := sync.OnceValues(func() (string, error) {
-		tok, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
-		if err != nil {
-			return "", fmt.Errorf("failed to resolve API token: %w", err)
-		}
-		return tok, nil
-	})
-	var key string
-	rt, _, err := pinRoute(dir, existed, routeFlags{Provider: c.Provider, Protocol: c.Protocol, Model: c.Model}, func(r route) error {
-		s, err := r.spec()
-		if err != nil {
-			return err
-		}
-		tok, err := flagToken()
-		if err != nil {
-			return err
-		}
-		key, err = resolveKey(tok, r, s)
-		return err
-	})
-	if err != nil {
-		return route{}, providerSpec{}, "", err
-	}
-	if rt.Provider == providerAnthropic {
-		rt.Model = c.Model
-	}
-	spec, err := rt.spec()
-	if err != nil {
-		return route{}, providerSpec{}, "", err
-	}
-	return rt, spec, key, nil
 }
 
 func printMCP(out io.Writer, servers map[string]mcp.Server, configWarnings []string, p mcpTools) {
