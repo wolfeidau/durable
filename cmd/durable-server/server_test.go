@@ -120,6 +120,9 @@ func TestRejectsBadRequests(t *testing.T) {
 	status, _ = do(func(r *http.Request) { r.Header.Set("Origin", "https://"+r.Host) })
 	require.Equal(t, http.StatusForbidden, status)
 
+	status, _ = do(func(r *http.Request) { r.Header.Set("Origin", "null") })
+	require.Equal(t, http.StatusForbidden, status)
+
 	// A same-host Origin passes the checks and reaches the handler, and no CORS headers are set.
 	status, cors := do(func(r *http.Request) { r.Header.Set("Origin", "http://"+r.Host) })
 	require.NotEqual(t, http.StatusForbidden, status)
@@ -161,7 +164,10 @@ func TestGetDoesNotRunDecideApproval(t *testing.T) {
 
 func TestServesPlaceholderUI(t *testing.T) {
 	base, _ := startServer(t)
-	resp, err := http.Get(base + "/")
+	// No Authorization header: the UI is exempt from the token.
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/", nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	body, err := io.ReadAll(resp.Body)
@@ -185,4 +191,55 @@ func TestServerJSONModeAndCleanup(t *testing.T) {
 	}
 	_, err = os.Stat(path)
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestShutdownDrainsInFlightRequest(t *testing.T) {
+	r := start(t)
+
+	// The body is still open, so the request is in flight when SIGTERM arrives.
+	pr, pw := io.Pipe()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, r.url+durablev1connect.SessionServiceSubmitProcedure, pr)
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+r.token)
+
+	type result struct {
+		status int
+		err    error
+	}
+	got := make(chan result, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			got <- result{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		_, _ = io.Copy(io.Discard, resp.Body)
+		got <- result{status: resp.StatusCode}
+	}()
+
+	_, err = pw.Write([]byte("{"))
+	require.NoError(t, err)
+	time.Sleep(300 * time.Millisecond)
+	require.NoError(t, r.cmd.Process.Signal(syscall.SIGTERM))
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case <-r.done:
+		t.Fatal("server exited with a request in flight")
+	default:
+	}
+
+	_, err = pw.Write([]byte("}"))
+	require.NoError(t, err)
+	require.NoError(t, pw.Close())
+
+	res := <-got
+	require.NoError(t, res.err)
+	require.Equal(t, http.StatusNotImplemented, res.status)
+	select {
+	case <-r.done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("server did not exit after the request finished")
+	}
 }

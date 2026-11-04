@@ -50,10 +50,13 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer os.Remove(infoPath)
 
+	// Requests drain within the grace period, and streams end when the base context is cancelled.
+	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelBase()
 	srv := &http.Server{
 		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}
 	srv.Protocols = new(http.Protocols)
 	srv.Protocols.SetHTTP1(true)
@@ -71,7 +74,9 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	err = srv.Shutdown(shutdownCtx)
+	cancelBase()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		// Open streams may outlast the grace period.
 		_ = srv.Close()
 		return fmt.Errorf("failed to shut down: %w", err)
