@@ -28,13 +28,13 @@ func TestWriteSessionMetaKeepsFirstWrite(t *testing.T) {
 func TestListSessions(t *testing.T) {
 	home := t.TempDir()
 
-	got, err := ListSessions(home)
+	got, _, err := ListSessions(home)
 	require.NoError(t, err)
 	require.Empty(t, got, "missing .durable")
 
 	sessions := filepath.Join(home, ".durable", "sessions")
 	require.NoError(t, os.MkdirAll(sessions, 0o700))
-	got, err = ListSessions(home)
+	got, _, err = ListSessions(home)
 	require.NoError(t, err)
 	require.Empty(t, got, "empty sessions directory")
 
@@ -44,23 +44,34 @@ func TestListSessions(t *testing.T) {
 	want := SessionMeta{CWD: "/a", Name: "one", CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
 	require.NoError(t, WriteSessionMeta(withMeta, want))
 
-	got, err = ListSessions(home)
+	got, _, err = ListSessions(home)
 	require.NoError(t, err)
 	require.Empty(t, got, "no database yet, as after a failed first start")
 
 	require.NoError(t, os.WriteFile(filepath.Join(withMeta, "session.sqlite"), nil, 0o600))
-	got, err = ListSessions(home)
+	got, _, err = ListSessions(home)
 	require.NoError(t, err)
+	want.ID = "withmeta"
 	require.Equal(t, []SessionMeta{want}, got)
 }
 
-func TestListSessionsRejectsMalformedFile(t *testing.T) {
+func TestListSessionsSkipsMalformedFileWithWarning(t *testing.T) {
 	home := t.TempDir()
-	dir := filepath.Join(home, ".durable", "sessions", "bad")
-	require.NoError(t, os.MkdirAll(dir, 0o700))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, sessionMetaFile), []byte("{nope"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "session.sqlite"), nil, 0o600))
+	sessions := filepath.Join(home, ".durable", "sessions")
+	bad := filepath.Join(sessions, "bad")
+	good := filepath.Join(sessions, "good")
+	for _, d := range []string{bad, good} {
+		require.NoError(t, os.MkdirAll(d, 0o700))
+		require.NoError(t, os.WriteFile(filepath.Join(d, "session.sqlite"), nil, 0o600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(bad, sessionMetaFile), []byte("{nope"), 0o600))
+	want := SessionMeta{CWD: "/a", Name: "one", CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}
+	require.NoError(t, WriteSessionMeta(good, want))
 
-	_, err := ListSessions(home)
-	require.Error(t, err)
+	got, warnings, err := ListSessions(home)
+	require.NoError(t, err)
+	want.ID = "good"
+	require.Equal(t, []SessionMeta{want}, got)
+	require.Len(t, warnings, 1)
+	require.Contains(t, warnings[0], filepath.Join(bad, sessionMetaFile))
 }

@@ -19,6 +19,8 @@ type SessionMeta struct {
 	CWD       string    `json:"cwd"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+	// ID is the session directory name, the id the API uses.
+	ID string `json:"-"`
 }
 
 func createSessionDir(dir string, m SessionMeta) error {
@@ -39,26 +41,36 @@ func WriteSessionMeta(dir string, m SessionMeta) error {
 }
 
 // ListSessions reads every session.json under home, skipping directories without one or without a database.
-func ListSessions(home string) ([]SessionMeta, error) {
+// A malformed session.json is skipped with a warning.
+func ListSessions(home string) (sessions []SessionMeta, warnings []string, err error) {
 	files, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", sessionMetaFile))
 	if err != nil {
-		return nil, fmt.Errorf("failed to list sessions: %w", err)
+		return nil, nil, fmt.Errorf("failed to list sessions: %w", err)
 	}
-	var out []SessionMeta
 	for _, f := range files {
+		dir := filepath.Dir(f)
 		// A first start that failed leaves session.json but no database.
-		if _, err := os.Stat(filepath.Join(filepath.Dir(f), "session.sqlite")); errors.Is(err, fs.ErrNotExist) {
+		if _, err := os.Stat(filepath.Join(dir, "session.sqlite")); errors.Is(err, fs.ErrNotExist) {
 			continue
 		} else if err != nil {
-			return nil, fmt.Errorf("failed to check session database: %w", err)
+			return nil, nil, fmt.Errorf("failed to check session database: %w", err)
 		}
-		m, _, err := readJSONPin[SessionMeta](f, "session metadata")
+		b, err := os.ReadFile(f) //nolint:gosec // fixed name inside the session directory
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil {
-			return nil, err
+			return nil, nil, fmt.Errorf("failed to read session metadata: %w", err)
 		}
-		out = append(out, m)
+		var m SessionMeta
+		if err := json.Unmarshal(b, &m); err != nil {
+			warnings = append(warnings, fmt.Sprintf("skipping malformed %s: %v", f, err))
+			continue
+		}
+		m.ID = filepath.Base(dir)
+		sessions = append(sessions, m)
 	}
-	return out, nil
+	return sessions, warnings, nil
 }
 
 // SessionPath returns the database path for a working directory and session name.
