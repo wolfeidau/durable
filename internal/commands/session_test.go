@@ -46,6 +46,11 @@ func TestListSessions(t *testing.T) {
 
 	got, err = ListSessions(home)
 	require.NoError(t, err)
+	require.Empty(t, got, "no database yet, as after a failed first start")
+
+	require.NoError(t, os.WriteFile(filepath.Join(withMeta, "session.sqlite"), nil, 0o600))
+	got, err = ListSessions(home)
+	require.NoError(t, err)
 	require.Equal(t, []SessionMeta{want}, got)
 }
 
@@ -54,6 +59,7 @@ func TestListSessionsRejectsMalformedFile(t *testing.T) {
 	dir := filepath.Join(home, ".durable", "sessions", "bad")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, sessionMetaFile), []byte("{nope"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "session.sqlite"), nil, 0o600))
 
 	_, err := ListSessions(home)
 	require.Error(t, err)

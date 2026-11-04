@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -36,7 +38,7 @@ func WriteSessionMeta(dir string, m SessionMeta) error {
 	return err
 }
 
-// ListSessions reads every session.json under home, skipping directories without one.
+// ListSessions reads every session.json under home, skipping directories without one or without a database.
 func ListSessions(home string) ([]SessionMeta, error) {
 	files, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", sessionMetaFile))
 	if err != nil {
@@ -44,6 +46,12 @@ func ListSessions(home string) ([]SessionMeta, error) {
 	}
 	var out []SessionMeta
 	for _, f := range files {
+		// A first start that failed leaves session.json but no database.
+		if _, err := os.Stat(filepath.Join(filepath.Dir(f), "session.sqlite")); errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return nil, fmt.Errorf("failed to check session database: %w", err)
+		}
 		m, _, err := readJSONPin[SessionMeta](f, "session metadata")
 		if err != nil {
 			return nil, err
