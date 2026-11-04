@@ -29,6 +29,9 @@ type Session struct {
 	retryDelay          time.Duration // owned by the driver
 	retryTimer          *time.Timer   // guarded by mu
 
+	runCancel context.CancelFunc // guarded by mu; the in-progress run's cancel
+	pauses    int                // guarded by mu; CancelSubmissions in progress
+	pause     chan struct{}      // guarded by mu; closed when pauses returns to zero
 	kick      chan struct{}
 	cancel    context.CancelFunc
 	done      chan struct{}
@@ -142,18 +145,21 @@ func (s *Session) drive(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		}
-		s.mu.Lock()
-		s.kicked, s.running = false, true
-		s.mu.Unlock()
-
-		err := s.h.Run(ctx)
-		failed := err != nil && !errors.Is(err, durable.ErrAwaitingApproval) && ctx.Err() == nil
+		runCtx, cancel, ok := s.beginRun(ctx)
+		if !ok {
+			return
+		}
+		err := s.h.Run(runCtx)
+		// An interrupted run is a normal outcome, so only a run nobody cancelled can have failed.
+		failed := err != nil && !errors.Is(err, durable.ErrAwaitingApproval) && runCtx.Err() == nil
+		cancel()
 		if failed {
 			s.logger.Error("run failed", slog.Any("error", err))
 		}
 
 		s.mu.Lock()
 		s.running = false
+		s.runCancel = nil
 		s.lastActive = time.Now()
 		if failed {
 			s.scheduleRetryLocked()
@@ -162,6 +168,60 @@ func (s *Session) drive(ctx context.Context) {
 		}
 		s.mu.Unlock()
 	}
+}
+
+// beginRun waits out any pause, then registers the run so Interrupt can cancel it.
+func (s *Session) beginRun(ctx context.Context) (context.Context, context.CancelFunc, bool) {
+	for {
+		s.mu.Lock()
+		if p := s.pause; p != nil {
+			s.mu.Unlock()
+			select {
+			case <-p:
+				continue
+			case <-ctx.Done():
+				return nil, nil, false
+			}
+		}
+		runCtx, cancel := context.WithCancel(ctx)
+		s.kicked, s.running = false, true
+		s.runCancel = cancel
+		s.mu.Unlock()
+		return runCtx, cancel, true
+	}
+}
+
+// CancelSubmission cancels a submission, interrupting the run first when it is the one running.
+// Harness.Cancel waits for the run slot, so without the interrupt it would wait for the whole run.
+func (s *Session) CancelSubmission(ctx context.Context, requestID string) (durable.Submission, error) {
+	cur, err := s.h.Get(ctx, requestID)
+	if err != nil {
+		return durable.Submission{}, err
+	}
+	if cur.Status == durable.StatusRunning {
+		// Pausing keeps the driver from starting a run that would take the slot again.
+		s.mu.Lock()
+		if s.pauses == 0 {
+			s.pause = make(chan struct{})
+		}
+		s.pauses++
+		if s.runCancel != nil {
+			s.runCancel()
+		}
+		s.mu.Unlock()
+		defer func() {
+			s.mu.Lock()
+			if s.pauses--; s.pauses == 0 {
+				close(s.pause)
+				s.pause = nil
+			}
+			s.mu.Unlock()
+		}()
+	}
+	sub, err := s.h.Cancel(ctx, requestID)
+	// Cancelling a submission that already finished returns it unchanged, and the queue continues either way.
+	s.Kick()
+	return sub, err
 }
 
 // scheduleRetryLocked re-kicks after a growing delay, so a failed run isn't stranded until a client acts.

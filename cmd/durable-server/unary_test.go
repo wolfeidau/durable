@@ -86,10 +86,14 @@ func TestApprovalRunsExactlyOnce(t *testing.T) {
 
 	// Approval 1 doesn't exist until the run parks, so NotFound means not yet.
 	var a *v1.Approval
+	var ranBeforeDecision bool
 	require.Eventually(t, func() bool {
+		_, statErr := os.Stat(marker)
+		ranBeforeDecision = ranBeforeDecision || statErr == nil
 		a, err = c.decide(t, id, 1, true)
 		return connect.CodeOf(err) != connect.CodeNotFound
 	}, testTimeout, 20*time.Millisecond)
+	require.False(t, ranBeforeDecision, "the call must not run before it is approved")
 	require.NoError(t, err)
 	require.Equal(t, v1.ApprovalStatus_APPROVAL_STATUS_ALLOWED, a.GetStatus())
 	require.Equal(t, "bash", a.GetCall().GetName())
@@ -174,6 +178,50 @@ func TestUnknownAndMalformedSessionIDs(t *testing.T) {
 	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	_, err = c.Cancel(t.Context(), authed(c, &v1.CancelRequest{SessionId: "", RequestId: "r"}))
 	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+}
+
+func TestCancelInterruptsRunningSubmission(t *testing.T) {
+	ws, home := newWorkspace(t)
+	id := createSession(t, ws, home, "s")
+	api := newHoldingAPI(t)
+	c := newClient(startEnv(t, home, apiEnv(api), "--api-token", "dummy"))
+
+	_, err := c.submit(t, id, "run it")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return api.count() == 1 }, testTimeout, 20*time.Millisecond)
+
+	// The model request is held for the whole test timeout, so only an interrupt can cancel this quickly.
+	start := time.Now()
+	resp, err := c.Cancel(t.Context(), authed(c, &v1.CancelRequest{SessionId: id, RequestId: "req-1"}))
+	require.NoError(t, err)
+	require.Equal(t, v1.SubmissionStatus_SUBMISSION_STATUS_CANCELLED, resp.Msg.GetSubmission().GetStatus())
+	require.Less(t, time.Since(start), 15*time.Second)
+
+	submit2 := func() (*v1.Submission, error) {
+		r, err := c.Submit(t.Context(), authed(c, &v1.SubmitRequest{SessionId: id, RequestId: "req-2", Text: "again"}))
+		if err != nil {
+			return nil, err
+		}
+		return r.Msg.GetSubmission(), nil
+	}
+	_, err = submit2()
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		s, err := submit2()
+		return err == nil && s.GetStatus() == v1.SubmissionStatus_SUBMISSION_STATUS_DONE
+	}, 30*time.Second, 20*time.Millisecond)
+}
+
+func TestOpenFailureIsInternalWithoutPaths(t *testing.T) {
+	ws, home := newWorkspace(t)
+	id := createSession(t, ws, home, "s")
+	meta := filepath.Join(home, ".durable", "sessions", id, "session.json")
+	require.NoError(t, os.WriteFile(meta, []byte("{"), 0o600))
+	c := newClient(startIn(t, home, "--api-token", "dummy"))
+
+	_, err := c.submit(t, id, "hi")
+	require.Equal(t, connect.CodeInternal, connect.CodeOf(err))
+	require.NotContains(t, err.Error(), home)
 }
 
 func TestSubmitWhileChatHoldsSessionIsUnavailable(t *testing.T) {

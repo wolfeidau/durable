@@ -42,7 +42,7 @@ func New(cfg Config) *Server {
 	return &Server{cfg: cfg}
 }
 
-// sessionService answers every RPC with Unimplemented until the slices behind it land.
+// sessionService implements the RPCs whose slices have landed; the rest stay Unimplemented.
 type sessionService struct {
 	durablev1connect.UnimplementedSessionServiceHandler
 	reg    *Registry

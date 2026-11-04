@@ -143,6 +143,31 @@ func startChat(t *testing.T, ws, home, name string, api *fakeAPI) *agent {
 	return &agent{stdin: stdin, out: out}
 }
 
+// newHoldingAPI holds its first response until the client disconnects, so a request stays in flight.
+func newHoldingAPI(t *testing.T) *fakeAPI {
+	t.Helper()
+	f := &fakeAPI{}
+	f.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		f.mu.Lock()
+		f.bodies = append(f.bodies, "")
+		first := len(f.bodies) == 1
+		f.mu.Unlock()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		if first {
+			select {
+			case <-r.Context().Done():
+			case <-time.After(testTimeout):
+			}
+			return
+		}
+		_, _ = io.WriteString(w, textReply("all done"))
+	}))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
 func readLines(t *testing.T, path string) []string {
 	t.Helper()
 	b, err := os.ReadFile(path)
