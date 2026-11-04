@@ -90,6 +90,7 @@ type Harness struct {
 	tools map[string]Tool
 	specs []ToolSpec
 	owner string
+	epoch string
 
 	leaseLost chan struct{} // closed by renewLoop when the lease is lost
 	runSem    chan struct{} // capacity 1; serialises Run
@@ -130,6 +131,13 @@ func OpenDB(ctx context.Context, db *sql.DB, opts Options) (*Harness, error) {
 
 	h := &Harness{db: db, opts: opts, tools: map[string]Tool{}, owner: rand.Text(),
 		leaseLost: make(chan struct{}), runSem: make(chan struct{}, 1)}
+	// The insert is atomic, so it is safe before the lease is taken.
+	if _, err := db.ExecContext(ctx, `INSERT INTO session_epoch (id, epoch) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, rand.Text()); err != nil {
+		return nil, fmt.Errorf("durable: write epoch: %w", err)
+	}
+	if err := db.QueryRowContext(ctx, `SELECT epoch FROM session_epoch WHERE id = 1`).Scan(&h.epoch); err != nil {
+		return nil, fmt.Errorf("durable: read epoch: %w", err)
+	}
 	for _, t := range opts.Tools {
 		spec := t.Spec()
 		if _, dup := h.tools[spec.Name]; dup {

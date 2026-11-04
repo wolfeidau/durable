@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS lease (
 	owner      TEXT    NOT NULL,
 	expires_at INTEGER NOT NULL           -- unix millis
 );
+CREATE TABLE IF NOT EXISTS session_epoch (
+	id    INTEGER PRIMARY KEY CHECK (id = 1),
+	epoch TEXT    NOT NULL
+);
 CREATE TABLE IF NOT EXISTS submissions (
 	seq        INTEGER PRIMARY KEY AUTOINCREMENT,
 	request_id TEXT    NOT NULL UNIQUE,   -- exactly-once input
