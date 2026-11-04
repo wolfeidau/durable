@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -24,8 +25,8 @@ func TestMain(m *testing.M) {
 	os.Exit(runTests(m))
 }
 
-// binPath is the real binary, built once because linking it per test dominated the suite's run time.
-var binPath string
+// binPath and durablePath are the real binaries, built once because linking them per test dominated the suite's run time.
+var binPath, durablePath string
 
 func runTests(m *testing.M) int {
 	dir, err := os.MkdirTemp("", "durable-server-test-*")
@@ -42,6 +43,11 @@ func runTests(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "failed to build binary: %v\n%s", err, out)
 		return 1
 	}
+	durablePath = filepath.Join(dir, "durable")
+	if out, err := exec.CommandContext(ctx, "go", "build", "-o", durablePath, "../durable").CombinedOutput(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to build durable: %v\n%s", err, out)
+		return 1
+	}
 	return m.Run()
 }
 
@@ -53,8 +59,12 @@ type running struct {
 
 func start(t *testing.T) *running {
 	t.Helper()
-	home := t.TempDir()
-	cmd := exec.Command(binPath, "--addr", "127.0.0.1:0")
+	return startIn(t, t.TempDir())
+}
+
+func startIn(t *testing.T, home string, args ...string) *running {
+	t.Helper()
+	cmd := exec.Command(binPath, append([]string{"--addr", "127.0.0.1:0"}, args...)...)
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	require.NoError(t, cmd.Start())
 	r := &running{home: home, cmd: cmd, done: make(chan struct{})}
@@ -242,4 +252,36 @@ func TestShutdownDrainsInFlightRequest(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("server did not exit after the request finished")
 	}
+}
+
+func TestStartsWithKeyAndIdleFlagsAndShutsDownCleanly(t *testing.T) {
+	home := t.TempDir()
+	ws := t.TempDir()
+	// An empty stdin creates the session and exits without calling the model.
+	chat := exec.CommandContext(t.Context(), durablePath, "chat", "--session", "s")
+	chat.Dir = ws
+	chat.Env = append(os.Environ(), "HOME="+home, "ANTHROPIC_API_KEY=dummy", "ANTHROPIC_AUTH_TOKEN=")
+	chat.Stdin = strings.NewReader("")
+	out, err := chat.CombinedOutput()
+	require.NoError(t, err, string(out))
+	metas, err := filepath.Glob(filepath.Join(home, ".durable", "sessions", "*", "session.json"))
+	require.NoError(t, err)
+	require.Len(t, metas, 1)
+	_, err = os.Stat(filepath.Join(filepath.Dir(metas[0]), "session.sqlite"))
+	require.NoError(t, err)
+
+	r := startIn(t, home, "--idle-timeout", "200ms", "--api-token", "dummy")
+	path := filepath.Join(home, ".durable", "server.json")
+	st, err := os.Stat(path)
+	require.NoError(t, err)
+	require.Equal(t, os.FileMode(0o600), st.Mode().Perm())
+
+	require.NoError(t, r.cmd.Process.Signal(syscall.SIGTERM))
+	select {
+	case <-r.done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("server did not exit after SIGTERM")
+	}
+	_, err = os.Stat(path)
+	require.ErrorIs(t, err, os.ErrNotExist)
 }

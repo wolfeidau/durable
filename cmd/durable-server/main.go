@@ -18,11 +18,17 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/server"
 )
 
 type cli struct {
 	Addr string `help:"Address to listen on." default:"127.0.0.1:7878"`
+
+	IdleTimeout           time.Duration `name:"idle-timeout" help:"Close a session with no clients and no work after this long." default:"5m"`
+	OpenTimeout           time.Duration `name:"open-timeout" help:"Give up opening a session after this long, for example while durable chat holds it." default:"10s"`
+	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
+	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
 }
 
 type serverInfo struct {
@@ -34,6 +40,12 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to find home directory: %w", err)
+	}
+
+	// Resolved once so a 1Password reference isn't read on every session open.
+	apiToken, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
+	if err != nil {
+		return fmt.Errorf("failed to resolve API token: %w", err)
 	}
 
 	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", c.Addr)
@@ -53,8 +65,17 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 	// Requests drain within the grace period, and streams end when the base context is cancelled.
 	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
+	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
+	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
+		Home:        home,
+		IdleTimeout: c.IdleTimeout,
+		OpenTimeout: c.OpenTimeout,
+		APIToken:    apiToken,
+		Logger:      logger,
+	})
+	defer registry.Close()
 	srv := &http.Server{
-		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger}).Handler(),
+		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}
@@ -76,6 +97,8 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 	defer cancel()
 	err = srv.Shutdown(shutdownCtx)
 	cancelBase()
+	// Interrupted runs resume on the next open.
+	registry.Close()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		// Open streams may outlast the grace period.
 		_ = srv.Close()
