@@ -21,8 +21,10 @@ status=$(curl -sS --max-time 10 -o /dev/null -w '%{http_connect}' https://exampl
 [ "$status" = 403 ] || fail "proxy did not deny example.com (CONNECT status $status)"
 ok "proxy denies example.com"
 
+# Check the proxy's CONNECT, not the site's answer, so an upstream rate limit can't pass as a block.
 for url in https://openrouter.ai/api/v1/models https://api.github.com/zen; do
-  curl -fsS --max-time 20 -o /dev/null "$url" 2>/dev/null || fail "proxy blocked allowlisted $url"
+  status=$(curl -sS --max-time 20 -o /dev/null -w '%{http_connect}' "$url" 2>/dev/null || true)
+  [ "$status" = 200 ] || fail "proxy blocked allowlisted $url (CONNECT status $status)"
   ok "proxy allows $url"
 done
 
