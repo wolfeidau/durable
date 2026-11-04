@@ -7,9 +7,9 @@ option go_package = "github.com/wolfeidau/durable/api/durable/v1;durablev1";
 // SessionService drives one durable session. session_id is the 16-hex session directory name.
 service SessionService {
   // Submit is exactly-once per request_id.
-  rpc Submit(SubmitRequest) returns (Submission);
-  rpc Cancel(CancelRequest) returns (Submission);
-  rpc DecideApproval(DecideApprovalRequest) returns (Approval);
+  rpc Submit(SubmitRequest) returns (SubmitResponse);
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+  rpc DecideApproval(DecideApprovalRequest) returns (DecideApprovalResponse);
   // WatchEvents replays committed events after after_seq, then follows new ones.
   rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
 }
@@ -20,9 +20,17 @@ message SubmitRequest {
   string text = 3;
 }
 
+message SubmitResponse {
+  Submission submission = 1;
+}
+
 message CancelRequest {
   string session_id = 1;
   string request_id = 2;
+}
+
+message CancelResponse {
+  Submission submission = 1;
 }
 
 message DecideApprovalRequest {
@@ -31,6 +39,10 @@ message DecideApprovalRequest {
   bool allow = 3;
   // by is free text; there is no user identity.
   string by = 4;
+}
+
+message DecideApprovalResponse {
+  Approval approval = 1;
 }
 
 message WatchEventsRequest {

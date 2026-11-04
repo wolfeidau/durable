@@ -4,7 +4,3 @@ modules:
 lint:
   use:
     - STANDARD
-  except:
-    # Responses are the domain messages themselves, so the API returns a Submission, not a SubmitResponse.
-    - RPC_REQUEST_RESPONSE_UNIQUE
-    - RPC_RESPONSE_STANDARD_NAME

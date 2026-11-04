@@ -48,9 +48,9 @@ const (
 // SessionServiceClient is a client for the durable.v1.SessionService service.
 type SessionServiceClient interface {
 	// Submit is exactly-once per request_id.
-	Submit(context.Context, *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.Submission], error)
-	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.Submission], error)
-	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.Approval], error)
+	Submit(context.Context, *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.SubmitResponse], error)
+	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
+	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
 	// WatchEvents replays committed events after after_seq, then follows new ones.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest]) (*connect.ServerStreamForClient[v1.WatchEventsResponse], error)
 }
@@ -66,19 +66,19 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 	baseURL = strings.TrimRight(baseURL, "/")
 	sessionServiceMethods := v1.File_durable_v1_durable_proto.Services().ByName("SessionService").Methods()
 	return &sessionServiceClient{
-		submit: connect.NewClient[v1.SubmitRequest, v1.Submission](
+		submit: connect.NewClient[v1.SubmitRequest, v1.SubmitResponse](
 			httpClient,
 			baseURL+SessionServiceSubmitProcedure,
 			connect.WithSchema(sessionServiceMethods.ByName("Submit")),
 			connect.WithClientOptions(opts...),
 		),
-		cancel: connect.NewClient[v1.CancelRequest, v1.Submission](
+		cancel: connect.NewClient[v1.CancelRequest, v1.CancelResponse](
 			httpClient,
 			baseURL+SessionServiceCancelProcedure,
 			connect.WithSchema(sessionServiceMethods.ByName("Cancel")),
 			connect.WithClientOptions(opts...),
 		),
-		decideApproval: connect.NewClient[v1.DecideApprovalRequest, v1.Approval](
+		decideApproval: connect.NewClient[v1.DecideApprovalRequest, v1.DecideApprovalResponse](
 			httpClient,
 			baseURL+SessionServiceDecideApprovalProcedure,
 			connect.WithSchema(sessionServiceMethods.ByName("DecideApproval")),
@@ -95,24 +95,24 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // sessionServiceClient implements SessionServiceClient.
 type sessionServiceClient struct {
-	submit         *connect.Client[v1.SubmitRequest, v1.Submission]
-	cancel         *connect.Client[v1.CancelRequest, v1.Submission]
-	decideApproval *connect.Client[v1.DecideApprovalRequest, v1.Approval]
+	submit         *connect.Client[v1.SubmitRequest, v1.SubmitResponse]
+	cancel         *connect.Client[v1.CancelRequest, v1.CancelResponse]
+	decideApproval *connect.Client[v1.DecideApprovalRequest, v1.DecideApprovalResponse]
 	watchEvents    *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
 }
 
 // Submit calls durable.v1.SessionService.Submit.
-func (c *sessionServiceClient) Submit(ctx context.Context, req *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.Submission], error) {
+func (c *sessionServiceClient) Submit(ctx context.Context, req *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.SubmitResponse], error) {
 	return c.submit.CallUnary(ctx, req)
 }
 
 // Cancel calls durable.v1.SessionService.Cancel.
-func (c *sessionServiceClient) Cancel(ctx context.Context, req *connect.Request[v1.CancelRequest]) (*connect.Response[v1.Submission], error) {
+func (c *sessionServiceClient) Cancel(ctx context.Context, req *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error) {
 	return c.cancel.CallUnary(ctx, req)
 }
 
 // DecideApproval calls durable.v1.SessionService.DecideApproval.
-func (c *sessionServiceClient) DecideApproval(ctx context.Context, req *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.Approval], error) {
+func (c *sessionServiceClient) DecideApproval(ctx context.Context, req *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error) {
 	return c.decideApproval.CallUnary(ctx, req)
 }
 
@@ -124,9 +124,9 @@ func (c *sessionServiceClient) WatchEvents(ctx context.Context, req *connect.Req
 // SessionServiceHandler is an implementation of the durable.v1.SessionService service.
 type SessionServiceHandler interface {
 	// Submit is exactly-once per request_id.
-	Submit(context.Context, *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.Submission], error)
-	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.Submission], error)
-	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.Approval], error)
+	Submit(context.Context, *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.SubmitResponse], error)
+	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
+	DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error)
 	// WatchEvents replays committed events after after_seq, then follows new ones.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error
 }
@@ -181,15 +181,15 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 // UnimplementedSessionServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedSessionServiceHandler struct{}
 
-func (UnimplementedSessionServiceHandler) Submit(context.Context, *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.Submission], error) {
+func (UnimplementedSessionServiceHandler) Submit(context.Context, *connect.Request[v1.SubmitRequest]) (*connect.Response[v1.SubmitResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.Submit is not implemented"))
 }
 
-func (UnimplementedSessionServiceHandler) Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.Submission], error) {
+func (UnimplementedSessionServiceHandler) Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.Cancel is not implemented"))
 }
 
-func (UnimplementedSessionServiceHandler) DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.Approval], error) {
+func (UnimplementedSessionServiceHandler) DecideApproval(context.Context, *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.DecideApproval is not implemented"))
 }
 
