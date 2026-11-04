@@ -45,12 +45,15 @@ func New(cfg Config) *Server {
 // sessionService answers every RPC with Unimplemented until the slices behind it land.
 type sessionService struct {
 	durablev1connect.UnimplementedSessionServiceHandler
+	reg    *Registry
+	home   string
+	logger *slog.Logger
 }
 
 // Handler returns the API and UI behind the token, Host and Origin checks.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	path, h := durablev1connect.NewSessionServiceHandler(sessionService{})
+	path, h := durablev1connect.NewSessionServiceHandler(sessionService{reg: s.cfg.Registry, home: s.cfg.Home, logger: s.logger()})
 	mux.Handle(path, s.requireToken(h))
 
 	ui, err := fs.Sub(uiFS, "ui/dist")
@@ -60,6 +63,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/", http.FileServerFS(ui))
 
 	return s.checkHostAndOrigin(mux)
+}
+
+func (s *Server) logger() *slog.Logger {
+	if s.cfg.Logger == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return s.cfg.Logger
 }
 
 func (s *Server) requireToken(next http.Handler) http.Handler {

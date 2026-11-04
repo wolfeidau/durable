@@ -71,6 +71,20 @@ func TestAssembleYesNonInteractiveWithHooksDefersAsk(t *testing.T) {
 	require.Equal(t, durable.ActionAsk, d.Action)
 }
 
+func TestAssembleReadsConfigFromHome(t *testing.T) {
+	assembleHome(t)
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	cfg := `{"hooks":{"PreToolUse":[{"matcher":"bash","hooks":[{"type":"command","command":"echo '{\"hookSpecificOutput\":{\"permissionDecision\":\"ask\"}}'"}]}]}}`
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "hooks.json"), []byte(cfg), 0o600))
+
+	a, err := Assemble(context.Background(), AssembleConfig{CWD: t.TempDir(), Session: "s", APIToken: "k", Yes: true, Home: home})
+	require.NoError(t, err)
+	defer a.Close()
+
+	require.True(t, a.Options.DeferApprovals, "hooks.json under Home, not HOME, must apply")
+}
+
 func TestAssembleInteractiveKeepsApprovalsInline(t *testing.T) {
 	assembleHome(t)
 	a, err := Assemble(context.Background(), AssembleConfig{CWD: t.TempDir(), Session: "s", APIToken: "k", Interactive: true})

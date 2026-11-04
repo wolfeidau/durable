@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package durable.v1;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "github.com/wolfeidau/durable/api/durable/v1;durablev1";
 
 // SessionService drives one durable session. session_id is the 16-hex session directory name.
@@ -14,6 +16,24 @@ service SessionService {
   // A stale epoch, or an after_seq past the newest seq, returns FAILED_PRECONDITION with an
   // EpochMismatch error detail. The client then discards its state and replays from 0.
   rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
+  // ListSessions lists the sessions under the server's home, without opening any.
+  rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+}
+
+message ListSessionsRequest {}
+
+message ListSessionsResponse {
+  repeated SessionInfo sessions = 1;
+  // warnings name session.json files that were skipped.
+  repeated string warnings = 2;
+}
+
+message SessionInfo {
+  // id is the session_id other RPCs take.
+  string id = 1;
+  string cwd = 2;
+  string name = 3;
+  google.protobuf.Timestamp created_at = 4;
 }
 
 message SubmitRequest {

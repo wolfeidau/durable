@@ -171,6 +171,7 @@ func (r *Registry) open(ctx context.Context, dir string) (*Session, error) {
 	asm, err := r.cfg.assemble(ctx, commands.AssembleConfig{
 		CWD:          meta.CWD,
 		Session:      meta.Name,
+		Home:         r.cfg.Home,
 		APIToken:     r.cfg.APIToken,
 		ExistingOnly: true,
 		Interactive:  false,

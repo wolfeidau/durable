@@ -29,6 +29,8 @@ var ErrNoSession = errors.New("session does not exist")
 type AssembleConfig struct {
 	CWD     string
 	Session string
+	// Home is where user config is read from; empty means the user's home directory.
+	Home string
 
 	Provider              string
 	Protocol              string
@@ -99,9 +101,12 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 
 	// Pin after anything likely to fail, so a failed start doesn't freeze the text.
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("failed to find home directory: %w", err)
+	home := cfg.Home
+	if home == "" {
+		var err error
+		if home, err = os.UserHomeDir(); err != nil {
+			return nil, fmt.Errorf("failed to find home directory: %w", err)
+		}
 	}
 	// Only the user's file: a repository must not be able to start commands.
 	servers, mcpWarnings, err := mcp.LoadConfig(filepath.Join(home, ".durable", "mcp.json"))

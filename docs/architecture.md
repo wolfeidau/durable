@@ -263,9 +263,10 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
 ## Phases
 
 1. **Live deltas.** Harness only.
-2. **Server and API.** `cmd/durable-server`, `api/`, the four RPCs (`Submit`, `Cancel`,
-   `DecideApproval`, `WatchEvents`), the session index, token auth, the session epoch, and validation
-   layers 1 to 3. Each slice is one PR:
+2. **Server and API.** `cmd/durable-server`, `api/`, the five RPCs (`Submit`, `Cancel`,
+   `DecideApproval`, `WatchEvents`, `ListSessions`), the session index, token auth, the session epoch, and
+   validation layers 1 to 3. In phase 2 the server serves only sessions `durable chat` created: it opens
+   existing sessions and never creates one. Each slice is one PR:
 
    | Wave | Slice | Depends on |
    |---|---|---|
@@ -273,8 +274,10 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 1 | **B.** Session index | |
    | 1 | **C.** API schema, `buf` toolchain and the redacting conversion layer | |
    | 2 | **D.** `cmd/durable-server` skeleton, token auth and the binary test harness | C |
-   | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D |
-   | 3 | **F.** `Submit`, `Cancel` and `DecideApproval`, with layer 1 approval tests | B, D |
+   | 2 | **S.** Session assembly extracted from `chat` | |
+   | 3 | **R.** Session registry | D, S |
+   | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D, R |
+   | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R |
    | 4 | **Spike.** A throwaway page streams `WatchEvents` behind nginx (layer 4) | E |
    | 5 | **G.** Deltas on the stream | E |
    | 5 | **H.** Layer 2 contention tests | E |

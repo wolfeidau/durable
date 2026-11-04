@@ -43,6 +43,9 @@ const (
 	// SessionServiceWatchEventsProcedure is the fully-qualified name of the SessionService's
 	// WatchEvents RPC.
 	SessionServiceWatchEventsProcedure = "/durable.v1.SessionService/WatchEvents"
+	// SessionServiceListSessionsProcedure is the fully-qualified name of the SessionService's
+	// ListSessions RPC.
+	SessionServiceListSessionsProcedure = "/durable.v1.SessionService/ListSessions"
 )
 
 // SessionServiceClient is a client for the durable.v1.SessionService service.
@@ -55,6 +58,8 @@ type SessionServiceClient interface {
 	// A stale epoch, or an after_seq past the newest seq, returns FAILED_PRECONDITION with an
 	// EpochMismatch error detail. The client then discards its state and replays from 0.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest]) (*connect.ServerStreamForClient[v1.WatchEventsResponse], error)
+	// ListSessions lists the sessions under the server's home, without opening any.
+	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
 }
 
 // NewSessionServiceClient constructs a client for the durable.v1.SessionService service. By
@@ -92,6 +97,12 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 			connect.WithClientOptions(opts...),
 		),
+		listSessions: connect.NewClient[v1.ListSessionsRequest, v1.ListSessionsResponse](
+			httpClient,
+			baseURL+SessionServiceListSessionsProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("ListSessions")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -101,6 +112,7 @@ type sessionServiceClient struct {
 	cancel         *connect.Client[v1.CancelRequest, v1.CancelResponse]
 	decideApproval *connect.Client[v1.DecideApprovalRequest, v1.DecideApprovalResponse]
 	watchEvents    *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
+	listSessions   *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
 }
 
 // Submit calls durable.v1.SessionService.Submit.
@@ -123,6 +135,11 @@ func (c *sessionServiceClient) WatchEvents(ctx context.Context, req *connect.Req
 	return c.watchEvents.CallServerStream(ctx, req)
 }
 
+// ListSessions calls durable.v1.SessionService.ListSessions.
+func (c *sessionServiceClient) ListSessions(ctx context.Context, req *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error) {
+	return c.listSessions.CallUnary(ctx, req)
+}
+
 // SessionServiceHandler is an implementation of the durable.v1.SessionService service.
 type SessionServiceHandler interface {
 	// Submit is exactly-once per request_id.
@@ -133,6 +150,8 @@ type SessionServiceHandler interface {
 	// A stale epoch, or an after_seq past the newest seq, returns FAILED_PRECONDITION with an
 	// EpochMismatch error detail. The client then discards its state and replays from 0.
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error
+	// ListSessions lists the sessions under the server's home, without opening any.
+	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
 }
 
 // NewSessionServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -166,6 +185,12 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("WatchEvents")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceListSessionsHandler := connect.NewUnaryHandler(
+		SessionServiceListSessionsProcedure,
+		svc.ListSessions,
+		connect.WithSchema(sessionServiceMethods.ByName("ListSessions")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/durable.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionServiceSubmitProcedure:
@@ -176,6 +201,8 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceDecideApprovalHandler.ServeHTTP(w, r)
 		case SessionServiceWatchEventsProcedure:
 			sessionServiceWatchEventsHandler.ServeHTTP(w, r)
+		case SessionServiceListSessionsProcedure:
+			sessionServiceListSessionsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -199,4 +226,8 @@ func (UnimplementedSessionServiceHandler) DecideApproval(context.Context, *conne
 
 func (UnimplementedSessionServiceHandler) WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.WatchEvents is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.ListSessions is not implemented"))
 }
