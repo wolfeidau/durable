@@ -111,7 +111,42 @@ Litestream's one useful idea here is the generation, which we call the epoch:
 - When the client's epoch doesn't match, or its `after_seq` is past the newest seq, the server returns
   `FAILED_PRECONDITION` with the current epoch. The client discards its state and replays from 0.
 - The seq check also catches most copies restored by hand, which keep the old epoch. Restores should go
-  through the tool.
+  through `durable.Restore`.
+
+### Snapshot and restore
+
+The library gets two functions, with no CLI command until there's a need for one:
+
+- `Harness.Snapshot(ctx, dst)` runs `VACUUM INTO dst`. It's a read, so it works while a run holds the
+  lease, and it gives a consistent copy without stopping the session.
+- `durable.Restore(ctx, src, dst)` copies `src` to `dst` and writes a new epoch into the copy. It
+  refuses when `dst` has a live lease, and removes a stale `-wal` and `-shm` before the copy goes live.
+
+The epoch is written at restore, not at snapshot. If it were written at snapshot, restoring the same
+snapshot twice would give two histories with one epoch, and a client would skip events.
+
+### Session index
+
+A session's path is a one-way hash of its working directory and name, so the server can't name a
+session from its path alone. Each session directory gets a `session.json` next to `provider.json`,
+holding the working directory, the session name and the creation time.
+
+- Whoever creates the session writes it, the CLI or the server, once and atomically.
+- The CLI writes it for existing sessions the next time it opens one.
+- The server lists sessions by reading `~/.durable/sessions/*/session.json`, and skips directories
+  without one.
+
+A file per session follows the `provider.json` pattern and avoids a shared database that every
+session would write to.
+
+### Server session lifecycle
+
+The server opens a session's `Harness` on demand, when an RPC names it, and closes it once it's idle
+for a few minutes, meaning no run and no watchers. That bounds open files and SQLite connections.
+
+The server holds the lease while a session is open, so the CLI waits on the same session as it would
+for another CLI. To hand a session back to the CLI, close the browser tab and wait out the idle
+timeout.
 
 ### The web UI is the primary client
 
@@ -229,9 +264,23 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
 
 1. **Live deltas.** Harness only.
 2. **Server and API.** `cmd/durable-server`, `api/`, the four RPCs (`Submit`, `Cancel`,
-   `DecideApproval`, `WatchEvents`), a session index and token auth. Session paths are one-way hashes,
-   so the index is what lets the server name a session. Also the session epoch, and validation
-   layers 1 to 3.
+   `DecideApproval`, `WatchEvents`), the session index, token auth, the session epoch, and validation
+   layers 1 to 3. Each slice is one PR:
+
+   | Wave | Slice | Depends on |
+   |---|---|---|
+   | 1 | **A.** Session epoch, `Snapshot` and `Restore` | |
+   | 1 | **B.** Session index | |
+   | 1 | **C.** API schema, `buf` toolchain and the redacting conversion layer | |
+   | 2 | **D.** `cmd/durable-server` skeleton, token auth and the binary test harness | C |
+   | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D |
+   | 3 | **F.** `Submit`, `Cancel` and `DecideApproval`, with layer 1 approval tests | B, D |
+   | 4 | **Spike.** A throwaway page streams `WatchEvents` behind nginx (layer 4) | E |
+   | 5 | **G.** Deltas on the stream | E |
+   | 5 | **H.** Layer 2 contention tests | E |
+   | 5 | **I.** Layer 3 network fault tests | E |
+
+   The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
 3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
    first, with validation layer 4.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
@@ -239,7 +288,8 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
 
 ## Open questions
 
-- **Before phase 2:** is single-user and self-hosted the right scope?
+- **Before slice C:** is single-user and self-hosted the right scope? It decides whether the schema
+  carries identity, and that's expensive to change once the schema has external clients.
 - **Before phase 4:** are containers acceptable? [Issue #9](https://github.com/wolfeidau/durable/issues/9)
   rejected them for local use because the agent needs your real toolchain. Remote workers reverse that
   with per-repo images. Native OS sandboxing stays deferred.
