@@ -25,6 +25,7 @@ type cli struct {
 	Addr string `help:"Address to listen on." default:"127.0.0.1:7878"`
 
 	IdleTimeout           time.Duration `name:"idle-timeout" help:"Close a session with no clients and no work after this long." default:"5m"`
+	OpenTimeout           time.Duration `name:"open-timeout" help:"Give up opening a session after this long, for example while durable chat holds it." default:"10s"`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
 }
@@ -61,6 +62,7 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
 		Home:                  home,
 		IdleTimeout:           c.IdleTimeout,
+		OpenTimeout:           c.OpenTimeout,
 		APIToken:              c.APIToken,
 		APITokenFrom1Password: c.APITokenFrom1Password,
 		Logger:                logger,

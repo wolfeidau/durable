@@ -24,7 +24,9 @@ var errRegistryClosed = errors.New("session registry is closed")
 type RegistryConfig struct {
 	Home string
 	// IdleTimeout closes a session with no holders, run or pending kick for this long. Zero means DefaultIdleTimeout.
-	IdleTimeout           time.Duration
+	IdleTimeout time.Duration
+	// OpenTimeout bounds opening a session, which waits while another process holds its lease. Zero means 10s.
+	OpenTimeout           time.Duration
 	APIToken              string
 	APITokenFrom1Password string
 	Logger                *slog.Logger
@@ -59,6 +61,9 @@ type entry struct {
 func NewRegistry(ctx context.Context, cfg RegistryConfig) *Registry {
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = DefaultIdleTimeout
+	}
+	if cfg.OpenTimeout <= 0 {
+		cfg.OpenTimeout = 10 * time.Second
 	}
 	if cfg.assemble == nil {
 		cfg.assemble = commands.Assemble
@@ -119,7 +124,13 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 
 // finishOpen opens the session for the entry's first caller and wakes the others.
 func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry) {
-	s, err := r.open(ctx, dir)
+	octx, cancel := context.WithTimeout(ctx, r.cfg.OpenTimeout)
+	defer cancel()
+	s, err := r.open(octx, dir)
+	// A held lease makes Open wait, so an expired bound means another process has the session.
+	if err != nil && ctx.Err() == nil && octx.Err() != nil {
+		err = connect.NewError(connect.CodeUnavailable, errors.New("session in use"))
+	}
 	r.mu.Lock()
 	// Close can't see an entry with no session, so the opener closes it.
 	lateClose := err == nil && r.closed

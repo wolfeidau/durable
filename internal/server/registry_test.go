@@ -223,3 +223,35 @@ func TestCloseStopsSessions(t *testing.T) {
 	_, _, err = r.Acquire(t.Context(), e.id)
 	require.ErrorIs(t, err, errRegistryClosed)
 }
+
+func TestAcquireReportsHeldLeaseAsUnavailable(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.OpenTimeout = 200 * time.Millisecond
+	r := e.registry(t)
+
+	a, err := commands.Assemble(t.Context(), commands.AssembleConfig{CWD: sessionCWD(t, e), Session: "s", APIToken: "k", ExistingOnly: true})
+	require.NoError(t, err)
+	a.Options.Model = echoModel{}
+	holder, err := durable.Open(t.Context(), a.Path, a.Options)
+	require.NoError(t, err)
+	defer a.Close()
+
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			_, _, err := r.Acquire(t.Context(), e.id)
+			errs <- err
+		}()
+	}
+	for range 2 {
+		err := <-errs
+		require.Equal(t, connect.CodeUnavailable, connect.CodeOf(err))
+		require.ErrorContains(t, err, "session in use")
+	}
+	require.Zero(t, e.open(r))
+
+	require.NoError(t, holder.Close())
+	_, release, err := r.Acquire(t.Context(), e.id)
+	require.NoError(t, err)
+	release()
+}
