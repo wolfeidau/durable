@@ -110,6 +110,7 @@ Litestream's one useful idea here is the generation, which we call the epoch:
   resume rather than replay.
 - When the client's epoch doesn't match, or its `after_seq` is past the newest seq, the server returns
   `FAILED_PRECONDITION` with the current epoch. The client discards its state and replays from 0.
+  A cursor without an epoch (`after_seq > 0` and an empty epoch) is treated as a mismatch.
 - The seq check also catches most copies restored by hand, which keep the old epoch. Restores should go
   through `durable.Restore`.
 
