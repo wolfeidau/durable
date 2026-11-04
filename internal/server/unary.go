@@ -21,7 +21,7 @@ func (s sessionService) Submit(ctx context.Context, req *connect.Request[v1.Subm
 	}
 	sess, release, err := s.reg.Acquire(ctx, req.Msg.GetSessionId())
 	if err != nil {
-		return nil, s.acquireErr(ctx, err)
+		return nil, s.publicErr(ctx, "open session", err)
 	}
 	defer release()
 	sub, err := sess.Harness().Submit(ctx, req.Msg.GetRequestId(), req.Msg.GetText())
@@ -35,7 +35,7 @@ func (s sessionService) Submit(ctx context.Context, req *connect.Request[v1.Subm
 func (s sessionService) Cancel(ctx context.Context, req *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error) {
 	sess, release, err := s.reg.Acquire(ctx, req.Msg.GetSessionId())
 	if err != nil {
-		return nil, s.acquireErr(ctx, err)
+		return nil, s.publicErr(ctx, "open session", err)
 	}
 	defer release()
 	sub, err := sess.CancelSubmission(ctx, req.Msg.GetRequestId())
@@ -51,7 +51,7 @@ func (s sessionService) Cancel(ctx context.Context, req *connect.Request[v1.Canc
 func (s sessionService) DecideApproval(ctx context.Context, req *connect.Request[v1.DecideApprovalRequest]) (*connect.Response[v1.DecideApprovalResponse], error) {
 	sess, release, err := s.reg.Acquire(ctx, req.Msg.GetSessionId())
 	if err != nil {
-		return nil, s.acquireErr(ctx, err)
+		return nil, s.publicErr(ctx, "open session", err)
 	}
 	defer release()
 	a, err := sess.Harness().Decide(ctx, req.Msg.GetApprovalSeq(), req.Msg.GetAllow(), req.Msg.GetBy())
@@ -86,11 +86,11 @@ func (s sessionService) internal(ctx context.Context, op string, err error) erro
 	return connect.NewError(connect.CodeInternal, errors.New("internal error"))
 }
 
-// acquireErr keeps the codes the registry chose and the caller's own cancellation, and hides everything else.
-func (s sessionService) acquireErr(ctx context.Context, err error) error {
+// publicErr keeps codes already chosen and the caller's own cancellation, and hides everything else.
+func (s sessionService) publicErr(ctx context.Context, op string, err error) error {
 	var ce *connect.Error
 	if errors.As(err, &ce) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	return s.internal(ctx, "open session", err)
+	return s.internal(ctx, op, err)
 }

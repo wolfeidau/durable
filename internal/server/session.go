@@ -56,6 +56,13 @@ func (s *Session) Harness() *durable.Harness { return s.h }
 // Epoch identifies this copy of the session.
 func (s *Session) Epoch() string { return s.h.Epoch() }
 
+// newestSeq is the newest committed seq this session has seen.
+func (s *Session) newestSeq() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.newest
+}
+
 // observe is the harness Observer: it only records the seq and wakes waiters, so it never blocks or calls the harness.
 func (s *Session) observe(e durable.Event) {
 	s.mu.Lock()

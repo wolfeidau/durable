@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -30,6 +31,10 @@ type Config struct {
 	Logger *slog.Logger
 	// Registry opens the sessions the handlers act on.
 	Registry *Registry
+	// Heartbeat is how often an idle watch stream sends a heartbeat. Zero means DefaultHeartbeat.
+	Heartbeat time.Duration
+	// Draining is closed when shutdown begins, so open streams end instead of stalling the drain. Nil never closes.
+	Draining <-chan struct{}
 }
 
 // Server is the HTTP handler for the API and UI.
@@ -45,15 +50,23 @@ func New(cfg Config) *Server {
 // sessionService implements the RPCs whose slices have landed; the rest stay Unimplemented.
 type sessionService struct {
 	durablev1connect.UnimplementedSessionServiceHandler
-	reg    *Registry
-	home   string
-	logger *slog.Logger
+	reg       *Registry
+	home      string
+	heartbeat time.Duration
+	draining  <-chan struct{}
+	logger    *slog.Logger
 }
 
 // Handler returns the API and UI behind the token, Host and Origin checks.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	path, h := durablev1connect.NewSessionServiceHandler(sessionService{reg: s.cfg.Registry, home: s.cfg.Home, logger: s.logger()})
+	heartbeat := s.cfg.Heartbeat
+	if heartbeat <= 0 {
+		heartbeat = DefaultHeartbeat
+	}
+	path, h := durablev1connect.NewSessionServiceHandler(sessionService{
+		reg: s.cfg.Registry, home: s.cfg.Home, heartbeat: heartbeat, draining: s.cfg.Draining, logger: s.logger(),
+	})
 	mux.Handle(path, s.requireToken(h))
 
 	ui, err := fs.Sub(uiFS, "ui/dist")

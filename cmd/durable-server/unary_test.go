@@ -49,7 +49,7 @@ func (c apiClient) decide(t *testing.T, id string, seq int64, allow bool) (*v1.A
 func TestSubmitRunsToDoneAndIsExactlyOnce(t *testing.T) {
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
-	api := newFakeAPI(t, textReply("hello there"))
+	api := newFakeAPI(t, textReply("hello there"), 0)
 	c := newClient(startEnv(t, home, apiEnv(api), "--api-token", "dummy"))
 
 	first, err := c.submit(t, id, "hi")
@@ -73,7 +73,7 @@ func TestApprovalRunsExactlyOnce(t *testing.T) {
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	marker := filepath.Join(ws, "marker.txt")
-	api := newFakeAPI(t, bashReply("echo ran >> marker.txt"))
+	api := newFakeAPI(t, bashReply("echo ran >> marker.txt"), 0)
 	c := newClient(startEnv(t, home, apiEnv(api), "--api-token", "dummy"))
 
 	_, err := c.submit(t, id, "run it")
@@ -123,7 +123,7 @@ func TestCancelParkedSubmission(t *testing.T) {
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	marker := filepath.Join(ws, "marker.txt")
-	api := newFakeAPI(t, bashReply("echo ran >> marker.txt"))
+	api := newFakeAPI(t, bashReply("echo ran >> marker.txt"), 0)
 	c := newClient(startEnv(t, home, apiEnv(api), "--api-token", "dummy"))
 
 	_, err := c.submit(t, id, "run it")
@@ -227,7 +227,7 @@ func TestOpenFailureIsInternalWithoutPaths(t *testing.T) {
 func TestSubmitWhileChatHoldsSessionIsUnavailable(t *testing.T) {
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
-	api := newFakeAPI(t, textReply("from chat"))
+	api := newFakeAPI(t, textReply("from chat"), 0)
 	chat := startChat(t, ws, home, "s", api)
 	_, err := chat.stdin.Write([]byte("hold\n"))
 	require.NoError(t, err)
