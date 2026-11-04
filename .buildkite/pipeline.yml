@@ -29,9 +29,9 @@ steps:
           - ./.buildkite/plugins/go-cache:
               name: go_test
 
+  # Runs alongside QA, because it spends no key and waiting on QA added about 1m30 to every branch build.
   - label: ":docker: e2e sandbox"
     if: build.branch != pipeline.default_branch
-    depends_on: quality_checks
     command: mise run test:e2e
     plugins:
       - mise#v1.1.5: ~
