@@ -64,8 +64,13 @@ func start(t *testing.T) *running {
 
 func startIn(t *testing.T, home string, args ...string) *running {
 	t.Helper()
+	return startEnv(t, home, nil, args...)
+}
+
+func startEnv(t *testing.T, home string, env []string, args ...string) *running {
+	t.Helper()
 	cmd := exec.Command(binPath, append([]string{"--addr", "127.0.0.1:0"}, args...)...)
-	cmd.Env = append(os.Environ(), "HOME="+home)
+	cmd.Env = append(append(os.Environ(), "HOME="+home), env...)
 	require.NoError(t, cmd.Start())
 	r := &running{home: home, cmd: cmd, done: make(chan struct{})}
 	go func() { _ = cmd.Wait(); close(r.done) }()
@@ -139,7 +144,7 @@ func TestRejectsBadRequests(t *testing.T) {
 	require.Empty(t, cors)
 }
 
-func TestSubmitIsUnimplementedOverEveryProtocol(t *testing.T) {
+func TestSubmitIsAuthenticatedOverEveryProtocol(t *testing.T) {
 	base, token := startServer(t)
 
 	for name, opts := range map[string][]connect.ClientOption{
@@ -156,7 +161,7 @@ func TestSubmitIsUnimplementedOverEveryProtocol(t *testing.T) {
 			req := connect.NewRequest(&v1.SubmitRequest{})
 			req.Header().Set("Authorization", "Bearer "+token)
 			_, err = client.Submit(t.Context(), req)
-			require.Equal(t, connect.CodeUnimplemented, connect.CodeOf(err))
+			require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 		})
 	}
 }
@@ -246,7 +251,7 @@ func TestShutdownDrainsInFlightRequest(t *testing.T) {
 
 	res := <-got
 	require.NoError(t, res.err)
-	require.Equal(t, http.StatusNotImplemented, res.status)
+	require.Equal(t, http.StatusBadRequest, res.status)
 	select {
 	case <-r.done:
 	case <-time.After(15 * time.Second):

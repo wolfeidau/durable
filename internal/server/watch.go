@@ -84,19 +84,15 @@ func (s sessionService) watch(ctx context.Context, req *durablev1.WatchEventsReq
 	}
 }
 
-// watchErr keeps internal error text, which can hold paths, off the wire.
+// watchErr reports a shutdown as Unavailable so clients reconnect.
 func (s sessionService) watchErr(ctx context.Context, err error) error {
-	var cerr *connect.Error
-	switch {
-	case err == nil:
-		return nil
-	case errors.Is(context.Cause(ctx), errDraining):
+	if err != nil && errors.Is(context.Cause(ctx), errDraining) {
 		return connect.NewError(connect.CodeUnavailable, errDraining)
-	case errors.As(err, &cerr), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return err
 	}
-	s.logger.ErrorContext(ctx, "watch failed", "error", err)
-	return connect.NewError(connect.CodeInternal, errors.New("internal error"))
+	if err == nil {
+		return nil
+	}
+	return s.publicErr(ctx, "watch", err)
 }
 
 func epochMismatch(epoch string, lastSeq int64) error {

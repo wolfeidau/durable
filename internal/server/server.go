@@ -47,10 +47,11 @@ func New(cfg Config) *Server {
 	return &Server{cfg: cfg}
 }
 
-// sessionService answers every RPC with Unimplemented until the slices behind it land.
+// sessionService implements the RPCs whose slices have landed; the rest stay Unimplemented.
 type sessionService struct {
 	durablev1connect.UnimplementedSessionServiceHandler
 	reg       *Registry
+	home      string
 	heartbeat time.Duration
 	draining  <-chan struct{}
 	logger    *slog.Logger
@@ -63,11 +64,9 @@ func (s *Server) Handler() http.Handler {
 	if heartbeat <= 0 {
 		heartbeat = DefaultHeartbeat
 	}
-	logger := s.cfg.Logger
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
-	path, h := durablev1connect.NewSessionServiceHandler(sessionService{reg: s.cfg.Registry, heartbeat: heartbeat, draining: s.cfg.Draining, logger: logger})
+	path, h := durablev1connect.NewSessionServiceHandler(sessionService{
+		reg: s.cfg.Registry, home: s.cfg.Home, heartbeat: heartbeat, draining: s.cfg.Draining, logger: s.logger(),
+	})
 	mux.Handle(path, s.requireToken(h))
 
 	ui, err := fs.Sub(uiFS, "ui/dist")
@@ -77,6 +76,13 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/", http.FileServerFS(ui))
 
 	return s.checkHostAndOrigin(mux)
+}
+
+func (s *Server) logger() *slog.Logger {
+	if s.cfg.Logger == nil {
+		return slog.New(slog.DiscardHandler)
+	}
+	return s.cfg.Logger
 }
 
 func (s *Server) requireToken(next http.Handler) http.Handler {
