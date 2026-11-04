@@ -58,15 +58,15 @@ type Assembled struct {
 	// Close releases the MCP pool.
 	Close func()
 
-	Instructions instructions
-	Route        route
-	MCPServers   map[string]mcp.Server
-	MCP          mcpTools
-	MCPWarnings  []string
-	Skills       skillSet
-	Hooks        hooks.Config
-	HookWarnings []string
-	Toolset      []durable.Tool
+	instructions instructions
+	route        route
+	mcpServers   map[string]mcp.Server
+	mcp          mcpTools
+	mcpWarnings  []string
+	skills       skillSet
+	hooks        hooks.Config
+	hookWarnings []string
+	toolset      []durable.Tool
 	// CompactionNotice is the line to show once the compaction window is known; empty when compaction is not client-side.
 	CompactionNotice string
 }
@@ -161,9 +161,8 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 			SessionID: sessionID,
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
 		}),
-		Tools:          toolset,
-		LeaseTTL:       cfg.LeaseTTL,
-		DeferApprovals: !cfg.Interactive,
+		Tools:    toolset,
+		LeaseTTL: cfg.LeaseTTL,
 	}
 	notice := addCompaction(ctx, out, &opts, rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)
@@ -178,20 +177,22 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		opts.Gate = runner.Gate(base)
 		opts.Tools = runner.Wrap(toolset)
 	}
+	// With no gate the harness parks every call, which would defeat Yes.
+	opts.DeferApprovals = !cfg.Interactive && opts.Gate != nil
 
 	return &Assembled{
 		Path:             path,
 		Options:          opts,
 		Close:            func() { _ = pool.Close() },
-		Instructions:     pinned,
-		Route:            rt,
-		MCPServers:       servers,
-		MCP:              mcpPinned,
-		MCPWarnings:      mcpWarnings,
-		Skills:           skillsPinned,
-		Hooks:            hookCfg,
-		HookWarnings:     hookWarnings,
-		Toolset:          toolset,
+		instructions:     pinned,
+		route:            rt,
+		mcpServers:       servers,
+		mcp:              mcpPinned,
+		mcpWarnings:      mcpWarnings,
+		skills:           skillsPinned,
+		hooks:            hookCfg,
+		hookWarnings:     hookWarnings,
+		toolset:          toolset,
 		CompactionNotice: notice,
 	}, nil
 }

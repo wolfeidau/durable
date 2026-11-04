@@ -91,30 +91,30 @@ func (c *ChatCmd) Run(ctx context.Context, _ *Globals) error {
 	}
 	defer h.Close()
 
-	r := &repl{h: h, skills: a.Skills.Skills, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
+	r := &repl{h: h, skills: a.skills.Skills, lines: lines, sigs: sigs, out: out, piped: !term.IsTerminal(int(os.Stdin.Fd()))}
 	return r.run(ctx)
 }
 
 // printReport shows what was pinned or discovered, in the order the CLI always has.
 func (a *Assembled) printReport(out io.Writer) {
-	for _, f := range a.Instructions.Files {
+	for _, f := range a.instructions.Files {
 		fmt.Fprintf(out, "[context] %s\n", f)
 	}
-	for _, w := range a.Instructions.Warnings {
+	for _, w := range a.instructions.Warnings {
 		fmt.Fprintf(out, "[context] warning: %s\n", w)
 	}
-	if a.Instructions.Pinned {
-		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(a.Instructions.Text))
+	if a.instructions.Pinned {
+		fmt.Fprintf(out, "[context] using pinned instructions (%d bytes); start a new --session to reload AGENTS.md\n", len(a.instructions.Text))
 	}
 
-	line, warning := routeLine(a.Route)
+	line, warning := routeLine(a.route)
 	fmt.Fprintln(out, line)
 	if warning != "" {
 		fmt.Fprintln(out, warning)
 	}
-	printMCP(out, a.MCPServers, a.MCPWarnings, a.MCP)
-	printSkills(out, a.Skills)
-	printHooks(out, a.Hooks, a.HookWarnings, a.Toolset)
+	printMCP(out, a.mcpServers, a.mcpWarnings, a.mcp)
+	printSkills(out, a.skills)
+	printHooks(out, a.hooks, a.hookWarnings, a.toolset)
 	if a.CompactionNotice != "" {
 		fmt.Fprintln(out, a.CompactionNotice)
 	}

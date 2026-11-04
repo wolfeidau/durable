@@ -3,6 +3,7 @@ package commands
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -40,6 +41,34 @@ func TestAssembleNonInteractiveDefersApprovals(t *testing.T) {
 	require.Nil(t, a.Options.Ask)
 	require.NotNil(t, a.Options.Gate, "read-only gate without --yes")
 	require.Nil(t, a.Options.OnDelta)
+}
+
+func TestAssembleYesNonInteractiveDoesNotDefer(t *testing.T) {
+	assembleHome(t)
+	a, err := Assemble(context.Background(), AssembleConfig{CWD: t.TempDir(), Session: "s", APIToken: "k", Yes: true})
+	require.NoError(t, err)
+	defer a.Close()
+
+	require.Nil(t, a.Options.Gate)
+	require.False(t, a.Options.DeferApprovals, "a nil gate would park every call")
+}
+
+func TestAssembleYesNonInteractiveWithHooksDefersAsk(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	cfg := `{"hooks":{"PreToolUse":[{"matcher":"bash","hooks":[{"type":"command","command":"echo '{\"hookSpecificOutput\":{\"permissionDecision\":\"ask\"}}'"}]}]}}`
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "hooks.json"), []byte(cfg), 0o600))
+
+	a, err := Assemble(context.Background(), AssembleConfig{CWD: t.TempDir(), Session: "s", APIToken: "k", Yes: true})
+	require.NoError(t, err)
+	defer a.Close()
+
+	require.True(t, a.Options.DeferApprovals)
+	require.NotNil(t, a.Options.Gate)
+	d, err := a.Options.Gate(context.Background(), durable.ToolCall{ID: "c1", Name: "bash", Input: json.RawMessage(`{"command":"ls"}`)})
+	require.NoError(t, err)
+	require.Equal(t, durable.ActionAsk, d.Action)
 }
 
 func TestAssembleInteractiveKeepsApprovalsInline(t *testing.T) {
