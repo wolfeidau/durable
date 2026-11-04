@@ -3,6 +3,8 @@ package durable
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -118,4 +120,51 @@ func TestRestoreRefusesLiveSession(t *testing.T) {
 	var stored string
 	require.NoError(t, live.db.QueryRowContext(ctx, `SELECT epoch FROM session_epoch`).Scan(&stored))
 	require.Equal(t, epoch, stored)
+}
+
+func TestRestoreDiscardsStaleWAL(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	src := newEpochSession(t, filepath.Join(dir, "src.sqlite"))
+	_, err := src.Submit(ctx, "req-1", "hello")
+	require.NoError(t, err)
+	snap := filepath.Join(dir, "snap.sqlite")
+	require.NoError(t, src.Snapshot(ctx, snap))
+	want, err := src.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	srcEpoch := src.Epoch()
+	require.NoError(t, src.Close())
+
+	// Copy the files while the connection is open to get a crashed process's layout.
+	livePath := filepath.Join(dir, "live.sqlite")
+	db, err := openSQL(livePath)
+	require.NoError(t, err)
+	defer db.Close()
+	_, err = db.ExecContext(ctx, `PRAGMA wal_autocheckpoint = 0`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, schema)
+	require.NoError(t, err)
+	for i := range 5 {
+		_, err = db.ExecContext(ctx, `INSERT INTO submissions (request_id, text, status, created_at) VALUES (?, 'stale', 'queued', 0)`, fmt.Sprint("stale-", i))
+		require.NoError(t, err)
+	}
+	crashed := filepath.Join(dir, "crashed.sqlite")
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		b, err := os.ReadFile(livePath + suffix)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(crashed+suffix, b, 0o600))
+	}
+	fi, err := os.Stat(crashed + "-wal")
+	require.NoError(t, err)
+	require.NotZero(t, fi.Size())
+	// Opening the database would checkpoint and delete the WAL, so leave only the stale sidecars.
+	require.NoError(t, os.Remove(crashed))
+
+	require.NoError(t, Restore(ctx, snap, crashed))
+	h := newEpochSession(t, crashed)
+	defer h.Close()
+	got, err := h.Events(ctx, 0, 0)
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+	require.NotEqual(t, srcEpoch, h.Epoch())
 }

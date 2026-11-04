@@ -63,6 +63,15 @@ func Restore(ctx context.Context, src, dst string) error {
 	if err := os.Rename(tmpPath, dst); err != nil {
 		return fmt.Errorf("failed to move restored session into place: %w", err)
 	}
+	// The rename must survive power loss.
+	dir, err := os.Open(filepath.Dir(dst))
+	if err != nil {
+		return fmt.Errorf("failed to open session directory: %w", err)
+	}
+	defer dir.Close()
+	if err := dir.Sync(); err != nil {
+		return fmt.Errorf("failed to sync session directory: %w", err)
+	}
 	return nil
 }
 
