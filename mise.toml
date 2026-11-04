@@ -7,10 +7,22 @@ go = "1.27.3"
 golangci-lint = "2.15.0"
 goreleaser = "2.19.0"
 lefthook = "2.1.9"
+buf = "1.75.0"
+"go:google.golang.org/protobuf/cmd/protoc-gen-go" = "1.36.12"
+"go:connectrpc.com/connect/cmd/protoc-gen-connect-go" = "1.21.1"
 
 [tasks."check:tidy"]
 run = "go mod tidy -diff"
 
+[tasks."gen:api"]
+run = "buf generate"
+
+[tasks."check:api"]
+run = """
+buf lint
+buf generate
+git diff --exit-code api/
+"""
 
 [tasks."check:lint"]
 run = "golangci-lint run --timeout 3m"

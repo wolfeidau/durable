@@ -5,6 +5,7 @@ steps:
       - label: ":golangci-lint: lint"
         commands:
           - mise run check:tidy
+          - mise run check:api
           - golangci-lint run --verbose --timeout 3m
         plugins:
           - mise#v1.1.5: ~
