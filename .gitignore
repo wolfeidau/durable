@@ -2,4 +2,7 @@ coverage.out
 coverage.html
 tests.json
 dist/
+!/internal/server/ui/dist/
+/internal/server/ui/dist/*
+!/internal/server/ui/dist/index.html
 /durable
