@@ -33,6 +33,8 @@ type Config struct {
 	Registry *Registry
 	// Heartbeat is how often an idle watch stream sends a heartbeat. Zero means DefaultHeartbeat.
 	Heartbeat time.Duration
+	// Draining is closed when shutdown begins, so open streams end instead of stalling the drain. Nil never closes.
+	Draining <-chan struct{}
 }
 
 // Server is the HTTP handler for the API and UI.
@@ -50,6 +52,8 @@ type sessionService struct {
 	durablev1connect.UnimplementedSessionServiceHandler
 	reg       *Registry
 	heartbeat time.Duration
+	draining  <-chan struct{}
+	logger    *slog.Logger
 }
 
 // Handler returns the API and UI behind the token, Host and Origin checks.
@@ -59,7 +63,11 @@ func (s *Server) Handler() http.Handler {
 	if heartbeat <= 0 {
 		heartbeat = DefaultHeartbeat
 	}
-	path, h := durablev1connect.NewSessionServiceHandler(sessionService{reg: s.cfg.Registry, heartbeat: heartbeat})
+	logger := s.cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	path, h := durablev1connect.NewSessionServiceHandler(sessionService{reg: s.cfg.Registry, heartbeat: heartbeat, draining: s.cfg.Draining, logger: logger})
 	mux.Handle(path, s.requireToken(h))
 
 	ui, err := fs.Sub(uiFS, "ui/dist")

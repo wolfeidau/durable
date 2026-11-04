@@ -15,11 +15,27 @@ import (
 // DefaultHeartbeat is how often an idle watch stream sends a heartbeat.
 const DefaultHeartbeat = 20 * time.Second
 
-const watchPage = 256
+// watchPage is a var so a test can exercise paging without hundreds of events.
+var watchPage = 256
+
+var errDraining = errors.New("server shutting down")
 
 // WatchEvents replays committed events after the cursor, then follows new ones on the same read path.
 func (s sessionService) WatchEvents(ctx context.Context, req *connect.Request[durablev1.WatchEventsRequest], stream *connect.ServerStream[durablev1.WatchEventsResponse]) error {
-	sess, release, err := s.reg.Acquire(ctx, req.Msg.GetSessionId())
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	go func() {
+		select {
+		case <-s.draining:
+			cancel(errDraining)
+		case <-ctx.Done():
+		}
+	}()
+	return s.watchErr(ctx, s.watch(ctx, req.Msg, stream))
+}
+
+func (s sessionService) watch(ctx context.Context, req *durablev1.WatchEventsRequest, stream *connect.ServerStream[durablev1.WatchEventsResponse]) error {
+	sess, release, err := s.reg.Acquire(ctx, req.GetSessionId())
 	if err != nil {
 		return err
 	}
@@ -27,11 +43,13 @@ func (s sessionService) WatchEvents(ctx context.Context, req *connect.Request[du
 	defer release()
 
 	epoch := sess.Epoch()
-	cursor := req.Msg.GetAfterSeq()
+	cursor := req.GetAfterSeq()
 	if cursor < 0 {
 		return connect.NewError(connect.CodeInvalidArgument, errors.New("after_seq must not be negative"))
 	}
-	if newest := sess.newestSeq(); (req.Msg.GetEpoch() != "" && req.Msg.GetEpoch() != epoch) || cursor > newest {
+	// A cursor with no epoch can't be trusted across a restore, so it replays from 0.
+	staleEpoch := req.GetEpoch() != epoch && (req.GetEpoch() != "" || cursor > 0)
+	if newest := sess.newestSeq(); staleEpoch || cursor > newest {
 		return epochMismatch(epoch, newest)
 	}
 
@@ -64,6 +82,21 @@ func (s sessionService) WatchEvents(ctx context.Context, req *connect.Request[du
 			}
 		}
 	}
+}
+
+// watchErr keeps internal error text, which can hold paths, off the wire.
+func (s sessionService) watchErr(ctx context.Context, err error) error {
+	var cerr *connect.Error
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(context.Cause(ctx), errDraining):
+		return connect.NewError(connect.CodeUnavailable, errDraining)
+	case errors.As(err, &cerr), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return err
+	}
+	s.logger.ErrorContext(ctx, "watch failed", "error", err)
+	return connect.NewError(connect.CodeInternal, errors.New("internal error"))
 }
 
 func epochMismatch(epoch string, lastSeq int64) error {

@@ -75,11 +75,14 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 		Logger:      logger,
 	})
 	defer registry.Close()
+	draining := make(chan struct{})
 	srv := &http.Server{
-		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: c.Heartbeat}).Handler(),
+		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: c.Heartbeat, Draining: draining}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}
+	// A stream never goes idle, so Shutdown would wait out the grace period for it.
+	srv.RegisterOnShutdown(func() { close(draining) })
 	srv.Protocols = new(http.Protocols)
 	srv.Protocols.SetHTTP1(true)
 	srv.Protocols.SetUnencryptedHTTP2(true)

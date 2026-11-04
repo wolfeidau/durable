@@ -268,6 +268,10 @@ func TestWatchRejectsStaleEpochAndFutureSeq(t *testing.T) {
 	require.Equal(t, w.epoch(), m.GetEpoch())
 	require.Equal(t, last, m.GetLastSeq())
 
+	// A cursor with no epoch can't be trusted, so it replays from 0 too.
+	m = epochMismatchOf(t, watchError(t, w, "", 1))
+	require.Equal(t, w.epoch(), m.GetEpoch())
+
 	m = epochMismatchOf(t, watchError(t, w, w.epoch(), last+1))
 	require.Equal(t, w.epoch(), m.GetEpoch())
 	require.Equal(t, last, m.GetLastSeq())
