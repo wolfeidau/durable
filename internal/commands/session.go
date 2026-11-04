@@ -73,6 +73,29 @@ func ListSessions(home string) (sessions []SessionMeta, warnings []string, err e
 	return sessions, warnings, nil
 }
 
+// ReadSessionMeta reads one session's session.json from its directory.
+// It returns ErrNoSession when the directory has no session.json or no database.
+func ReadSessionMeta(dir string) (SessionMeta, error) {
+	if _, err := os.Stat(filepath.Join(dir, "session.sqlite")); errors.Is(err, fs.ErrNotExist) {
+		return SessionMeta{}, ErrNoSession
+	} else if err != nil {
+		return SessionMeta{}, fmt.Errorf("failed to check session database: %w", err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, sessionMetaFile)) //nolint:gosec // fixed name inside the session directory
+	if errors.Is(err, fs.ErrNotExist) {
+		return SessionMeta{}, ErrNoSession
+	}
+	if err != nil {
+		return SessionMeta{}, fmt.Errorf("failed to read session metadata: %w", err)
+	}
+	var m SessionMeta
+	if err := json.Unmarshal(b, &m); err != nil {
+		return SessionMeta{}, fmt.Errorf("failed to parse session metadata: %w", err)
+	}
+	m.ID = filepath.Base(dir)
+	return m, nil
+}
+
 // SessionPath returns the database path for a working directory and session name.
 func SessionPath(cwd, session string) (string, error) {
 	home, err := os.UserHomeDir()

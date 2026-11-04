@@ -28,6 +28,8 @@ type Config struct {
 	Token  string
 	Addr   string // the actual listen address, used for the Host allow list
 	Logger *slog.Logger
+	// Registry opens the sessions the handlers act on.
+	Registry *Registry
 }
 
 // Server is the HTTP handler for the API and UI.
