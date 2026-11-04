@@ -14,6 +14,19 @@ import (
 // loss, and IMMEDIATE transactions so the lease fence takes the write lock
 // before anything else in the transaction runs.
 func Open(ctx context.Context, path string, opts Options) (*Harness, error) {
+	db, err := openSQL(path)
+	if err != nil {
+		return nil, err
+	}
+	h, err := OpenDB(ctx, db, opts)
+	if err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return h, nil
+}
+
+func openSQL(path string) (*sql.DB, error) {
 	// SQLite treats ?, # and % in a file: URI specially, so escape the path.
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_synchronous=FULL&_busy_timeout=5000&_txlock=immediate&_foreign_keys=on", (&url.URL{Path: path}).EscapedPath())
 	db, err := sql.Open("sqlite3", dsn)
@@ -23,10 +36,5 @@ func Open(ctx context.Context, path string, opts Options) (*Harness, error) {
 	// One connection: the harness is single-writer by design, and it keeps
 	// reads inside the process consistent with its own writes.
 	db.SetMaxOpenConns(1)
-	h, err := OpenDB(ctx, db, opts)
-	if err != nil {
-		_ = db.Close()
-		return nil, err
-	}
-	return h, nil
+	return db, nil
 }
