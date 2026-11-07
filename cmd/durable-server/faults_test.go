@@ -137,16 +137,21 @@ func (h hostRewriter) RoundTrip(req *http.Request) (*http.Response, error) {
 }
 
 func faultClient(r *running, p *faultProxy, opts ...connect.ClientOption) durablev1connect.SessionServiceClient {
-	hc := h2cClient()
+	return faultClientOver(h2cClient(), r, p, opts...)
+}
+
+// faultClientOver sends through p over hc, so a test can choose HTTP/2 or HTTP/1.1.
+func faultClientOver(hc *http.Client, r *running, p *faultProxy, opts ...connect.ClientOption) durablev1connect.SessionServiceClient {
 	hc.Transport = hostRewriter{next: hc.Transport, host: strings.TrimPrefix(r.url, "http://")}
 	return durablev1connect.NewSessionServiceClient(hc, "http://"+p.ln.Addr().String(), opts...)
 }
 
 type faultResult struct {
-	w         *watcher
-	errs      int // attempts that ended with an error
-	cleanEnds int // attempts that ended with no error before stop
-	attempts  int
+	w          *watcher
+	errs       int // attempts that ended with an error
+	cleanEnds  int // attempts that ended with no error before stop
+	attempts   int
+	firstErrAt int // events applied when the first error ended an attempt, or -1
 }
 
 // faultAttempt streams once and returns the error that ended it; nil before stop means a clean end.
@@ -178,7 +183,7 @@ func faultAttempt(client durablev1connect.SessionServiceClient, w *watcher, stop
 // faultWatch follows the session with a resume loop until stop is true, calling onItem after each message.
 func faultWatch(t *testing.T, client durablev1connect.SessionServiceClient, r *running, id string, stop func(*watcher) bool, onItem func(*watcher)) *faultResult {
 	t.Helper()
-	res := &faultResult{w: &watcher{client: client, token: r.token, id: id}}
+	res := &faultResult{w: &watcher{client: client, token: r.token, id: id}, firstErrAt: -1}
 	w := res.w
 	deadline := time.Now().Add(watchTimeout)
 	for !stop(w) {
@@ -190,6 +195,9 @@ func faultWatch(t *testing.T, client durablev1connect.SessionServiceClient, r *r
 		case err == nil:
 			res.cleanEnds++
 		default:
+			if res.errs == 0 {
+				res.firstErrAt = len(w.events)
+			}
 			res.errs++
 			if connect.CodeOf(err) == connect.CodeFailedPrecondition {
 				w.events = nil
@@ -207,10 +215,17 @@ func faultFinal(t *testing.T, r *running, id string, n int, opts ...connect.Clie
 	return seqs(w.events)
 }
 
-var faultProtocols = map[string][]connect.ClientOption{
-	"connect":  nil,
-	"grpc":     {connect.WithGRPC()},
-	"grpc-web": {connect.WithGRPCWeb()},
+// faultTransports pairs each protocol with its transports. gRPC needs HTTP/2, and browsers stream over HTTP/1.1.
+var faultTransports = []struct {
+	name string
+	h1   bool
+	opts []connect.ClientOption
+}{
+	{"connect/h2", false, nil},
+	{"grpc/h2", false, []connect.ClientOption{connect.WithGRPC()}},
+	{"grpc-web/h2", false, []connect.ClientOption{connect.WithGRPCWeb()}},
+	{"connect/h1", true, nil},
+	{"grpc-web/h1", true, []connect.ClientOption{connect.WithGRPCWeb()}},
 }
 
 func TestFaultLatencyDelaysButLosesNothing(t *testing.T) {
@@ -227,8 +242,8 @@ func TestFaultLatencyDelaysButLosesNothing(t *testing.T) {
 
 func TestFaultMidStreamBreakResumesExactly(t *testing.T) {
 	for _, mode := range []string{"reset", "cut"} {
-		for name, opts := range faultProtocols {
-			t.Run(mode+"/"+name, func(t *testing.T) {
+		for _, tr := range faultTransports {
+			t.Run(mode+"/"+tr.name, func(t *testing.T) {
 				_, home, id, _ := seedSession(t, textReply("hi"), 150*time.Millisecond, 4)
 				r := startIn(t, home)
 				p := newFaultProxy(t, r)
@@ -239,12 +254,20 @@ func TestFaultMidStreamBreakResumesExactly(t *testing.T) {
 					p.cutAt.Store(600)
 				}
 
-				res := faultWatch(t, faultClient(r, p, opts...), r, id, func(w *watcher) bool { return w.done() >= 4 }, nil)
-				t.Logf("%s/%s: attempts=%d errors=%d cleanEnds=%d", mode, name, res.attempts, res.errs, res.cleanEnds)
+				hc := h2cClient()
+				if tr.h1 {
+					hc = &http.Client{Transport: &http.Transport{}}
+				}
+				res := faultWatch(t, faultClientOver(hc, r, p, tr.opts...), r, id, func(w *watcher) bool { return w.done() >= 4 }, nil)
+				t.Logf("%s/%s: attempts=%d errors=%d cleanEnds=%d firstErrAt=%d", mode, tr.name, res.attempts, res.errs, res.cleanEnds, res.firstErrAt)
 				require.Positive(t, res.errs+res.cleanEnds, "the fault never hit")
 				require.Zero(t, res.cleanEnds, "a truncated stream ended with no error")
+				final := faultFinal(t, r, id, 4, tr.opts...)
+				// Some events arrived before the first break and more after it, so it hit mid-stream.
+				require.Positive(t, res.firstErrAt, "the fault hit before any event")
+				require.Less(t, res.firstErrAt, len(final), "the fault hit after the last event")
 				requireContiguous(t, res.w.events)
-				require.Equal(t, faultFinal(t, r, id, 4, opts...), seqs(res.w.events))
+				require.Equal(t, final, seqs(res.w.events))
 			})
 		}
 	}

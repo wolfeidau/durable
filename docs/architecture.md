@@ -280,10 +280,15 @@ pool under watcher reads.
 ### 3. Network faults
 
 A fault-injecting TCP proxy inside the real-binary tests (`cmd/durable-server/faults_test.go`) adds
-latency, a reset mid-stream, a stream cut off before it ends and a cut during a heartbeat wait. The
-client resumes from its last seq and ends with the same contiguous seqs as a clean watch, over
-Connect, gRPC and gRPC-Web. It replaces toxiproxy, because it needs no Docker or new dependency and
-runs in plain `go test`. Proxy tests with nginx wait for [hosting](#hosting-is-deferred).
+latency, a TCP reset mid-stream, a closed connection mid-stream and a break during a heartbeat wait.
+The client resumes from its last seq and ends with the same contiguous seqs as a clean watch. The
+breaks run over HTTP/2 for Connect, gRPC and gRPC-Web, and over HTTP/1.1, the browser's transport,
+for Connect and gRPC-Web. Every break surfaced as an error, never a clean end. It replaces toxiproxy,
+because it needs no Docker or new dependency and runs in plain `go test`.
+
+Not covered: a response that ends cleanly without Connect's end-of-stream message, which an
+HTTP-aware proxy can produce on a timeout. It needs a real proxy, so it waits for
+[hosting](#hosting-is-deferred) with the nginx tests.
 
 ### 4. Browser
 
