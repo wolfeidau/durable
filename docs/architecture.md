@@ -217,11 +217,12 @@ only the server's login code writes it, and session files stay separate.
 
 Commands on `durable-server`:
 
-- `setup` writes the config, runs `mkcert` for the host name into `certs/`, and prints the URL, the
-  certificate paths and a login link for the first user. It asks for the login method, recommending
-  `oauth` or `webauthn`. It doesn't edit system files: if `mkcert` is missing or its CA isn't
-  installed, or the name doesn't resolve to loopback, it prints the command or `/etc/hosts` line to
-  fix it.
+- `setup` first checks that `mkcert` is on the `PATH` and its CA is installed (`mkcert -CAROOT`
+  holds `rootCA.pem`). If not, it stops before writing anything and prints the fix, such as
+  `brew install mkcert nss` then `mkcert -install`. It then writes the config, runs `mkcert` for the
+  host name into `certs/`, and prints the URL, the certificate paths and a login link for the first
+  user. It asks for the login method, recommending `oauth` or `webauthn`. It doesn't edit system
+  files: if the name doesn't resolve to loopback, it prints the `/etc/hosts` line to add.
 - `config` prints the same summary on demand: URL, address, certificate paths and expiry, the mkcert
   CA root, the login method, and whether the name resolves and the address accepts connections. It's
   for when you've forgotten.
