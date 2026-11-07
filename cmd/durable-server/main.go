@@ -133,10 +133,11 @@ func writeServerInfo(path string, info serverInfo) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode server info: %w", err)
 	}
-	return writeFileAtomic(path, data)
+	return writeFileAtomic(path, data, true)
 }
 
-func writeFileAtomic(path string, data []byte) error {
+// writeFileAtomic writes via a temp file; replace false fails with os.ErrExist if path exists.
+func writeFileAtomic(path string, data []byte, replace bool) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("failed to create %s: %w", dir, err)
@@ -157,6 +158,13 @@ func writeFileAtomic(path string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("failed to close %s: %w", path, err)
 	}
+	if !replace {
+		// A link fails if path exists, so a complete file appears at most once.
+		if err := os.Link(tmp.Name(), path); err != nil {
+			return fmt.Errorf("failed to create %s: %w", path, err)
+		}
+		return nil
+	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("failed to replace %s: %w", path, err)
 	}
@@ -165,14 +173,15 @@ func writeFileAtomic(path string, data []byte) error {
 
 // loadOrCreateToken keeps the token across restarts so a restart doesn't sign the browser out.
 func loadOrCreateToken(path string) (string, error) {
-	st, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		token := rand.Text()
-		if err := writeFileAtomic(path, []byte(token+"\n")); err != nil {
-			return "", err
-		}
+	token := rand.Text()
+	err := writeFileAtomic(path, []byte(token+"\n"), false)
+	if err == nil {
 		return token, nil
 	}
+	if !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	st, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to stat %s: %w", path, err)
 	}
@@ -183,7 +192,7 @@ func loadOrCreateToken(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read %s: %w", path, err)
 	}
-	token := strings.TrimSpace(string(data))
+	token = strings.TrimSpace(string(data))
 	if token == "" {
 		return "", fmt.Errorf("%s is empty; delete it or run durable-server rotate-token", path)
 	}
@@ -221,7 +230,7 @@ func (*rotateTokenCmd) Run() error {
 	if err != nil {
 		return fmt.Errorf("failed to find home directory: %w", err)
 	}
-	if err := writeFileAtomic(filepath.Join(home, ".durable", tokenFile), []byte(rand.Text()+"\n")); err != nil {
+	if err := writeFileAtomic(filepath.Join(home, ".durable", tokenFile), []byte(rand.Text()+"\n"), true); err != nil {
 		return err
 	}
 	fmt.Println("Token rotated. It takes effect when the server next starts; browsers need the new link from durable-server url.")
