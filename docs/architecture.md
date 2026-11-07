@@ -91,9 +91,12 @@ and one handler serves Connect, gRPC and gRPC-Web.
 - **Heartbeats:** `WatchEvents` sends one every 15–30s, because approval waits can last hours and
   proxies close idle streams.
 - **Deltas carry the last committed seq,** so a client drops any delta older than the events it has.
-- **Deltas are opt-in** with `include_deltas`. Each watcher has a bounded buffer. On overflow it skips
-  deltas until the next reset, so a slow client never shows garbled text and never slows a run.
-- **Headers go out at once,** so a client's `WatchEvents` call returns before the first event.
+- **Deltas are opt-in** with `include_deltas`, and a delta is sent after every event up to its
+  `last_seq` and before any later one. Each watcher has a bounded buffer and never slows a run. On
+  overflow, text is skipped until the next reset, so a slow client never shows garbled prose, while
+  tool output loses only the dropped chunks.
+- **Headers go out at once,** after the delta subscription, so a client's `WatchEvents` call returns
+  before the first event, and a submit made after it returns is seen from its reset.
 - **Storage is unchanged:** SQLite stays JSON, because `Raw` must replay byte for byte. Tool input is
   `bytes` in proto, not `google.protobuf.Struct`. `Raw` stays off the wire, because provider content
   is only replayed server side.

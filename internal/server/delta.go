@@ -12,8 +12,26 @@ type stampedDelta struct {
 }
 
 type deltaSub struct {
-	ch    chan stampedDelta
-	lossy bool // guarded by Session.mu; skip deltas until the next reset so a client never shows garbled text
+	ch       chan stampedDelta
+	skipText bool // guarded by Session.mu
+}
+
+// admit applies the overflow rule and reports whether to keep d. Missing text garbles a reply, so after an
+// overflow text is skipped until the next reset; a gap in tool output is harmless, so only that chunk is lost.
+func admit(skipText *bool, kind durable.DeltaKind, full bool) bool {
+	if kind == durable.DeltaText && *skipText {
+		return false
+	}
+	if full {
+		if kind != durable.DeltaToolOutput {
+			*skipText = true
+		}
+		return false
+	}
+	if kind == durable.DeltaReset {
+		*skipText = false
+	}
+	return true
 }
 
 // onDelta is the harness OnDelta: it never blocks or calls the harness, and does nothing without subscribers.
@@ -25,14 +43,9 @@ func (s *Session) onDelta(d durable.Delta) {
 	}
 	sd := stampedDelta{Delta: d, LastSeq: s.newest}
 	for sub := range s.subs {
-		if sub.lossy && d.Kind != durable.DeltaReset {
-			continue
-		}
-		select {
-		case sub.ch <- sd:
-			sub.lossy = false
-		default:
-			sub.lossy = true
+		// onDelta is the only sender and runs under mu, so a send with room never blocks.
+		if admit(&sub.skipText, d.Kind, len(sub.ch) == cap(sub.ch)) {
+			sub.ch <- sd
 		}
 	}
 }

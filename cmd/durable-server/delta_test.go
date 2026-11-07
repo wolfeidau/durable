@@ -39,21 +39,18 @@ func openWatch(t *testing.T, r *running, id string, includeDeltas bool) *watchSt
 	return stream
 }
 
-// collect reads items until the stream has seen done finished submissions.
-func collect(t *testing.T, stream *watchStream, done int) []*v1.WatchEventsResponse {
+// collect reads items until the stream has seen a submission finish.
+func collect(t *testing.T, stream *watchStream) []*v1.WatchEventsResponse {
 	t.Helper()
 	var items []*v1.WatchEventsResponse
-	n := 0
 	for stream.Receive() {
 		items = append(items, stream.Msg())
 		if isDone(stream.Msg()) {
-			if n++; n == done {
-				return items
-			}
+			return items
 		}
 	}
 	require.NoError(t, stream.Err())
-	t.Fatal("stream ended before the submissions finished")
+	t.Fatal("stream ended before the submission finished")
 	return nil
 }
 
@@ -141,36 +138,26 @@ func sequenceAPI(t *testing.T, replies ...string) *fakeAPI {
 	return f
 }
 
-func submitAs(t *testing.T, c apiClient, id, requestID, text string) {
+func submitAs(t *testing.T, c apiClient, id, text string) {
 	t.Helper()
-	_, err := c.Submit(t.Context(), authed(c, &v1.SubmitRequest{SessionId: id, RequestId: requestID, Text: text}))
+	_, err := c.Submit(t.Context(), authed(c, &v1.SubmitRequest{SessionId: id, RequestId: "req-1", Text: text}))
 	require.NoError(t, err)
 }
 
-// startWarm starts a server whose first submission has already finished, so a watch opened next
-// attaches before the second submission's run starts and sees its RESET.
-func startWarm(t *testing.T, home string, api *fakeAPI, id string) (apiClient, *running) {
-	t.Helper()
-	r := startEnv(t, home, apiEnv(api), "--api-token", "dummy")
-	c := newClient(r)
-	submitAs(t, c, id, "warm", "warm up")
-	collect(t, openWatch(t, r, id, false), 1)
-	return c, r
-}
-
+// startDeltaServer serves a fresh session. Tests open a watch and submit at once, as a client would.
 func startDeltaServer(t *testing.T, replies ...string) (c apiClient, r *running, id string) {
 	t.Helper()
 	ws, home := newWorkspace(t)
 	id = createSession(t, ws, home, "s")
-	c, r = startWarm(t, home, sequenceAPI(t, append([]string{textReply("warm")}, replies...)...), id)
-	return c, r, id
+	r = startEnv(t, home, apiEnv(sequenceAPI(t, replies...)), "--api-token", "dummy")
+	return newClient(r), r, id
 }
 
 func TestWatchDeltasPrecedeTheMessage(t *testing.T) {
 	c, r, id := startDeltaServer(t, chunkedReply("hello", " wide", " world"))
 	stream := openWatch(t, r, id, true)
-	submitAs(t, c, id, "req-2", "hi")
-	items := lastRun(t, collect(t, stream, 2))
+	submitAs(t, c, id, "hi")
+	items := lastRun(t, collect(t, stream))
 
 	msg := indexOf(items, isAssistantMessage)
 	require.GreaterOrEqual(t, msg, 0)
@@ -188,8 +175,8 @@ func TestWatchDeltasPrecedeTheMessage(t *testing.T) {
 func TestWatchWithoutIncludeDeltasSendsNone(t *testing.T) {
 	c, r, id := startDeltaServer(t, chunkedReply("hello", " world"))
 	stream := openWatch(t, r, id, false)
-	submitAs(t, c, id, "req-2", "hi")
-	items := collect(t, stream, 2)
+	submitAs(t, c, id, "hi")
+	items := collect(t, stream)
 	require.Empty(t, deltasOf(items))
 	require.GreaterOrEqual(t, indexOf(items, isAssistantMessage), 0)
 }
@@ -208,9 +195,9 @@ const slowCommand = "echo one; sleep 0.3; echo two"
 func TestWatchToolOutputDeltasPrecedeCallDone(t *testing.T) {
 	c, r, id := startDeltaServer(t, bashReply(slowCommand))
 	stream := openWatch(t, r, id, true)
-	submitAs(t, c, id, "req-2", "run it")
+	submitAs(t, c, id, "run it")
 	approveFirst(t, c, id)
-	items := lastRun(t, collect(t, stream, 2))
+	items := lastRun(t, collect(t, stream))
 
 	callDone := indexOf(items, isCallDone)
 	require.GreaterOrEqual(t, callDone, 0)
@@ -240,11 +227,12 @@ func TestPostToolUseHookWithholdsToolOutputDeltas(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "hooks.json"), cfg, 0o600))
 
 	id := createSession(t, ws, home, "s")
-	c, r := startWarm(t, home, sequenceAPI(t, textReply("warm"), bashReply(slowCommand)), id)
+	r := startEnv(t, home, apiEnv(sequenceAPI(t, bashReply(slowCommand))), "--api-token", "dummy")
+	c := newClient(r)
 	stream := openWatch(t, r, id, true)
-	submitAs(t, c, id, "req-2", "run it")
+	submitAs(t, c, id, "run it")
 	approveFirst(t, c, id)
-	items := lastRun(t, collect(t, stream, 2))
+	items := lastRun(t, collect(t, stream))
 
 	require.GreaterOrEqual(t, indexOf(items, isCallDone), 0)
 	require.NotEmpty(t, deltasOf(items), "the reset still arrives")
@@ -263,10 +251,10 @@ func TestStalledWatcherDoesNotBlockTheRunOrOthers(t *testing.T) {
 	stalled := openWatch(t, r, id, true)
 	_ = stalled // never read
 	reader := openWatch(t, r, id, true)
-	submitAs(t, c, id, "req-2", "hi")
+	submitAs(t, c, id, "hi")
 
 	start := time.Now()
-	items := lastRun(t, collect(t, reader, 2))
+	items := lastRun(t, collect(t, reader))
 	require.Less(t, time.Since(start), 30*time.Second)
 	msg := indexOf(items, isAssistantMessage)
 	require.GreaterOrEqual(t, msg, 0)

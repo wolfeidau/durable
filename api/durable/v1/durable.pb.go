@@ -787,8 +787,11 @@ type WatchEventsRequest struct {
 	// epoch identifies one copy of the session; empty on the first watch.
 	Epoch    string `protobuf:"bytes,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
 	AfterSeq int64  `protobuf:"varint,3,opt,name=after_seq,json=afterSeq,proto3" json:"after_seq,omitempty"`
-	// include_deltas streams live deltas with the events. Deltas are best-effort and not durable:
-	// clients drop a delta whose last_seq is below the seq of the last event they applied.
+	// include_deltas streams live deltas with the events. Deltas are best-effort and not durable.
+	// Within one stream a delta follows every event up to its last_seq and precedes any later event,
+	// and the subscription starts before the response headers. After an overflow, text is skipped until
+	// the next RESET and tool output loses only the dropped chunks. Dropping a delta whose last_seq is
+	// below the last applied event's seq is only a safeguard.
 	IncludeDeltas bool `protobuf:"varint,4,opt,name=include_deltas,json=includeDeltas,proto3" json:"include_deltas,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
