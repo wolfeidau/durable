@@ -24,7 +24,7 @@ Not goals for now: multi-tenant hosting, team features and an ACP or editor inte
   and `by` on an approval is free text. A team product would add auth, attribution and probably shared
   storage, and identity in the schema.
 - **Local first.** Phases 2 and 3 run on loopback, with the browser and server on one machine. No
-  proxy, no TLS and no remote access until [hosting](#hosting-is-deferred).
+  public proxy and no remote access until [hosting](#hosting-is-deferred).
 
 ## Architecture
 
@@ -185,6 +185,13 @@ binary. `connect-query` suits unary calls; `WatchEvents` needs a hand-written ho
 committed placeholder and a "UI not built" page, so `go build`, `go vet ./...` and `go test ./...`
 work on a fresh clone without Bun. `buf` is pinned through mise, so the library's `go.mod` stays small.
 
+### Server access (phase 3)
+
+The browser keeps using the bearer token, but the token stays the same across restarts, in a
+`0600` file under `~/.durable`. `durable-server url` prints a URL that hands it to the page, and
+`rotate-token` replaces it. TLS, passkeys, cookies and OAuth wait for Tailscale or hosting. The
+design, and what's shelved, is in [server access](server-access.md).
+
 ### Durable approvals
 
 Shipped in v0.1.0. `Options.DeferApprovals` parks a call as a row and an event, and `Run` returns
@@ -223,9 +230,9 @@ there's a hosting target. It brings:
 - **Proxy streaming.** Buffering proxies can hold a stream until it ends. Turn buffering off first,
   for nginx `proxy_buffering off` with `proxy_http_version 1.1`, and test with nginx in
   `e2e/compose.yaml`. Heartbeats already cover idle timeouts.
-- **Allowed hosts and origins.** The server accepts only its listen address, `localhost` and
-  `127.0.0.1` on its port, and `http` origins. A proxied server needs configurable hosts and origins,
-  including `https`.
+- **Allowed hosts and origins.** The server accepts its listen address, `localhost` and `127.0.0.1`
+  on its port, and from phase 3 the configured TLS host name with `https` origins. A proxied server
+  needs the public host name and origin added.
 - **TLS** at the proxy.
 - **SSE fallback.** If a proxy defeats streaming over `fetch`, serve `WatchEvents` as SSE next to
   Connect, for example with [connect-sse](https://pkg.go.dev/github.com/firetiger-oss/connect-sse),
@@ -241,8 +248,9 @@ needs its own `kill -9`, lease and power-loss evaluation.
 
 The API can approve shell commands, so the bar is higher than for a typical dashboard.
 
-- Require a per-run token on every RPC, even on loopback, because any web page can send requests to
-  localhost.
+- Require a token on every RPC, even on loopback, because any web page can send requests to
+  localhost, and other users on the machine can reach the port. From phase 3 it's kept across
+  restarts; see [server access](server-access.md).
 - Validate `Host` and `Origin`, and leave CORS off.
 - Never mark `DecideApproval` as side-effect free, so it can't be called through GET.
 - Treat exports, replicas and event streams as sensitive.
@@ -269,7 +277,8 @@ and drive a scripted fake model.
   the call runs once.
 - **Protocols:** run the suite over Connect, gRPC and gRPC-Web with the connect-go clients.
 - **Redaction:** secrets a gate adds to `Event.Call` never reach the wire.
-- **Auth:** requests with a missing token, a wrong `Origin` or a wrong `Host` are rejected.
+- **Auth:** requests with a missing token, a wrong `Origin` or a wrong `Host` are rejected. Phase 3
+  adds the tests in [server access](server-access.md#tests).
 
 ### 2. Contention
 
@@ -318,8 +327,8 @@ driven by hand in Chrome against a real OpenRouter model:
 What phase 3 needs from it:
 
 - **Stable auth across restarts.** The token is new on each run, so after a restart the page stops
-  at `Unauthenticated` until it's given the new one. Keep the token across restarts, or move the
-  browser to a cookie set from a one-time link.
+  at `Unauthenticated` until it's given the new one. Phase 3 keeps the token across restarts, as in
+  [server access](server-access.md).
 - **The hook's shape.** It holds `(epoch, cursor)`, counts a seq that isn't `cursor + 1` as a gap,
   resets to `("", 0)` on `FAILED_PRECONDITION`, waits for new auth on `Unauthenticated`, and
   otherwise reconnects after a 1s backoff.
@@ -365,8 +374,11 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    - **Approval status on request.** An `approval_requested` event carries no status, so it reaches
      the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
      `APPROVAL_STATUS_PENDING` would be clearer.
-3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
-   first, with validation layer 4.
+3. **Web UI.** One session view with a live transcript and an approval prompt. The first slice
+   builds the [server access](server-access.md#first-cut-a-stable-token) first cut before any UI: a
+   stable token, `url` and `rotate-token`. Rerun the layer 4 spike page opened from `url`, and check
+   that it keeps streaming across a restart without a new URL. Then prove the streaming hook, and
+   build the UI.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
