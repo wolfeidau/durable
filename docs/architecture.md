@@ -380,7 +380,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    builds the [server access](server-access.md#first-cut-a-stable-token) first cut before any UI: a
    stable token, `url` and `rotate-token`. Rerun the layer 4 spike page opened from `url`, and check
    that it keeps streaming across a restart without a new URL. Then prove the streaming hook, and
-   build the UI. Slice J (this PR) built the `web/` scaffold, the `WatchEngine` and the
+   build the UI. Slice J (#70) built the `web/` scaffold, the `WatchEngine` and the
    `useWatchEvents` hook, with a minimal page and `bun test` coverage of the hook's rules. Playwright
    automation of layer 4 is the next slice.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
