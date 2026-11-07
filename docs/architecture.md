@@ -1,7 +1,7 @@
 # Server architecture
 
-**Status: phase 2 in progress.** Durable approvals, phase 1 and phase 2 slices A to F, S and R are
-built, and the browser spike passed. G, H and I remain.
+**Status: phase 2 complete.** Durable approvals, phase 1 and every phase 2 slice are built, and the
+browser spike passed. Phase 3, the web UI, is next.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -277,6 +277,13 @@ Run one scripted session with 0, 10 and 50 watchers, one of which never reads. `
 within a bound, and the stalled watcher doesn't delay the others. This checks the single-connection
 pool under watcher reads.
 
+`cmd/durable-server/contention_test.go` writes about 6 MB of events while the stalled watcher, with a
+4 KB receive buffer, has attached and reads nothing. That is enough to fill its socket buffers, so its
+`Send` is expected to block; afterwards its backlog starts at seq 1. It showed no stall cost:
+`WatchEvents` reads a page and closes the cursor before it sends, so a blocked `Send` never holds the
+one connection. Wall time grows with readers, because each reader pulls the whole log. The test polls
+for completion through a separate read-only connection, so polling adds no load to the server.
+
 ### 3. Network faults
 
 A fault-injecting TCP proxy inside the real-binary tests (`cmd/durable-server/faults_test.go`) adds
@@ -345,7 +352,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R | #57 |
    | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | [Passed](#4-browser) |
    | 5 | **G.** Deltas on the stream | E | #66 |
-   | 5 | **H.** Layer 2 contention tests | E | Next |
+   | 5 | **H.** Layer 2 contention tests | E | #65 |
    | 5 | **I.** Layer 3 network fault tests | E | #64 |
 
    The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
