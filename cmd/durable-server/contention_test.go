@@ -210,6 +210,9 @@ func TestContentionRunTimeWithWatchers(t *testing.T) {
 
 	for _, watchers := range []int{10, 50} {
 		t.Run(fmt.Sprintf("%d watchers plus one stalled", watchers), func(t *testing.T) {
+			if watchers >= 50 && testing.Short() {
+				t.Skip("about 24s under -race; the 10-watcher case covers the stall in short mode")
+			}
 			wall := contentionRun(t, watchers, true)
 			t.Logf("wall: %v with a stalled watcher, %v at 0 watchers", wall, baseline)
 			// Fan-out is CPU bound (each reader gets the whole log), so the bound grows with readers; the slack covers -race on CI.
