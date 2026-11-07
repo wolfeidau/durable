@@ -1,6 +1,7 @@
 # Server architecture
 
-**Status: proposed, for review before phase 2.** Nothing here is built yet except durable approvals.
+**Status: phase 2 in progress.** Durable approvals, phase 1 and phase 2 slices A to F, S and R are
+built. The spike, G, H and I remain.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -17,8 +18,9 @@ Not goals for now: multi-tenant hosting, team features and an ACP or editor inte
 
 ## Assumptions
 
-- **Single user and self-hosted.** One SQLite file per session stays. A team product would add auth,
-  attribution and probably shared storage, so confirm this before phase 2.
+- **Single user and self-hosted.** One SQLite file per session stays. The schema carries no identity,
+  and `by` on an approval is free text. A team product would add auth, attribution and probably shared
+  storage, and identity in the schema.
 
 ## Architecture
 
@@ -85,8 +87,9 @@ and one handler serves Connect, gRPC and gRPC-Web.
 - **Heartbeats:** `WatchEvents` sends one every 15–30s, because approval waits can last hours and
   proxies close idle streams.
 - **Deltas carry the last committed seq,** so a client drops any delta older than the events it has.
-- **Storage is unchanged:** SQLite stays JSON, because `Raw` must replay byte for byte. Use `bytes` for
-  `Raw` and tool input in proto, not `google.protobuf.Struct`.
+- **Storage is unchanged:** SQLite stays JSON, because `Raw` must replay byte for byte. Tool input is
+  `bytes` in proto, not `google.protobuf.Struct`. `Raw` stays off the wire, because provider content
+  is only replayed server side.
 - **API types don't mirror `Event`:** the conversion layer redacts `Event.Call`, which can hold
   secrets a gate added.
 
@@ -269,22 +272,36 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    validation layers 1 to 3. In phase 2 the server serves only sessions `durable chat` created: it opens
    existing sessions and never creates one. Each slice is one PR:
 
-   | Wave | Slice | Depends on |
-   |---|---|---|
-   | 1 | **A.** Session epoch, `Snapshot` and `Restore` | |
-   | 1 | **B.** Session index | |
-   | 1 | **C.** API schema, `buf` toolchain and the redacting conversion layer | |
-   | 2 | **D.** `cmd/durable-server` skeleton, token auth and the binary test harness | C |
-   | 2 | **S.** Session assembly extracted from `chat` | |
-   | 3 | **R.** Session registry | D, S |
-   | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D, R |
-   | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R |
-   | 4 | **Spike.** A throwaway page streams `WatchEvents` behind nginx (layer 4) | E |
-   | 5 | **G.** Deltas on the stream | E |
-   | 5 | **H.** Layer 2 contention tests | E |
-   | 5 | **I.** Layer 3 network fault tests | E |
+   | Wave | Slice | Depends on | Status |
+   |---|---|---|---|
+   | 1 | **A.** Session epoch, `Snapshot` and `Restore` | | #50 |
+   | 1 | **B.** Session index | | #51 |
+   | 1 | **C.** API schema, `buf` toolchain and the redacting conversion layer | | #52 |
+   | 2 | **D.** `cmd/durable-server` skeleton, token auth and the binary test harness | C | #53 |
+   | 2 | **S.** Session assembly extracted from `chat` | | #54 |
+   | 3 | **R.** Session registry | D, S | #56 |
+   | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D, R | #58 |
+   | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R | #57 |
+   | 4 | **Spike.** A throwaway page streams `WatchEvents` behind nginx (layer 4) | E | Next |
+   | 5 | **G.** Deltas on the stream | E | |
+   | 5 | **H.** Layer 2 contention tests | E | |
+   | 5 | **I.** Layer 3 network fault tests | E | |
 
    The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
+
+   Known gaps in the built slices, to fix before or alongside the spike:
+
+   - **Host and Origin behind a proxy.** The server accepts only its listen address, `localhost` and
+     `127.0.0.1` on its port, and `http` origins. The spike and slice I put nginx in front, so the
+     allowed hosts and origins need to be configurable first.
+   - **Retries pin the lease.** A transient model outage leaves the submission running, and the run
+     driver retries with backoff. A retrying session never counts as idle, so the server holds the
+     lease for the whole outage and the CLI can't take the session back.
+   - **Lost lease.** If `Run` returns `ErrLeaseLost`, the driver treats it as a failure and retries
+     against a harness that no longer holds the lease. It should close the session instead.
+   - **Open resumes work.** Opening a session kicks its run driver, so watching a session resumes its
+     queued work. That includes a copy made by `durable.Restore`, which conflicts with "a restored
+     session must not auto-resume" below.
 3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
    first, with validation layer 4.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
@@ -292,8 +309,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
 
 ## Open questions
 
-- **Before slice C:** is single-user and self-hosted the right scope? It decides whether the schema
-  carries identity, and that's expensive to change once the schema has external clients.
+- **Before slice G:** should a restored session wait for an explicit resume before the server runs it?
 - **Before phase 4:** are containers acceptable? [Issue #9](https://github.com/wolfeidau/durable/issues/9)
   rejected them for local use because the agent needs your real toolchain. Remote workers reverse that
   with per-repo images. Native OS sandboxing stays deferred.
