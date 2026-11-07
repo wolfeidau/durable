@@ -335,7 +335,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | [Passed](#4-browser) |
    | 5 | **G.** Deltas on the stream | E | Next |
    | 5 | **H.** Layer 2 contention tests | E | Next |
-   | 5 | **I.** Layer 3 network fault tests | E | #PR |
+   | 5 | **I.** Layer 3 network fault tests | E | #64 |
 
    The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
 
