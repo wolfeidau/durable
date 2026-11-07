@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -55,6 +56,7 @@ type running struct {
 	url, token, home string
 	cmd              *exec.Cmd
 	done             chan struct{}
+	out              bytes.Buffer // safe to read after done closes
 }
 
 func start(t *testing.T) *running {
@@ -71,8 +73,9 @@ func startEnv(t *testing.T, home string, env []string, args ...string) *running 
 	t.Helper()
 	cmd := exec.Command(binPath, append([]string{"--addr", "127.0.0.1:0"}, args...)...)
 	cmd.Env = append(append(os.Environ(), "HOME="+home), env...)
-	require.NoError(t, cmd.Start())
 	r := &running{home: home, cmd: cmd, done: make(chan struct{})}
+	cmd.Stdout, cmd.Stderr = &r.out, &r.out
+	require.NoError(t, cmd.Start())
 	go func() { _ = cmd.Wait(); close(r.done) }()
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()

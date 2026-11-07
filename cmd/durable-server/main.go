@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -22,7 +23,7 @@ import (
 	"github.com/wolfeidau/durable/internal/server"
 )
 
-type cli struct {
+type serveCmd struct {
 	Addr string `help:"Address to listen on." default:"127.0.0.1:7878"`
 
 	IdleTimeout           time.Duration `name:"idle-timeout" help:"Close a session with no clients and no work after this long." default:"5m"`
@@ -32,12 +33,24 @@ type cli struct {
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
 }
 
+type cli struct {
+	Serve       serveCmd       `cmd:"" default:"withargs" help:"Run the server."`
+	URL         urlCmd         `cmd:"" name:"url" help:"Print the browser link for the running server."`
+	RotateToken rotateTokenCmd `cmd:"" name:"rotate-token" help:"Replace the stored token. It takes effect when the server next starts."`
+}
+
+type urlCmd struct{}
+
+type rotateTokenCmd struct{}
+
+const tokenFile = "server-token"
+
 type serverInfo struct {
 	Addr  string `json:"addr"`
 	Token string `json:"token"`
 }
 
-func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
+func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to find home directory: %w", err)
@@ -49,13 +62,16 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("failed to resolve API token: %w", err)
 	}
 
+	token, err := loadOrCreateToken(filepath.Join(home, ".durable", tokenFile))
+	if err != nil {
+		return err
+	}
+
 	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", c.Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", c.Addr, err)
 	}
 	addr := ln.Addr().String()
-	token := rand.Text()
-
 	infoPath := filepath.Join(home, ".durable", "server.json")
 	if err := writeServerInfo(infoPath, serverInfo{Addr: addr, Token: token}); err != nil {
 		_ = ln.Close()
@@ -89,7 +105,7 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
-	logger.Info("serving", slog.String("url", "http://"+addr))
+	logger.Info("serving", slog.String("url", "http://"+addr), slog.String("hint", "run durable-server url for the browser link"))
 
 	select {
 	case err := <-errc:
@@ -113,32 +129,121 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 
 // writeServerInfo replaces path atomically, so a reader never sees a partial token.
 func writeServerInfo(path string, info serverInfo) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
-	}
 	data, err := json.Marshal(info)
 	if err != nil {
 		return fmt.Errorf("failed to encode server info: %w", err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), "server.json.*")
+	return writeFileAtomic(path, data, true)
+}
+
+// writeFileAtomic writes via a temp file; replace false fails with os.ErrExist if path exists.
+func writeFileAtomic(path string, data []byte, replace bool) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("failed to create %s: %w", dir, err)
+	}
+	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".*")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
 	defer os.Remove(tmp.Name())
 	if err := tmp.Chmod(0o600); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("failed to chmod server info: %w", err)
+		return fmt.Errorf("failed to chmod %s: %w", path, err)
 	}
 	if _, err := tmp.Write(data); err != nil {
 		_ = tmp.Close()
-		return fmt.Errorf("failed to write server info: %w", err)
+		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("failed to close server info: %w", err)
+		return fmt.Errorf("failed to close %s: %w", path, err)
+	}
+	if !replace {
+		// A link fails if path exists, so a complete file appears at most once.
+		if err := os.Link(tmp.Name(), path); err != nil {
+			return fmt.Errorf("failed to create %s: %w", path, err)
+		}
+		return nil
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("failed to replace %s: %w", path, err)
 	}
+	return nil
+}
+
+// loadOrCreateToken keeps the token across restarts so a restart doesn't sign the browser out.
+func loadOrCreateToken(path string) (string, error) {
+	token := rand.Text()
+	err := writeFileAtomic(path, []byte(token+"\n"), false)
+	if err == nil {
+		return token, nil
+	}
+	if !errors.Is(err, os.ErrExist) {
+		return "", err
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat %s: %w", path, err)
+	}
+	if st.Mode().Perm()&0o077 != 0 {
+		return "", fmt.Errorf("%s is accessible by other users (mode %04o); run chmod 600 %s", path, st.Mode().Perm(), path)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // fixed name inside the durable directory
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s: %w", path, err)
+	}
+	token = strings.TrimSpace(string(data))
+	if token == "" {
+		return "", fmt.Errorf("%s is empty; delete it or run durable-server rotate-token", path)
+	}
+	return token, nil
+}
+
+func (*urlCmd) Run(ctx context.Context) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to find home directory: %w", err)
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".durable", "server.json")) //nolint:gosec // fixed name inside the durable directory
+	if errors.Is(err, os.ErrNotExist) {
+		return errors.New("no server running")
+	}
+	if err != nil {
+		return fmt.Errorf("failed to read server info: %w", err)
+	}
+	var info serverInfo
+	if err := json.Unmarshal(data, &info); err != nil {
+		return fmt.Errorf("failed to parse server info: %w", err)
+	}
+	dialer := net.Dialer{Timeout: time.Second}
+	conn, err := dialer.DialContext(ctx, "tcp", info.Addr)
+	if err != nil {
+		return fmt.Errorf("no server running at %s (server.json is left over): %w", info.Addr, err)
+	}
+	_ = conn.Close()
+	fmt.Println(browserURL(info.Addr, info.Token))
+	return nil
+}
+
+// browserURL swaps a wildcard listen address for loopback, which a browser can open and the Host check allows.
+func browserURL(addr, token string) string {
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+			addr = net.JoinHostPort("127.0.0.1", port)
+		}
+	}
+	return "http://" + addr + "/#token=" + token
+}
+
+func (*rotateTokenCmd) Run() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to find home directory: %w", err)
+	}
+	if err := writeFileAtomic(filepath.Join(home, ".durable", tokenFile), []byte(rand.Text()+"\n"), true); err != nil {
+		return err
+	}
+	fmt.Println("Token rotated. It takes effect when the server next starts; browsers need the new link from durable-server url.")
 	return nil
 }
 
@@ -156,7 +261,7 @@ func main() {
 	err := k.Run()
 	stop()
 	if err != nil {
-		logger.Error("server failed", slog.Any("error", err))
+		logger.Error("command failed", slog.String("command", k.Command()), slog.Any("error", err))
 		os.Exit(1)
 	}
 }
