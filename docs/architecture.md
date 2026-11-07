@@ -185,6 +185,60 @@ binary. `connect-query` suits unary calls; `WatchEvents` needs a hand-written ho
 committed placeholder and a "UI not built" page, so `go build`, `go vet ./...` and `go test ./...`
 work on a fresh clone without Bun. `buf` is pinned through mise, so the library's `go.mod` stays small.
 
+### Local TLS and browser login (phase 3)
+
+The browser reaches the server at `https://durable.localhost:<port>`, with a certificate from
+[mkcert](https://github.com/FiloSottile/mkcert), and signs in with a cookie that outlives restarts.
+
+Why TLS on loopback:
+
+- Browsers only speak HTTP/2 over TLS. On HTTP/1.1, Chrome allows about 6 connections per host, and
+  each open `WatchEvents` holds one, so a few tabs starve unary calls.
+- A name of its own gives WebAuthn a relying party ID that other local apps don't share. `localhost`
+  is shared by every port, and an IP address can't be one.
+- It allows `Secure` and `__Host-` cookies, and exercises the `https` origins that hosting needs.
+
+Layout, all under `~/.durable`:
+
+| Path | Holds | Lifetime |
+|---|---|---|
+| `server-config.json` | Host name, port, certificate paths, enabled login methods | Written by `setup`, edited by hand |
+| `certs/` | The mkcert certificate and key for the host name | Written by `setup`, reissued by it |
+| `server.sqlite` | Users, passkeys, OAuth identities, browser sessions | Server only; no run ever writes it |
+| `server.json` | Address and token of the running server | Per run, as now |
+
+`server.sqlite` doesn't break the [session index](#session-index) rule against a shared database:
+only the server's login code writes it, and session files stay separate.
+
+Commands on `durable-server`:
+
+- `setup` writes the config, runs `mkcert` for the host name into `certs/`, and prints the URL,
+  the certificate paths and a one-time link for the first login. It checks that the name resolves to
+  loopback and prints the `/etc/hosts` line if not, rather than editing system files. If the mkcert
+  CA isn't installed, it says to run `mkcert -install`.
+- `config` prints the same summary on demand: URL, port, certificate paths and expiry, the mkcert CA
+  root, whether the name resolves, and the enabled login methods. It's for when you've forgotten.
+- `serve`, the default, reads the config. Flags override it, so tests run without one, and without a
+  certificate it serves plain HTTP with h2c as now.
+
+Login, in build order:
+
+1. **One-time link.** The server prints a single-use link that sets an `HttpOnly`, `Secure`,
+   `SameSite=Strict` session cookie backed by `server.sqlite`. Restarts no longer log the browser out.
+2. **Passkeys.** WebAuthn with relying party ID `durable.localhost`, through
+   [go-webauthn](https://github.com/go-webauthn/webauthn). Touch ID or a security key on a Mac.
+3. **OAuth or OIDC**, when hosting gives a stable public URL, behind an allowlist of subjects or
+   emails, because any account at the provider could otherwise sign in.
+
+A local password is a fallback at most. Bearer tokens stay for the CLI and scripts: the auth check
+accepts the token or a cookie, and Host and Origin checks still apply to both.
+
+Every signed-in user can approve shell commands on the host, so users are trusted equals with no
+per-user permissions. `by` on an approval comes from the signed-in identity, not from the client.
+
+Moving to a real domain changes the relying party ID, so passkeys made on `durable.localhost` must be
+registered again; the one-time link covers that.
+
 ### Durable approvals
 
 Shipped in v0.1.0. `Options.DeferApprovals` parks a call as a row and an event, and `Run` returns
@@ -242,7 +296,8 @@ needs its own `kill -9`, lease and power-loss evaluation.
 The API can approve shell commands, so the bar is higher than for a typical dashboard.
 
 - Require a per-run token on every RPC, even on loopback, because any web page can send requests to
-  localhost.
+  localhost. Phase 3 also accepts a session cookie from the browser; see
+  [local TLS and browser login](#local-tls-and-browser-login-phase-3).
 - Validate `Host` and `Origin`, and leave CORS off.
 - Never mark `DecideApproval` as side-effect free, so it can't be called through GET.
 - Treat exports, replicas and event streams as sensitive.
@@ -318,8 +373,8 @@ driven by hand in Chrome against a real OpenRouter model:
 What phase 3 needs from it:
 
 - **Stable auth across restarts.** The token is new on each run, so after a restart the page stops
-  at `Unauthenticated` until it's given the new one. Keep the token across restarts, or move the
-  browser to a cookie set from a one-time link.
+  at `Unauthenticated` until it's given the new one. Phase 3 moves the browser to a cookie, as in
+  [local TLS and browser login](#local-tls-and-browser-login-phase-3).
 - **The hook's shape.** It holds `(epoch, cursor)`, counts a seq that isn't `cursor + 1` as a gap,
   resets to `("", 0)` on `FAILED_PRECONDITION`, waits for new auth on `Unauthenticated`, and
   otherwise reconnects after a 1s backoff.
@@ -366,7 +421,8 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
      `APPROVAL_STATUS_PENDING` would be clearer.
 3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
-   first, with validation layer 4.
+   first, with validation layer 4. Before the UI: `setup` and `config`, TLS at `durable.localhost`,
+   and cookie login from a one-time link. Passkeys follow.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
