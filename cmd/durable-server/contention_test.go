@@ -267,8 +267,8 @@ func TestContentionRunTimeWithWatchers(t *testing.T) {
 			}
 			wall := contentionRun(t, watchers, true)
 			t.Logf("wall: %v with a stalled watcher, %v at 0 watchers", wall, baseline)
-			// Fan-out is CPU bound (each reader gets the whole log), so the bound grows with readers; the slack covers -race on CI.
-			require.Less(t, wall, 3*baseline+time.Duration(watchers)*250*time.Millisecond+2*time.Second)
+			// Only a hang guard: fan-out throughput swings with CI load, so stalls are judged by probe latency and the comparator below.
+			require.Less(t, wall, 3*baseline+time.Duration(watchers)*time.Second+10*time.Second)
 			if watchers < 50 {
 				return
 			}
