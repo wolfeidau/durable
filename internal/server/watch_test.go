@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
@@ -83,4 +84,15 @@ func TestWatchPagesThroughALongLog(t *testing.T) {
 	for i, seq := range got {
 		require.Equal(t, int64(i+1), seq)
 	}
+}
+
+func TestWatchReturnsHeadersBeforeTheFirstEvent(t *testing.T) {
+	e := newEnv(t)
+	client, _ := e.watchClient(t)
+	start := time.Now()
+	stream, err := client.WatchEvents(t.Context(), watchReq(e.id))
+	require.NoError(t, err)
+	defer stream.Close()
+	// The session has no events and the heartbeat is 20s, so only the early headers return the call this fast.
+	require.Less(t, time.Since(start), 5*time.Second)
 }

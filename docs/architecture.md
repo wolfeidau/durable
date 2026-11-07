@@ -91,6 +91,9 @@ and one handler serves Connect, gRPC and gRPC-Web.
 - **Heartbeats:** `WatchEvents` sends one every 15–30s, because approval waits can last hours and
   proxies close idle streams.
 - **Deltas carry the last committed seq,** so a client drops any delta older than the events it has.
+- **Deltas are opt-in** with `include_deltas`. Each watcher has a bounded buffer. On overflow it skips
+  deltas until the next reset, so a slow client never shows garbled text and never slows a run.
+- **Headers go out at once,** so a client's `WatchEvents` call returns before the first event.
 - **Storage is unchanged:** SQLite stays JSON, because `Raw` must replay byte for byte. Tool input is
   `bytes` in proto, not `google.protobuf.Struct`. `Raw` stays off the wire, because provider content
   is only replayed server side.
@@ -331,7 +334,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D, R | #58 |
    | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R | #57 |
    | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | [Passed](#4-browser) |
-   | 5 | **G.** Deltas on the stream | E | Next |
+   | 5 | **G.** Deltas on the stream | E | #66 |
    | 5 | **H.** Layer 2 contention tests | E | Next |
    | 5 | **I.** Layer 3 network fault tests | E | Next |
 

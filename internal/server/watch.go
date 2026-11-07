@@ -54,6 +54,10 @@ func (s sessionService) watch(ctx context.Context, req *durablev1.WatchEventsReq
 		return epochMismatch(epoch, newest)
 	}
 
+	// Headers go out now, so a client's call returns without waiting for the first event or heartbeat.
+	if err := stream.Send(nil); err != nil {
+		return err
+	}
 	f := &follower{
 		sess: sess, h: sess.Harness(), stream: stream, epoch: epoch, cursor: cursor, heartbeat: s.heartbeat,
 	}
@@ -75,6 +79,7 @@ type follower struct {
 	cursor    int64
 	heartbeat time.Duration
 	deltas    <-chan stampedDelta // nil without include_deltas
+	pending   []stampedDelta      // drained deltas not yet sent, in LastSeq order
 }
 
 func (f *follower) run(ctx context.Context) error {
@@ -82,16 +87,22 @@ func (f *follower) run(ctx context.Context) error {
 		if f.sess.lost() {
 			return errLost()
 		}
-		if err := f.flushDeltas(ctx); err != nil {
-			return err
+		if f.deltaOnly() {
+			// Nothing new committed, so skip the read and keep a token stream off the single connection.
+			f.drainDeltas()
+			if err := f.sendPending(f.cursor); err != nil {
+				return err
+			}
+		} else {
+			n, err := f.sendEvents(ctx)
+			if err != nil {
+				return err
+			}
+			if n == watchPage {
+				continue
+			}
 		}
-		n, err := f.sendEvents(ctx)
-		if err != nil {
-			return err
-		}
-		if n == watchPage {
-			continue
-		}
+		var err error
 		if f.deltas == nil {
 			err = f.wait(ctx)
 		} else {
@@ -103,47 +114,56 @@ func (f *follower) run(ctx context.Context) error {
 	}
 }
 
-// sendEvents pages events after the cursor to the client and reports how many it sent.
+// sendEvents pages events after the cursor to the client, merging in deltas by LastSeq, and reports how many events it sent.
 func (f *follower) sendEvents(ctx context.Context) (int, error) {
 	events, err := f.h.Events(ctx, f.cursor, watchPage)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read events: %w", err)
 	}
+	// Drained after the read, so every delta produced before these events committed is pending.
+	f.drainDeltas()
 	for _, e := range events {
+		if err := f.sendPending(e.Seq - 1); err != nil {
+			return 0, err
+		}
 		if err := f.stream.Send(&durablev1.WatchEventsResponse{Item: &durablev1.WatchEventsResponse_Event{Event: wire.Event(e, f.epoch)}}); err != nil {
 			return 0, err
 		}
 		f.cursor = e.Seq
 	}
-	return len(events), nil
+	return len(events), f.sendPending(f.cursor)
+}
+
+// deltaOnly reports a wake-up for deltas alone, with no event committed after the cursor.
+func (f *follower) deltaOnly() bool {
+	if len(f.pending) == 0 {
+		return false
+	}
+	_, ready := f.sess.progress(f.cursor)
+	return !ready
+}
+
+func (f *follower) drainDeltas() {
+	for range len(f.deltas) {
+		f.pending = append(f.pending, <-f.deltas)
+	}
+}
+
+// sendPending sends pending deltas that follow no event after upTo, so a delta never arrives ahead of the events it follows or behind one it precedes.
+func (f *follower) sendPending(upTo int64) error {
+	i := 0
+	for ; i < len(f.pending) && f.pending[i].LastSeq <= upTo; i++ {
+		d := f.pending[i]
+		if err := f.stream.Send(&durablev1.WatchEventsResponse{Item: &durablev1.WatchEventsResponse_Delta{Delta: wire.Delta(d.Delta, d.LastSeq)}}); err != nil {
+			return err
+		}
+	}
+	f.pending = f.pending[i:]
+	return nil
 }
 
 func (f *follower) sendHeartbeat() error {
 	return f.stream.Send(&durablev1.WatchEventsResponse{Item: &durablev1.WatchEventsResponse_Heartbeat{Heartbeat: &durablev1.Heartbeat{}}})
-}
-
-// sendDelta first sends the events the delta follows, so it never arrives ahead of them.
-func (f *follower) sendDelta(ctx context.Context, d stampedDelta) error {
-	for f.cursor < d.LastSeq {
-		n, err := f.sendEvents(ctx)
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			break
-		}
-	}
-	return f.stream.Send(&durablev1.WatchEventsResponse{Item: &durablev1.WatchEventsResponse_Delta{Delta: wire.Delta(d.Delta, d.LastSeq)}})
-}
-
-// flushDeltas sends deltas queued before the next read, so the client sees partial text ahead of the message that replaces it.
-func (f *follower) flushDeltas(ctx context.Context) error {
-	for range len(f.deltas) {
-		if err := f.sendDelta(ctx, <-f.deltas); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // wait blocks until progress, sending a heartbeat on timeout.
@@ -173,7 +193,8 @@ func (f *follower) waitWithDeltas(ctx context.Context) error {
 	case <-changed:
 		return nil
 	case d := <-f.deltas:
-		return f.sendDelta(ctx, d)
+		f.pending = append(f.pending, d)
+		return nil
 	case <-timer.C:
 		return f.sendHeartbeat()
 	case <-ctx.Done():
