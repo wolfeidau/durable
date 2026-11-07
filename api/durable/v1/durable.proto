@@ -72,6 +72,12 @@ message WatchEventsRequest {
   // epoch identifies one copy of the session; empty on the first watch.
   string epoch = 2;
   int64 after_seq = 3;
+  // include_deltas streams live deltas with the events. Deltas are best-effort and not durable.
+  // Within one stream a delta follows every event up to its last_seq and precedes any later event,
+  // and the subscription starts before the response headers. After an overflow, text is skipped until
+  // the next RESET and tool output loses only the dropped chunks. Dropping a delta whose last_seq is
+  // below the last applied event's seq is only a safeguard.
+  bool include_deltas = 4;
 }
 
 message WatchEventsResponse {
@@ -84,9 +90,23 @@ message WatchEventsResponse {
 
 message Heartbeat {}
 
-// Delta is a placeholder; last_seq lets a client drop deltas older than the events it has.
+// Delta is a live view of work in progress; the committed events stay authoritative.
 message Delta {
+  // last_seq is the newest committed seq when the delta was produced.
   int64 last_seq = 1;
+  DeltaKind kind = 2;
+  int64 submission = 3;
+  // call_id is set for DELTA_KIND_TOOL_OUTPUT only.
+  string call_id = 4;
+  string text = 5;
+}
+
+enum DeltaKind {
+  DELTA_KIND_UNSPECIFIED = 0;
+  // RESET starts a model attempt, so a client drops partial text from an earlier one.
+  DELTA_KIND_RESET = 1;
+  DELTA_KIND_TEXT = 2;
+  DELTA_KIND_TOOL_OUTPUT = 3;
 }
 
 enum SubmissionStatus {

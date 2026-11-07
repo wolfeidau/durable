@@ -109,3 +109,20 @@ func message(m *durable.Message) *durablev1.Message {
 	}
 	return out
 }
+
+var deltaKinds = map[durable.DeltaKind]durablev1.DeltaKind{
+	durable.DeltaReset:      durablev1.DeltaKind_DELTA_KIND_RESET,
+	durable.DeltaText:       durablev1.DeltaKind_DELTA_KIND_TEXT,
+	durable.DeltaToolOutput: durablev1.DeltaKind_DELTA_KIND_TOOL_OUTPUT,
+}
+
+// Delta converts d; lastSeq is the newest committed seq when it was produced.
+func Delta(d durable.Delta, lastSeq int64) *durablev1.Delta {
+	return &durablev1.Delta{
+		LastSeq:    lastSeq,
+		Kind:       deltaKinds[d.Kind],
+		Submission: d.Submission,
+		CallId:     d.CallID,
+		Text:       d.Text,
+	}
+}

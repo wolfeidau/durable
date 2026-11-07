@@ -25,6 +25,7 @@ type Session struct {
 	retrying   bool // a re-kick is scheduled after a failed run
 	isLost     bool // the lease was taken by another process
 	lastActive time.Time
+	subs       map[*deltaSub]struct{} // guarded by mu
 
 	retryBase, retryCap time.Duration
 	retryDelay          time.Duration // owned by the driver
