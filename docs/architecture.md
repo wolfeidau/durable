@@ -154,6 +154,11 @@ The server holds the lease while a session is open, so the CLI waits on the same
 for another CLI. To hand a session back to the CLI, close the browser tab and wait out the idle
 timeout.
 
+- **Outages.** A failed run retries with backoff. With no clients, an outage keeps retrying for one
+  idle timeout after it starts, then the session closes, and the next open resumes the work.
+- **Lost lease.** If another process takes the lease, the run driver stops, RPCs and watch streams
+  return `UNAVAILABLE`, and the registry drops the session so the next request opens it fresh.
+
 ### The web UI is the primary client
 
 Background work, delayed approvals and watching several sessions suit a browser. The CLI stays as it
@@ -328,11 +333,6 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
 
    Known gaps in the built slices:
 
-   - **Retries pin the lease.** A transient model outage leaves the submission running, and the run
-     driver retries with backoff. A retrying session never counts as idle, so the server holds the
-     lease for the whole outage and the CLI can't take the session back.
-   - **Lost lease.** If `Run` returns `ErrLeaseLost`, the driver treats it as a failure and retries
-     against a harness that no longer holds the lease. It should close the session instead.
    - **Open resumes work.** Opening a session kicks its run driver, so watching a session resumes its
      queued work. That includes a copy made by `durable.Restore`, which conflicts with "a restored
      session must not auto-resume" below.
