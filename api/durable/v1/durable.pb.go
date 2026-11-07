@@ -22,6 +22,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type DeltaKind int32
+
+const (
+	DeltaKind_DELTA_KIND_UNSPECIFIED DeltaKind = 0
+	// RESET starts a model attempt, so a client drops partial text from an earlier one.
+	DeltaKind_DELTA_KIND_RESET       DeltaKind = 1
+	DeltaKind_DELTA_KIND_TEXT        DeltaKind = 2
+	DeltaKind_DELTA_KIND_TOOL_OUTPUT DeltaKind = 3
+)
+
+// Enum value maps for DeltaKind.
+var (
+	DeltaKind_name = map[int32]string{
+		0: "DELTA_KIND_UNSPECIFIED",
+		1: "DELTA_KIND_RESET",
+		2: "DELTA_KIND_TEXT",
+		3: "DELTA_KIND_TOOL_OUTPUT",
+	}
+	DeltaKind_value = map[string]int32{
+		"DELTA_KIND_UNSPECIFIED": 0,
+		"DELTA_KIND_RESET":       1,
+		"DELTA_KIND_TEXT":        2,
+		"DELTA_KIND_TOOL_OUTPUT": 3,
+	}
+)
+
+func (x DeltaKind) Enum() *DeltaKind {
+	p := new(DeltaKind)
+	*p = x
+	return p
+}
+
+func (x DeltaKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DeltaKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_durable_v1_durable_proto_enumTypes[0].Descriptor()
+}
+
+func (DeltaKind) Type() protoreflect.EnumType {
+	return &file_durable_v1_durable_proto_enumTypes[0]
+}
+
+func (x DeltaKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DeltaKind.Descriptor instead.
+func (DeltaKind) EnumDescriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{0}
+}
+
 type SubmissionStatus int32
 
 const (
@@ -64,11 +117,11 @@ func (x SubmissionStatus) String() string {
 }
 
 func (SubmissionStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_durable_v1_durable_proto_enumTypes[0].Descriptor()
+	return file_durable_v1_durable_proto_enumTypes[1].Descriptor()
 }
 
 func (SubmissionStatus) Type() protoreflect.EnumType {
-	return &file_durable_v1_durable_proto_enumTypes[0]
+	return &file_durable_v1_durable_proto_enumTypes[1]
 }
 
 func (x SubmissionStatus) Number() protoreflect.EnumNumber {
@@ -77,7 +130,7 @@ func (x SubmissionStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SubmissionStatus.Descriptor instead.
 func (SubmissionStatus) EnumDescriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{0}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{1}
 }
 
 type ApprovalStatus int32
@@ -119,11 +172,11 @@ func (x ApprovalStatus) String() string {
 }
 
 func (ApprovalStatus) Descriptor() protoreflect.EnumDescriptor {
-	return file_durable_v1_durable_proto_enumTypes[1].Descriptor()
+	return file_durable_v1_durable_proto_enumTypes[2].Descriptor()
 }
 
 func (ApprovalStatus) Type() protoreflect.EnumType {
-	return &file_durable_v1_durable_proto_enumTypes[1]
+	return &file_durable_v1_durable_proto_enumTypes[2]
 }
 
 func (x ApprovalStatus) Number() protoreflect.EnumNumber {
@@ -132,7 +185,7 @@ func (x ApprovalStatus) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ApprovalStatus.Descriptor instead.
 func (ApprovalStatus) EnumDescriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{1}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{2}
 }
 
 type EventKind int32
@@ -189,11 +242,11 @@ func (x EventKind) String() string {
 }
 
 func (EventKind) Descriptor() protoreflect.EnumDescriptor {
-	return file_durable_v1_durable_proto_enumTypes[2].Descriptor()
+	return file_durable_v1_durable_proto_enumTypes[3].Descriptor()
 }
 
 func (EventKind) Type() protoreflect.EnumType {
-	return &file_durable_v1_durable_proto_enumTypes[2]
+	return &file_durable_v1_durable_proto_enumTypes[3]
 }
 
 func (x EventKind) Number() protoreflect.EnumNumber {
@@ -202,7 +255,7 @@ func (x EventKind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use EventKind.Descriptor instead.
 func (EventKind) EnumDescriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{2}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{3}
 }
 
 type Role int32
@@ -241,11 +294,11 @@ func (x Role) String() string {
 }
 
 func (Role) Descriptor() protoreflect.EnumDescriptor {
-	return file_durable_v1_durable_proto_enumTypes[3].Descriptor()
+	return file_durable_v1_durable_proto_enumTypes[4].Descriptor()
 }
 
 func (Role) Type() protoreflect.EnumType {
-	return &file_durable_v1_durable_proto_enumTypes[3]
+	return &file_durable_v1_durable_proto_enumTypes[4]
 }
 
 func (x Role) Number() protoreflect.EnumNumber {
@@ -254,7 +307,7 @@ func (x Role) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Role.Descriptor instead.
 func (Role) EnumDescriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{3}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{4}
 }
 
 type ListSessionsRequest struct {
@@ -732,8 +785,14 @@ type WatchEventsRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	// epoch identifies one copy of the session; empty on the first watch.
-	Epoch         string `protobuf:"bytes,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
-	AfterSeq      int64  `protobuf:"varint,3,opt,name=after_seq,json=afterSeq,proto3" json:"after_seq,omitempty"`
+	Epoch    string `protobuf:"bytes,2,opt,name=epoch,proto3" json:"epoch,omitempty"`
+	AfterSeq int64  `protobuf:"varint,3,opt,name=after_seq,json=afterSeq,proto3" json:"after_seq,omitempty"`
+	// include_deltas streams live deltas with the events. Deltas are best-effort and not durable.
+	// Within one stream a delta follows every event up to its last_seq and precedes any later event,
+	// and the subscription starts before the response headers. After an overflow, text is skipped until
+	// the next RESET and tool output loses only the dropped chunks. Dropping a delta whose last_seq is
+	// below the last applied event's seq is only a safeguard.
+	IncludeDeltas bool `protobuf:"varint,4,opt,name=include_deltas,json=includeDeltas,proto3" json:"include_deltas,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -787,6 +846,13 @@ func (x *WatchEventsRequest) GetAfterSeq() int64 {
 		return x.AfterSeq
 	}
 	return 0
+}
+
+func (x *WatchEventsRequest) GetIncludeDeltas() bool {
+	if x != nil {
+		return x.IncludeDeltas
+	}
+	return false
 }
 
 type WatchEventsResponse struct {
@@ -923,10 +989,16 @@ func (*Heartbeat) Descriptor() ([]byte, []int) {
 	return file_durable_v1_durable_proto_rawDescGZIP(), []int{11}
 }
 
-// Delta is a placeholder; last_seq lets a client drop deltas older than the events it has.
+// Delta is a live view of work in progress; the committed events stay authoritative.
 type Delta struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	LastSeq       int64                  `protobuf:"varint,1,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// last_seq is the newest committed seq when the delta was produced.
+	LastSeq    int64     `protobuf:"varint,1,opt,name=last_seq,json=lastSeq,proto3" json:"last_seq,omitempty"`
+	Kind       DeltaKind `protobuf:"varint,2,opt,name=kind,proto3,enum=durable.v1.DeltaKind" json:"kind,omitempty"`
+	Submission int64     `protobuf:"varint,3,opt,name=submission,proto3" json:"submission,omitempty"`
+	// call_id is set for DELTA_KIND_TOOL_OUTPUT only.
+	CallId        string `protobuf:"bytes,4,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	Text          string `protobuf:"bytes,5,opt,name=text,proto3" json:"text,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -966,6 +1038,34 @@ func (x *Delta) GetLastSeq() int64 {
 		return x.LastSeq
 	}
 	return 0
+}
+
+func (x *Delta) GetKind() DeltaKind {
+	if x != nil {
+		return x.Kind
+	}
+	return DeltaKind_DELTA_KIND_UNSPECIFIED
+}
+
+func (x *Delta) GetSubmission() int64 {
+	if x != nil {
+		return x.Submission
+	}
+	return 0
+}
+
+func (x *Delta) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+func (x *Delta) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
 }
 
 type Submission struct {
@@ -1523,20 +1623,27 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\x05allow\x18\x03 \x01(\bR\x05allow\x12\x0e\n" +
 	"\x02by\x18\x04 \x01(\tR\x02by\"J\n" +
 	"\x16DecideApprovalResponse\x120\n" +
-	"\bapproval\x18\x01 \x01(\v2\x14.durable.v1.ApprovalR\bapproval\"f\n" +
+	"\bapproval\x18\x01 \x01(\v2\x14.durable.v1.ApprovalR\bapproval\"\x8d\x01\n" +
 	"\x12WatchEventsRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\tR\x05epoch\x12\x1b\n" +
-	"\tafter_seq\x18\x03 \x01(\x03R\bafterSeq\"\xaa\x01\n" +
+	"\tafter_seq\x18\x03 \x01(\x03R\bafterSeq\x12%\n" +
+	"\x0einclude_deltas\x18\x04 \x01(\bR\rincludeDeltas\"\xaa\x01\n" +
 	"\x13WatchEventsResponse\x12)\n" +
 	"\x05event\x18\x01 \x01(\v2\x11.durable.v1.EventH\x00R\x05event\x125\n" +
 	"\theartbeat\x18\x02 \x01(\v2\x15.durable.v1.HeartbeatH\x00R\theartbeat\x12)\n" +
 	"\x05delta\x18\x03 \x01(\v2\x11.durable.v1.DeltaH\x00R\x05deltaB\x06\n" +
 	"\x04item\"\v\n" +
-	"\tHeartbeat\"\"\n" +
+	"\tHeartbeat\"\x9a\x01\n" +
 	"\x05Delta\x12\x19\n" +
-	"\blast_seq\x18\x01 \x01(\x03R\alastSeq\"\xb5\x01\n" +
+	"\blast_seq\x18\x01 \x01(\x03R\alastSeq\x12)\n" +
+	"\x04kind\x18\x02 \x01(\x0e2\x15.durable.v1.DeltaKindR\x04kind\x12\x1e\n" +
+	"\n" +
+	"submission\x18\x03 \x01(\x03R\n" +
+	"submission\x12\x17\n" +
+	"\acall_id\x18\x04 \x01(\tR\x06callId\x12\x12\n" +
+	"\x04text\x18\x05 \x01(\tR\x04text\"\xb5\x01\n" +
 	"\n" +
 	"Submission\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x1d\n" +
@@ -1589,7 +1696,12 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"decided_by\x18\r \x01(\tR\tdecidedBy\"@\n" +
 	"\rEpochMismatch\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\tR\x05epoch\x12\x19\n" +
-	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*\xcd\x01\n" +
+	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*n\n" +
+	"\tDeltaKind\x12\x1a\n" +
+	"\x16DELTA_KIND_UNSPECIFIED\x10\x00\x12\x14\n" +
+	"\x10DELTA_KIND_RESET\x10\x01\x12\x13\n" +
+	"\x0fDELTA_KIND_TEXT\x10\x02\x12\x1a\n" +
+	"\x16DELTA_KIND_TOOL_OUTPUT\x10\x03*\xcd\x01\n" +
 	"\x10SubmissionStatus\x12!\n" +
 	"\x1dSUBMISSION_STATUS_UNSPECIFIED\x10\x00\x12\x1c\n" +
 	"\x18SUBMISSION_STATUS_QUEUED\x10\x01\x12\x1d\n" +
@@ -1638,68 +1750,70 @@ func file_durable_v1_durable_proto_rawDescGZIP() []byte {
 	return file_durable_v1_durable_proto_rawDescData
 }
 
-var file_durable_v1_durable_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_durable_v1_durable_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
 var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_durable_v1_durable_proto_goTypes = []any{
-	(SubmissionStatus)(0),          // 0: durable.v1.SubmissionStatus
-	(ApprovalStatus)(0),            // 1: durable.v1.ApprovalStatus
-	(EventKind)(0),                 // 2: durable.v1.EventKind
-	(Role)(0),                      // 3: durable.v1.Role
-	(*ListSessionsRequest)(nil),    // 4: durable.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),   // 5: durable.v1.ListSessionsResponse
-	(*SessionInfo)(nil),            // 6: durable.v1.SessionInfo
-	(*SubmitRequest)(nil),          // 7: durable.v1.SubmitRequest
-	(*SubmitResponse)(nil),         // 8: durable.v1.SubmitResponse
-	(*CancelRequest)(nil),          // 9: durable.v1.CancelRequest
-	(*CancelResponse)(nil),         // 10: durable.v1.CancelResponse
-	(*DecideApprovalRequest)(nil),  // 11: durable.v1.DecideApprovalRequest
-	(*DecideApprovalResponse)(nil), // 12: durable.v1.DecideApprovalResponse
-	(*WatchEventsRequest)(nil),     // 13: durable.v1.WatchEventsRequest
-	(*WatchEventsResponse)(nil),    // 14: durable.v1.WatchEventsResponse
-	(*Heartbeat)(nil),              // 15: durable.v1.Heartbeat
-	(*Delta)(nil),                  // 16: durable.v1.Delta
-	(*Submission)(nil),             // 17: durable.v1.Submission
-	(*Approval)(nil),               // 18: durable.v1.Approval
-	(*ToolCall)(nil),               // 19: durable.v1.ToolCall
-	(*Message)(nil),                // 20: durable.v1.Message
-	(*Event)(nil),                  // 21: durable.v1.Event
-	(*EpochMismatch)(nil),          // 22: durable.v1.EpochMismatch
-	(*timestamppb.Timestamp)(nil),  // 23: google.protobuf.Timestamp
+	(DeltaKind)(0),                 // 0: durable.v1.DeltaKind
+	(SubmissionStatus)(0),          // 1: durable.v1.SubmissionStatus
+	(ApprovalStatus)(0),            // 2: durable.v1.ApprovalStatus
+	(EventKind)(0),                 // 3: durable.v1.EventKind
+	(Role)(0),                      // 4: durable.v1.Role
+	(*ListSessionsRequest)(nil),    // 5: durable.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),   // 6: durable.v1.ListSessionsResponse
+	(*SessionInfo)(nil),            // 7: durable.v1.SessionInfo
+	(*SubmitRequest)(nil),          // 8: durable.v1.SubmitRequest
+	(*SubmitResponse)(nil),         // 9: durable.v1.SubmitResponse
+	(*CancelRequest)(nil),          // 10: durable.v1.CancelRequest
+	(*CancelResponse)(nil),         // 11: durable.v1.CancelResponse
+	(*DecideApprovalRequest)(nil),  // 12: durable.v1.DecideApprovalRequest
+	(*DecideApprovalResponse)(nil), // 13: durable.v1.DecideApprovalResponse
+	(*WatchEventsRequest)(nil),     // 14: durable.v1.WatchEventsRequest
+	(*WatchEventsResponse)(nil),    // 15: durable.v1.WatchEventsResponse
+	(*Heartbeat)(nil),              // 16: durable.v1.Heartbeat
+	(*Delta)(nil),                  // 17: durable.v1.Delta
+	(*Submission)(nil),             // 18: durable.v1.Submission
+	(*Approval)(nil),               // 19: durable.v1.Approval
+	(*ToolCall)(nil),               // 20: durable.v1.ToolCall
+	(*Message)(nil),                // 21: durable.v1.Message
+	(*Event)(nil),                  // 22: durable.v1.Event
+	(*EpochMismatch)(nil),          // 23: durable.v1.EpochMismatch
+	(*timestamppb.Timestamp)(nil),  // 24: google.protobuf.Timestamp
 }
 var file_durable_v1_durable_proto_depIdxs = []int32{
-	6,  // 0: durable.v1.ListSessionsResponse.sessions:type_name -> durable.v1.SessionInfo
-	23, // 1: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
-	17, // 2: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
-	17, // 3: durable.v1.CancelResponse.submission:type_name -> durable.v1.Submission
-	18, // 4: durable.v1.DecideApprovalResponse.approval:type_name -> durable.v1.Approval
-	21, // 5: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
-	15, // 6: durable.v1.WatchEventsResponse.heartbeat:type_name -> durable.v1.Heartbeat
-	16, // 7: durable.v1.WatchEventsResponse.delta:type_name -> durable.v1.Delta
-	0,  // 8: durable.v1.Submission.status:type_name -> durable.v1.SubmissionStatus
-	19, // 9: durable.v1.Approval.call:type_name -> durable.v1.ToolCall
-	1,  // 10: durable.v1.Approval.status:type_name -> durable.v1.ApprovalStatus
-	3,  // 11: durable.v1.Message.role:type_name -> durable.v1.Role
-	19, // 12: durable.v1.Message.tool_calls:type_name -> durable.v1.ToolCall
-	2,  // 13: durable.v1.Event.kind:type_name -> durable.v1.EventKind
-	0,  // 14: durable.v1.Event.status:type_name -> durable.v1.SubmissionStatus
-	20, // 15: durable.v1.Event.message:type_name -> durable.v1.Message
-	19, // 16: durable.v1.Event.call:type_name -> durable.v1.ToolCall
-	1,  // 17: durable.v1.Event.approval:type_name -> durable.v1.ApprovalStatus
-	7,  // 18: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
-	9,  // 19: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
-	11, // 20: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
-	13, // 21: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
-	4,  // 22: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
-	8,  // 23: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
-	10, // 24: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
-	12, // 25: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
-	14, // 26: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
-	5,  // 27: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
-	23, // [23:28] is the sub-list for method output_type
-	18, // [18:23] is the sub-list for method input_type
-	18, // [18:18] is the sub-list for extension type_name
-	18, // [18:18] is the sub-list for extension extendee
-	0,  // [0:18] is the sub-list for field type_name
+	7,  // 0: durable.v1.ListSessionsResponse.sessions:type_name -> durable.v1.SessionInfo
+	24, // 1: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
+	18, // 2: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
+	18, // 3: durable.v1.CancelResponse.submission:type_name -> durable.v1.Submission
+	19, // 4: durable.v1.DecideApprovalResponse.approval:type_name -> durable.v1.Approval
+	22, // 5: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
+	16, // 6: durable.v1.WatchEventsResponse.heartbeat:type_name -> durable.v1.Heartbeat
+	17, // 7: durable.v1.WatchEventsResponse.delta:type_name -> durable.v1.Delta
+	0,  // 8: durable.v1.Delta.kind:type_name -> durable.v1.DeltaKind
+	1,  // 9: durable.v1.Submission.status:type_name -> durable.v1.SubmissionStatus
+	20, // 10: durable.v1.Approval.call:type_name -> durable.v1.ToolCall
+	2,  // 11: durable.v1.Approval.status:type_name -> durable.v1.ApprovalStatus
+	4,  // 12: durable.v1.Message.role:type_name -> durable.v1.Role
+	20, // 13: durable.v1.Message.tool_calls:type_name -> durable.v1.ToolCall
+	3,  // 14: durable.v1.Event.kind:type_name -> durable.v1.EventKind
+	1,  // 15: durable.v1.Event.status:type_name -> durable.v1.SubmissionStatus
+	21, // 16: durable.v1.Event.message:type_name -> durable.v1.Message
+	20, // 17: durable.v1.Event.call:type_name -> durable.v1.ToolCall
+	2,  // 18: durable.v1.Event.approval:type_name -> durable.v1.ApprovalStatus
+	8,  // 19: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
+	10, // 20: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
+	12, // 21: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
+	14, // 22: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
+	5,  // 23: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
+	9,  // 24: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
+	11, // 25: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
+	13, // 26: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
+	15, // 27: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
+	6,  // 28: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
+	24, // [24:29] is the sub-list for method output_type
+	19, // [19:24] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_durable_v1_durable_proto_init() }
@@ -1717,7 +1831,7 @@ func file_durable_v1_durable_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_v1_durable_proto_rawDesc), len(file_durable_v1_durable_proto_rawDesc)),
-			NumEnums:      4,
+			NumEnums:      5,
 			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
