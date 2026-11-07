@@ -10,7 +10,7 @@ supporting services run outside it.
 ## Goals
 
 - Watch and steer a session from a browser, and close the browser without stopping the work.
-- Approve tool calls later, from anywhere, without holding a process open.
+- Approve tool calls later, from a browser, without holding a process open.
 - Run untrusted commands away from credentials and the session log.
 - Keep every existing guarantee: crash-safe runs, exactly-once input and no double side effects.
 
@@ -21,6 +21,8 @@ Not goals for now: multi-tenant hosting, team features and an ACP or editor inte
 - **Single user and self-hosted.** One SQLite file per session stays. The schema carries no identity,
   and `by` on an approval is free text. A team product would add auth, attribution and probably shared
   storage, and identity in the schema.
+- **Local first.** Phases 2 and 3 run on loopback, with the browser and server on one machine. No
+  proxy, no TLS and no remote access until [hosting](#hosting-is-deferred).
 
 ## Architecture
 
@@ -196,6 +198,22 @@ It may come later as an off-host backup sidecar, never as failover. A restored s
 auto-resume, and it doesn't protect the workspace. For export, use `Harness.Events` for audit data, or
 `VACUUM INTO` on an idle session for a full copy.
 
+### Hosting is deferred
+
+Reaching the server from another machine needs a proxy and TLS in front of it, and that waits until
+there's a hosting target. It brings:
+
+- **Proxy streaming.** Buffering proxies can hold a stream until it ends. Turn buffering off first,
+  for nginx `proxy_buffering off` with `proxy_http_version 1.1`, and test with nginx in
+  `e2e/compose.yaml`. Heartbeats already cover idle timeouts.
+- **Allowed hosts and origins.** The server accepts only its listen address, `localhost` and
+  `127.0.0.1` on its port, and `http` origins. A proxied server needs configurable hosts and origins,
+  including `https`.
+- **TLS** at the proxy.
+- **SSE fallback.** If a proxy defeats streaming over `fetch`, serve `WatchEvents` as SSE next to
+  Connect, for example with [connect-sse](https://pkg.go.dev/github.com/firetiger-oss/connect-sse),
+  rather than changing the schema.
+
 ### CGO stays for now
 
 Releases are source only. Binaries wait for phase 3, when the Bun build needs a release pipeline
@@ -244,19 +262,15 @@ pool under watcher reads.
 
 ### 3. Network faults
 
-Add these services to `e2e/compose.yaml`:
-
-- **nginx** in front of the server, with buffering on and a short read timeout. Heartbeats keep the
-  stream open, and events arrive within a latency bound rather than when the stream closes.
-- **toxiproxy** for latency, a reset mid-stream and a stream cut off before it ends. The client
-  resumes from its last seq.
+Add **toxiproxy** to `e2e/compose.yaml` for latency, a reset mid-stream and a stream cut off before it
+ends. The client resumes from its last seq. Proxy tests with nginx wait for
+[hosting](#hosting-is-deferred).
 
 ### 4. Browser
 
 Playwright, run from its Docker image, loads a minimal test page that uses connect-web's
-`WatchEvents` behind nginx. It checks that streaming over `fetch` works on HTTP/1.1, then restarts the
-server and checks that the page resumes. If buffering or idle timeouts defeat this, fall back to SSE
-for the browser, which reopens the one-schema decision.
+`WatchEvents` on loopback. It checks that streaming over `fetch` works on HTTP/1.1, then restarts the
+server and checks that the page resumes. If this fails, fall back to SSE for the browser.
 
 ### 5. Remote workers (phase 4)
 
@@ -282,18 +296,15 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 3 | **R.** Session registry | D, S | #56 |
    | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D, R | #58 |
    | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R | #57 |
-   | 4 | **Spike.** A throwaway page streams `WatchEvents` behind nginx (layer 4) | E | Next |
+   | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | Next |
    | 5 | **G.** Deltas on the stream | E | |
    | 5 | **H.** Layer 2 contention tests | E | |
    | 5 | **I.** Layer 3 network fault tests | E | |
 
    The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
 
-   Known gaps in the built slices, to fix before or alongside the spike:
+   Known gaps in the built slices:
 
-   - **Host and Origin behind a proxy.** The server accepts only its listen address, `localhost` and
-     `127.0.0.1` on its port, and `http` origins. The spike and slice I put nginx in front, so the
-     allowed hosts and origins need to be configurable first.
    - **Retries pin the lease.** A transient model outage leaves the submission running, and the run
      driver retries with backoff. A retrying session never counts as idle, so the server holds the
      lease for the whole outage and the CLI can't take the session back.
@@ -310,6 +321,8 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
 ## Open questions
 
 - **Before slice G:** should a restored session wait for an explicit resume before the server runs it?
+- **Before hosting:** where does it run, and which proxy sits in front? That decides the proxy tests
+  and whether the SSE fallback is needed.
 - **Before phase 4:** are containers acceptable? [Issue #9](https://github.com/wolfeidau/durable/issues/9)
   rejected them for local use because the agent needs your real toolchain. Remote workers reverse that
   with per-repo images. Native OS sandboxing stays deferred.
