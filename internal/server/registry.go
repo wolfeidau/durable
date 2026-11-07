@@ -204,6 +204,7 @@ func (r *Registry) open(ctx context.Context, dir string) (*Session, error) {
 	if err != nil {
 		return nil, notFound(err)
 	}
+	asm.Options.OnDelta = s.onDelta
 	// The cwd and name hash to the directory, so a forged session.json can't point at another session.
 	if filepath.Dir(asm.Path) != dir {
 		asm.Close()
