@@ -187,10 +187,10 @@ work on a fresh clone without Bun. `buf` is pinned through mise, so the library'
 
 ### Server access (phase 3)
 
-The browser reaches the server at `https://localhost:<port>` with an mkcert certificate, and signs
-in with a passkey. A session cookie backed by a server-only `server.sqlite` keeps it signed in across
-restarts, and bearer tokens stay for the CLI. `durable-server setup` and `config` write and print the
-configuration. The design, and what's shelved, is in [server access](server-access.md).
+The browser keeps using the bearer token, but the token stays the same across restarts, in a
+`0600` file under `~/.durable`. `durable-server url` prints a URL that hands it to the page, and
+`rotate-token` replaces it. TLS, passkeys, cookies and OAuth wait for Tailscale or hosting. The
+design, and what's shelved, is in [server access](server-access.md).
 
 ### Durable approvals
 
@@ -248,9 +248,9 @@ needs its own `kill -9`, lease and power-loss evaluation.
 
 The API can approve shell commands, so the bar is higher than for a typical dashboard.
 
-- Require a per-run token on every RPC, even on loopback, because any web page can send requests to
-  localhost. Phase 3 also accepts a session cookie from the browser; see
-  [server access](server-access.md).
+- Require a token on every RPC, even on loopback, because any web page can send requests to
+  localhost, and other users on the machine can reach the port. From phase 3 it's kept across
+  restarts; see [server access](server-access.md).
 - Validate `Host` and `Origin`, and leave CORS off.
 - Never mark `DecideApproval` as side-effect free, so it can't be called through GET.
 - Treat exports, replicas and event streams as sensitive.
@@ -327,7 +327,7 @@ driven by hand in Chrome against a real OpenRouter model:
 What phase 3 needs from it:
 
 - **Stable auth across restarts.** The token is new on each run, so after a restart the page stops
-  at `Unauthenticated` until it's given the new one. Phase 3 moves the browser to a cookie, as in
+  at `Unauthenticated` until it's given the new one. Phase 3 keeps the token across restarts, as in
   [server access](server-access.md).
 - **The hook's shape.** It holds `(epoch, cursor)`, counts a seq that isn't `cursor + 1` as a gap,
   resets to `("", 0)` on `FAILED_PRECONDITION`, waits for new auth on `Unauthenticated`, and
@@ -375,10 +375,10 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
      `APPROVAL_STATUS_PENDING` would be clearer.
 3. **Web UI.** One session view with a live transcript and an approval prompt. The first slice
-   builds the [server access](server-access.md#first-cut) first cut before any UI: `setup` and
-   `config`, TLS on `localhost`, and passkey sign-in with a session cookie. Rerun the layer 4 spike
-   page over it and check that `WatchEvents` runs over HTTP/2 and survives a restart without signing
-   in again. Then prove the streaming hook, and build the UI.
+   builds the [server access](server-access.md#first-cut-a-stable-token) first cut before any UI: a
+   stable token, `url` and `rotate-token`. Rerun the layer 4 spike page opened from `url`, and check
+   that it keeps streaming across a restart without a new URL. Then prove the streaming hook, and
+   build the UI.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 

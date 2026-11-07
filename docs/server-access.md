@@ -1,110 +1,110 @@
 # Server access
 
-How the browser reaches `durable-server` and signs in. This is phase 3's first slice, built and
+How the browser reaches `durable-server` and authenticates. This is phase 3's first slice, built and
 validated before the UI; see [phases](architecture.md#phases).
 
-The browser reaches the server at `https://localhost:<port>`, with a certificate from
-[mkcert](https://github.com/FiloSottile/mkcert), and signs in with a passkey. A cookie keeps it
-signed in across restarts.
+## First cut: a stable token
 
-## First cut
+One user, one machine, loopback only. The server keeps the bearer token it already requires, but
+stops changing it on each run, so a restart no longer signs the browser out. This follows the
+pattern of [Jupyter Server](https://jupyter-server.readthedocs.io/en/latest/operators/security.html)
+and VS Code's `serve-web`: a random secret in a file only you can read, handed to the browser once
+through a printed URL.
 
-One user, one machine, loopback only.
+### What stays
 
-### TLS on localhost
+- The server binds to loopback only.
+- The `Host` check, which stops DNS rebinding.
+- The exact `Origin` check, scheme, host and port, with CORS off.
+- A bearer token on every RPC. The `Host` and `Origin` checks already stop web pages, but the token
+  also stops other users' processes on the machine, and anything outside a browser, from approving
+  shell commands.
 
-- Browsers only speak HTTP/2 over TLS. On HTTP/1.1, Chrome allows about 6 connections per host, and
-  each open `WatchEvents` holds one, so a few tabs starve unary calls.
-- It allows `Secure` and `__Host-` cookies.
+### The token
 
-The allowed hosts stay as now, `localhost` and `127.0.0.1` on the server's port. With TLS
-configured, `serve` accepts `https` origins instead of `http`. Without a certificate it serves plain
-HTTP with h2c as now, and accepts bearer tokens only: cookie login needs TLS.
-
-macOS resolves `localhost` to `::1` first, so the server listens on both loopback addresses.
-
-### Plain `localhost` is a compromise
-
-Browsers scope cookies and WebAuthn to the host name, not the port, so every app served on
-`localhost` shares them:
-
-- Another local server the browser visits receives durable's session cookie in its own requests,
-  and could replay it.
-- Passkeys for durable sit under relying party ID `localhost`, next to any other local app's.
-
-This is accepted for the first cut. Any process running as you can already read the bearer token
-in `server.json`, so local processes are trusted either way. What the server still enforces:
-
-- A cookie-authenticated request must carry an `Origin` header that matches exactly, scheme, host
-  and port. A browser page on another port can't use the cookie.
-- A WebAuthn assertion must carry the exact origin, port included, in its client data.
-
-A host name of its own, such as `durable.localhost`, would isolate both. It's shelved because an
-OAuth provider may not accept it as a redirect address; see [later](#later).
-
-### Files
-
-All under `~/.durable`:
-
-| Path | Holds | Lifetime |
-|---|---|---|
-| `server-config.json` | Address and certificate paths | Written by `setup`, edited by hand |
-| `certs/` | The mkcert certificate and key for `localhost`, `127.0.0.1` and `::1` | Written by `setup`, reissued by it |
-| `server.sqlite` | Passkeys, enrollment links and browser sessions | Server only; no run ever writes it |
-| `server.json` | Address and bearer token of the running server | Per run, as now |
-
-`server.sqlite` doesn't break the [session index](architecture.md#session-index) rule against a
-shared database: only the server's login code writes it, and session files stay separate.
+- `~/.durable/server-token` holds the token, mode `0600`. `serve` creates it on first start and
+  reuses it after that.
+- `server.json` still holds the running server's address and token, so the CLI and tests are
+  unchanged.
+- The token is never written to the log. `serve` logs its URL without the token, and says to run
+  `durable-server url`.
 
 ### Commands
 
 On `durable-server`:
 
-- `setup` first checks that `mkcert` is on the `PATH` and its CA is installed (`mkcert -CAROOT`
-  holds `rootCA.pem`). If not, it stops before writing anything and prints the fix, such as
-  `brew install mkcert nss` then `mkcert -install`. It then writes the config, runs `mkcert` into
-  `certs/`, and prints the URL, the certificate paths and an enrollment link.
-- `config` prints the same summary on demand: URL, address, certificate paths and expiry, the mkcert
-  CA root, and whether the address accepts connections. It's for when you've forgotten.
-- `enroll-link` creates an enrollment link, to add a passkey on a new browser or device.
-- `revoke` ends every browser session, so each browser signs in again with its passkey.
-- `serve`, the default, reads the config. Flags override it, so tests run without one.
+- `url` prints `http://127.0.0.1:<port>/#token=<token>` for the running server, read from
+  `server.json`, or says no server is running. Like `jupyter server list`, it's for when you've
+  forgotten.
+- `rotate-token` writes a new token. It takes effect at the next start, and every browser needs the
+  new URL.
 
-### Passkeys
+### The browser
 
-Sign-in is WebAuthn only, with no password, through
-[go-webauthn](https://github.com/go-webauthn/webauthn) and relying party ID `localhost`. Touch ID or
-a security key on a Mac.
+- The page reads the token from the URL fragment, which browsers never send to the server, so it
+  stays out of request lines and `Referer` headers.
+- It stores the token in `localStorage`, removes the fragment from the address bar, and sends it as
+  `Authorization: Bearer`.
+- On `Unauthenticated` it stops and asks for a new URL.
 
-- An enrollment link registers one passkey. It's single use, expires after 15 minutes, is stored
-  hashed in `server.sqlite`, and is printed to stdout only, never to the log.
-- A passkey is identified by its credential ID, matched exactly.
-- Sign-in sets an `HttpOnly`, `Secure`, `SameSite=Strict` `__Host-` session cookie backed by
-  `server.sqlite`. It lasts 30 days and renews while in use, so restarts don't sign the browser out.
+`localStorage` is per origin, so the browser uses the address `url` prints. A tab opened at
+`localhost` instead of `127.0.0.1` needs the URL once more.
 
-Bearer tokens aren't a browser login method. They stay for the CLI and scripts, new on each run and
-read from `server.json`. The auth check accepts the token or a session cookie. Host checks apply to
-both, and cookie requests also need a matching `Origin`.
+### Tradeoffs
 
-With one user, `by` on an approval stays free text.
+- **The UI can read the token.** A script injected into the page could steal it. Transcripts carry
+  model and tool output, which is untrusted, so the UI renders it as text or sanitized Markdown,
+  never as raw HTML.
+- **HTTP/1.1 only.** Without TLS, browsers allow about 6 connections per host, and each open
+  `WatchEvents` holds one. That's fine for a session view per tab, and becomes a limit with many
+  tabs.
+- **Rotation is manual.** If the token leaks, run `rotate-token`, restart, and open the new URL.
 
 ### Tests
 
-Real-binary tests, as AGENTS.md requires for new commands and flags:
+Real-binary tests, as AGENTS.md requires for new commands:
 
-- `setup` and `config`, including `setup` stopping when `mkcert` or its CA is missing.
-- `enroll-link`: single use, expiry, and never written to the log.
-- Serving over TLS, with `https` origins accepted.
-- A session cookie that still works after a restart, and stops working after `revoke`.
-- A cookie request with a missing or wrong `Origin` rejected.
+- The token is the same across two runs, and the file is mode `0600`.
+- `rotate-token` changes it, and the old token is rejected after a restart.
+- `url` prints the running server's address and token, and reports when none is running.
+- The server's log never contains the token.
 
-WebAuthn ceremonies use a software authenticator in the test. The browser check reruns the spike
-page signed in by passkey, over HTTP/2, and restarts the server.
+The browser check reruns the spike page, opened from `url`, and restarts the server: the page keeps
+streaming without a new URL.
 
 ## Later
 
-Shelved until a second user, a second device or hosting needs them. The rules below hold when they
-arrive.
+Shelved until Tailscale or hosting makes the server reachable from another machine. The decisions
+below hold when they arrive.
+
+### TLS
+
+Serve at `https://localhost:<port>`, or a forwarder's host name, with a certificate from
+[mkcert](https://github.com/FiloSottile/mkcert) for local use.
+
+- HTTP/2, so streams no longer count against the per-host connection limit.
+- `durable-server setup` checks that `mkcert` is on the `PATH` and its CA is installed, stopping
+  before writing anything and printing the fix if not. It writes `server-config.json` and
+  `certs/`. A `config` command prints the URL, certificate paths and expiry, and the mkcert CA root.
+- With TLS, `serve` accepts `https` origins.
+
+### Browser sign-in
+
+A session cookie, `HttpOnly`, `Secure`, `SameSite=Strict` and `__Host-`, backed by a server-only
+`server.sqlite`, replaces the token in the browser. Requirements found in review:
+
+- Passkeys (WebAuthn) are the preferred method, so sign-in is passwordless. Enrollment links are
+  single use, expire after 15 minutes, carry their secret in the URL fragment, are stored hashed,
+  and are printed to stdout only.
+- A cookie request needs an `Origin` that matches exactly. A WebAuthn assertion must carry the exact
+  origin, port included.
+- Open `WatchEvents` streams check their session again at each heartbeat, and end with
+  `Unauthenticated` once it's revoked or expired.
+- `serve` checks sessions against the database on every request, so a `revoke` from another process
+  takes effect at once.
+- On plain `localhost`, cookies and passkeys are shared with every other local app, because browsers
+  scope both by host, not port. A host name of its own isolates them, but has to be one an OAuth
+  provider accepts as a redirect address.
 
 ### One login method per server
 
