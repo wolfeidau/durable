@@ -381,8 +381,11 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    stable token, `url` and `rotate-token`. Rerun the layer 4 spike page opened from `url`, and check
    that it keeps streaming across a restart without a new URL. Then prove the streaming hook, and
    build the UI. Slice J (#70) built the `web/` scaffold, the `WatchEngine` and the
-   `useWatchEvents` hook, with a minimal page and `bun test` coverage of the hook's rules. Playwright
-   automation of layer 4 is the next slice.
+   `useWatchEvents` hook, with a minimal page and `bun test` coverage of the hook's rules. Slice K
+   automates layer 4 with Playwright, including that a watch shows live before its first item, which
+   connect's in-memory transport can't show. It also stops the transcript re-rendering every row on
+   each update, by memoizing committed rows or virtualizing the list, before sessions grow to
+   thousands of events. Slice K can wait while other work goes first.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 

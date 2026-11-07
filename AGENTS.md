@@ -20,6 +20,12 @@ mise exec -- golangci-lint run ./...
 mise run check:tidy
 ```
 
+After changing `web/` or `api/`, also run this, which needs Bun from `mise install`:
+
+```sh
+mise run check:web
+```
+
 CI also race-checks the real binary, which `go test -race` alone doesn't. Run this after changing concurrency in `cmd/durable` or anything it calls:
 
 ```sh

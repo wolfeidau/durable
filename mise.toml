@@ -16,7 +16,11 @@ bun = "1.4.4"
 run = "go mod tidy -diff"
 
 [tasks."gen:api"]
-run = "buf generate"
+# The web client is generated from the same API, so it never drifts from the Go code.
+run = """
+buf generate
+mise run web:gen
+"""
 
 [tasks."check:api"]
 run = """
@@ -63,6 +67,7 @@ bun run --bun buf generate ../api
 # The status check also catches untracked files, which a diff ignores.
 test -z "$(git status --porcelain src/gen)" || { git status --porcelain src/gen; exit 1; }
 bunx tsc --noEmit
+bunx tsc --noEmit -p tsconfig.test.json
 bun test
 mise run web:build
 """
