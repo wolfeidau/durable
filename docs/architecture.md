@@ -24,7 +24,9 @@ Not goals for now: multi-tenant hosting, team features and an ACP or editor inte
   and `by` on an approval is free text. A team product would add auth, attribution and probably shared
   storage, and identity in the schema.
 - **Local first.** Phases 2 and 3 run on loopback, with the browser and server on one machine. No
-  proxy, no TLS and no remote access until [hosting](#hosting-is-deferred).
+  public proxy and no public access until [hosting](#hosting-is-deferred). The one exception is
+  sharing over a private network such as Tailscale, through an
+  [alternate host name](#alternate-host-names).
 
 ## Architecture
 
@@ -203,6 +205,22 @@ accepts `https` origins. That brings forward part of [hosting](#hosting-is-defer
 certificate it serves plain HTTP with h2c as now, and accepts bearer tokens only: cookie login needs
 TLS.
 
+#### Alternate host names
+
+`alternate_hosts` in the config lists extra host names the UI is served on, for example a
+Tailscale name such as `<machine>.<tailnet>.ts.net`. The server stays on loopback, and a forwarder
+such as `tailscale serve` terminates TLS with its own certificate and proxies to it. Other devices
+don't trust the mkcert CA, so the forwarder's certificate is the one they see.
+
+- Each name is matched exactly, as a host and as an `https` origin. No wildcards or suffixes.
+- Cookies are per host, so each name signs in separately.
+- `oauth` needs a redirect address registered per name. `webauthn` binds a passkey to one relying
+  party ID, and `durable.localhost` isn't a suffix of the Tailscale name, so a server with
+  alternate names sets the relying party ID to one of them and passkeys work only there.
+- A forwarder connects from loopback, so `serve` refuses to start with both `claim_first_user` and
+  `alternate_hosts` set. Otherwise anyone on the tailnet could claim an empty server.
+- Tailscale's identity headers are not a login method. Trusting them would add a second method.
+
 Layout, all under `~/.durable`:
 
 | Path | Holds | Lifetime |
@@ -251,8 +269,8 @@ No mixing and no matching between identities:
 - With `oauth` and `claim_first_user` set in the config, the first sign-in on an empty
   `server.sqlite` saves its issuer and subject as the first user, with no link or allowlist. The
   claim closes once a user exists. `setup` sets it for `oauth` on a loopback address, and `serve`
-  refuses to start with it set on any other address, because a hosted server would let anyone at
-  the provider claim it first. Without it, later users, and the other methods, enroll through a
+  refuses to start with it set on any other address or with `alternate_hosts`, because a hosted or
+  forwarded server would let anyone at the provider claim it first. Without it, later users, and the other methods, enroll through a
   login link. Later sign-ins must match exactly.
 - Changing the method means enrolling every user again through login links. The old credentials
   are deleted, not converted.
@@ -363,8 +381,8 @@ and drive a scripted fake model.
 - **Redaction:** secrets a gate adds to `Event.Call` never reach the wire.
 - **Auth:** requests with a missing token, a wrong `Origin` or a wrong `Host` are rejected. Phase 3
   adds real-binary tests for `setup`, `config` and `login-link`, TLS, cookie login for each method,
-  rejection of the other methods, single-use expiring links, and `serve` refusing `claim_first_user`
-  on a non-loopback address.
+  rejection of the other methods, single-use expiring links, `serve` refusing `claim_first_user`
+  on a non-loopback address or with `alternate_hosts`, and exact matching of alternate host names.
 
 ### 2. Contention
 
@@ -460,9 +478,13 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    - **Approval status on request.** An `approval_requested` event carries no status, so it reaches
      the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
      `APPROVAL_STATUS_PENDING` would be clearer.
-3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
-   first, with validation layer 4. Before the UI: `setup`, `config` and `login-link`, TLS at
-   `durable.localhost`, and cookie login with one configured method.
+3. **Web UI.** One session view with a live transcript and an approval prompt. The first slice
+   validates [local TLS and browser login](#local-tls-and-browser-login-phase-3) before any UI is
+   built: `setup`, `config` and `login-link`, TLS at `durable.localhost`, and cookie login with
+   each method. Rerun the layer 4 spike page over it, signed in by cookie, and check that `WatchEvents`
+   runs over HTTP/2, survives a restart without signing in again, and works through
+   `tailscale serve` on an alternate host name, including which `Host` and `Origin` arrive. Then
+   prove the streaming hook, and build the UI.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
