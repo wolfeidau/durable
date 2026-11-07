@@ -277,10 +277,12 @@ Run one scripted session with 0, 10 and 50 watchers, one of which never reads. `
 within a bound, and the stalled watcher doesn't delay the others. This checks the single-connection
 pool under watcher reads.
 
-`cmd/durable-server/contention_test.go` writes about 6 MB of events, and the stalled watcher has a 4 KB
-receive buffer, so its `Send` blocks. It showed no stall cost: `WatchEvents` reads a page and closes
-the cursor before it sends, so a blocked `Send` never holds the one connection. Wall time grows with
-readers, because each reader pulls the whole log.
+`cmd/durable-server/contention_test.go` writes about 6 MB of events while the stalled watcher, with a
+4 KB receive buffer, has attached and reads nothing. That is enough to fill its socket buffers, so its
+`Send` is expected to block; afterwards its backlog starts at seq 1. It showed no stall cost:
+`WatchEvents` reads a page and closes the cursor before it sends, so a blocked `Send` never holds the
+one connection. Wall time grows with readers, because each reader pulls the whole log. The test polls
+for completion through a separate read-only connection, so polling adds no load to the server.
 
 ### 3. Network faults
 

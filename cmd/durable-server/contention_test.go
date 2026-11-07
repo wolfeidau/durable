@@ -3,17 +3,22 @@ package main
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/wolfeidau/durable"
@@ -39,12 +44,15 @@ type contentionFeed struct {
 	queued map[int64]time.Time
 }
 
-// contentionWatch streams from 0 until it has seen want finished submissions.
-func contentionWatch(ctx context.Context, r *running, id string, want int) (*contentionFeed, error) {
+// contentionWatch streams from 0 until it has seen want finished submissions. attached, if set, runs once the call returns.
+func contentionWatch(ctx context.Context, r *running, id string, want int, attached func()) (*contentionFeed, error) {
 	client := durablev1connect.NewSessionServiceClient(h2cClient(), r.url)
 	req := connect.NewRequest(&v1.WatchEventsRequest{SessionId: id})
 	req.Header().Set("Authorization", "Bearer "+r.token)
 	stream, err := client.WatchEvents(ctx, req)
+	if attached != nil {
+		attached()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +81,8 @@ func contentionWatch(ctx context.Context, r *running, id string, want int) (*con
 	return f, nil
 }
 
-// contentionStall opens WatchEvents over raw HTTP/1.1 with a tiny receive buffer and doesn't read until the caller does.
-func contentionStall(t *testing.T, r *running, id string) net.Conn {
+// contentionStall opens WatchEvents over raw HTTP/1.1 with a tiny receive buffer, reads only the headers, and leaves the body unread.
+func contentionStall(t *testing.T, r *running, id string) (net.Conn, *bufio.Reader) {
 	t.Helper()
 	addr := strings.TrimPrefix(r.url, "http://")
 	conn, err := net.Dial("tcp", addr)
@@ -91,7 +99,45 @@ func contentionStall(t *testing.T, r *running, id string) net.Conn {
 	_, err = conn.Write(append([]byte(head), body...))
 	require.NoError(t, err)
 
-	return conn
+	// The server sends headers once the watch holds the session, so this proves it attached before the run.
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
+	br := bufio.NewReader(conn)
+	line, err := br.ReadString('\n')
+	require.NoError(t, err)
+	require.Contains(t, line, "200")
+	require.NoError(t, conn.SetReadDeadline(time.Time{}))
+	return conn, br
+}
+
+// contentionFirstEvent reads the stalled stream's body after the run and returns the first event's seq.
+func contentionFirstEvent(t *testing.T, conn net.Conn, br *bufio.Reader) int64 {
+	t.Helper()
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(10*time.Second)))
+	// The status line is already consumed, so read the rest of the response from a reconstructed head.
+	resp, err := http.ReadResponse(bufio.NewReader(io.MultiReader(strings.NewReader("HTTP/1.1 200 OK\r\n"), br)), nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	prefix := make([]byte, 5)
+	_, err = io.ReadFull(resp.Body, prefix)
+	require.NoError(t, err)
+	msg := make([]byte, binary.BigEndian.Uint32(prefix[1:]))
+	_, err = io.ReadFull(resp.Body, msg)
+	require.NoError(t, err)
+	var item v1.WatchEventsResponse
+	require.NoError(t, protojson.Unmarshal(msg, &item))
+	return item.GetEvent().GetSeq()
+}
+
+// contentionStatus reads a submission's status through a separate read-only connection, so polling adds no load to the server.
+func contentionStatus(dbPath, reqID string) (string, error) {
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?mode=ro&_busy_timeout=5000")
+	if err != nil {
+		return "", err
+	}
+	defer db.Close()
+	var status string
+	err = db.QueryRow(`SELECT status FROM submissions WHERE request_id = ?`, reqID).Scan(&status)
+	return status, err
 }
 
 // contentionRun runs one scripted session with the given watchers and returns the Run wall time.
@@ -108,27 +154,36 @@ func contentionRun(t *testing.T, watchers int, stalled bool) time.Duration {
 	total := contentionSubmissions + contentionProbes
 
 	var stalledConn net.Conn
+	var stalledBody *bufio.Reader
 	if stalled {
-		stalledConn = contentionStall(t, r, id)
+		stalledConn, stalledBody = contentionStall(t, r, id)
 	}
 	feeds := make([]*contentionFeed, watchers)
 	errs := make([]error, watchers)
-	var wg sync.WaitGroup
+	var wg, attached sync.WaitGroup
+	attached.Add(watchers)
 	for i := range watchers {
-		wg.Go(func() { feeds[i], errs[i] = contentionWatch(ctx, r, id, total) })
+		wg.Go(func() { feeds[i], errs[i] = contentionWatch(ctx, r, id, total, attached.Done) })
 	}
-	// Let the readers attach before the run starts.
-	time.Sleep(300 * time.Millisecond)
+	// Every reader holds the session before the run starts.
+	attached.Wait()
 
 	submit := func(reqID, text string) *v1.Submission {
 		resp, err := c.Submit(ctx, authed(c, &v1.SubmitRequest{SessionId: id, RequestId: reqID, Text: text}))
 		require.NoError(t, err)
 		return resp.Msg.GetSubmission()
 	}
-	waitDone := func(reqID, text string) {
-		require.Eventually(t, func() bool {
-			return submit(reqID, text).GetStatus() == v1.SubmissionStatus_SUBMISSION_STATUS_DONE
-		}, testTimeout, 50*time.Millisecond)
+	// Polls on the test goroutine, so a failure reports the last status and error.
+	waitDone := func(reqID string) {
+		deadline := time.Now().Add(testTimeout)
+		for {
+			status, err := contentionStatus(dbPath, reqID)
+			if err == nil && status == string(durable.StatusDone) {
+				return
+			}
+			require.True(t, time.Now().Before(deadline), "%s not done: status %q, error %v", reqID, status, err)
+			time.Sleep(50 * time.Millisecond)
+		}
 	}
 
 	big := strings.Repeat("x", contentionTextBytes)
@@ -137,7 +192,7 @@ func contentionRun(t *testing.T, watchers int, stalled bool) time.Duration {
 		submit(fmt.Sprintf("big-%d", i), big)
 	}
 	// Submissions run in order, so the last one done means all are.
-	waitDone(fmt.Sprintf("big-%d", contentionSubmissions-1), big)
+	waitDone(fmt.Sprintf("big-%d", contentionSubmissions-1))
 	wall := time.Since(start)
 
 	// A probe's commit time is approximated by its Submit return; the reader can't see it earlier.
@@ -145,14 +200,14 @@ func contentionRun(t *testing.T, watchers int, stalled bool) time.Duration {
 	for i := range contentionProbes {
 		reqID := fmt.Sprintf("probe-%d", i)
 		returned[submit(reqID, "ping").GetSeq()] = time.Now()
-		waitDone(reqID, "ping")
+		waitDone(reqID)
 	}
 
 	wg.Wait()
 	require.NoError(t, errors.Join(errs...))
 
 	if watchers > 0 {
-		ref, err := contentionWatch(ctx, r, id, total)
+		ref, err := contentionWatch(ctx, r, id, total, nil)
 		require.NoError(t, err)
 		t.Logf("watchers=%d stalled=%v: %d events, %d KB", watchers, stalled, len(ref.seqs), ref.bytes>>10)
 		require.Greater(t, ref.bytes, 4<<20, "the log must outgrow the socket buffers")
@@ -173,15 +228,12 @@ func contentionRun(t *testing.T, watchers int, stalled bool) time.Duration {
 	}
 
 	if stalled {
-		// Reading the status line now proves the stream opened and had data, then close it.
-		require.NoError(t, stalledConn.SetReadDeadline(time.Now().Add(10*time.Second)))
-		line, err := bufio.NewReader(stalledConn).ReadString('\n')
-		require.NoError(t, err)
-		require.Contains(t, line, "200")
+		// The backlog starts at seq 1, so the stalled stream was live and held the whole log behind it.
+		require.Equal(t, int64(1), contentionFirstEvent(t, stalledConn, stalledBody))
 		require.NoError(t, stalledConn.Close())
 	}
 	// The server still serves a new watch, and the session idle-closes once no stream holds it.
-	again, err := contentionWatch(ctx, r, id, total)
+	again, err := contentionWatch(ctx, r, id, total, nil)
 	require.NoError(t, err)
 	require.Equal(t, total, again.done)
 	require.Eventually(t, func() bool {
