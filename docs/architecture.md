@@ -271,6 +271,11 @@ Run one scripted session with 0, 10 and 50 watchers, one of which never reads. `
 within a bound, and the stalled watcher doesn't delay the others. This checks the single-connection
 pool under watcher reads.
 
+`cmd/durable-server/contention_test.go` writes about 6 MB of events, and the stalled watcher has a 4 KB
+receive buffer, so its `Send` blocks. It showed no stall cost: `WatchEvents` reads a page and closes
+the cursor before it sends, so a blocked `Send` never holds the one connection. Wall time grows with
+readers, because each reader pulls the whole log.
+
 ### 3. Network faults
 
 Add **toxiproxy** to `e2e/compose.yaml` for latency, a reset mid-stream and a stream cut off before it
@@ -332,7 +337,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R | #57 |
    | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | [Passed](#4-browser) |
    | 5 | **G.** Deltas on the stream | E | Next |
-   | 5 | **H.** Layer 2 contention tests | E | Next |
+   | 5 | **H.** Layer 2 contention tests | E | #65 |
    | 5 | **I.** Layer 3 network fault tests | E | Next |
 
    The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
