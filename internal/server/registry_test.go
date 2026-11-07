@@ -58,6 +58,8 @@ func newEnv(t *testing.T) *registryEnv {
 			a, err := commands.Assemble(ctx, c)
 			if err == nil {
 				a.Options.Model = echoModel{}
+				// No renewal tick in a test's lifetime, so only the RPC under test can notice a stolen lease.
+				a.Options.LeaseTTL = time.Hour
 			}
 			return a, err
 		},
