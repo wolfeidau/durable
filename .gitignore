@@ -6,3 +6,5 @@ dist/
 /internal/server/ui/dist/*
 !/internal/server/ui/dist/index.html
 /durable
+/durable-server
+/internal/server/ui/dist/main.js

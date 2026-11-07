@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>durable watch spike</title>
+<style>
+  body { font-family: monospace; margin: 1em; }
+  #status-bar span { margin-right: 1em; }
+  #events { white-space: pre-wrap; border: 1px solid #999; padding: 4px; min-height: 8em; }
+  .ev { margin: 2px 0; }
+</style>
+</head>
+<body>
+<h3>durable watch spike</h3>
+<div>
+  token <input id="token" size="50"> <button id="apply">Apply</button>
+</div>
+<div>
+  session <select id="sessions"></select> <button id="refresh">Refresh</button> <button id="watch">Watch</button>
+</div>
+<div id="status-bar">
+  <span>status <b id="status">idle</b></span>
+  <span>epoch <b id="epoch"></b></span>
+  <span>cursor <b id="cursor">0</b></span>
+  <span>events <b id="count">0</b></span>
+  <span>gaps <b id="gaps">0</b></span>
+  <span>dupes <b id="dupes">0</b></span>
+  <span>reconnects <b id="reconnects">0</b></span>
+  <span>epochResets <b id="epochResets">0</b></span>
+  <span>heartbeats <b id="heartbeats">0</b></span>
+  <span>lastHeartbeat <b id="lastHeartbeat"></b></span>
+</div>
+<div>
+  <input id="text" size="60" placeholder="prompt"> <button id="submit">Submit</button>
+  <span id="submitResult"></span>
+</div>
+<div id="events"></div>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
