@@ -9,7 +9,9 @@ supporting services run outside it.
 
 ## Goals
 
-- Watch and steer a session from a browser, and close the browser without stopping the work.
+- Watch and steer a session from a browser, and close the browser without stopping the work. A long
+  model outage is the exception: it [pauses](#server-session-lifecycle) the work until the session is
+  next opened.
 - Approve tool calls later, from a browser, without holding a process open.
 - Run untrusted commands away from credentials and the session log.
 - Keep every existing guarantee: crash-safe runs, exactly-once input and no double side effects.
@@ -154,8 +156,12 @@ The server holds the lease while a session is open, so the CLI waits on the same
 for another CLI. To hand a session back to the CLI, close the browser tab and wait out the idle
 timeout.
 
-- **Outages.** A failed run retries with backoff. With no clients, an outage keeps retrying for one
-  idle timeout after it starts, then the session closes, and the next open resumes the work.
+- **Outages pause unattended work.** A failed run retries with backoff. With no clients, an outage
+  keeps retrying for one idle timeout after it starts, then the session closes and releases the lease.
+  The work stays paused until a client or the CLI next opens the session, even if the provider
+  recovers sooner, and `ListSessions` doesn't show it as paused. A server restart pauses work the
+  same way, because sessions only open on demand. Reopening sessions with unfinished work on a timer
+  would remove the pause, and waits until it's needed.
 - **Lost lease.** If another process takes the lease, the run driver stops, RPCs and watch streams
   return `UNAVAILABLE`, and the registry drops the session so the next request opens it fresh.
 
