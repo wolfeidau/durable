@@ -9,7 +9,9 @@ supporting services run outside it.
 
 ## Goals
 
-- Watch and steer a session from a browser, and close the browser without stopping the work.
+- Watch and steer a session from a browser, and close the browser without stopping the work. A long
+  model outage is the exception: it [pauses](#server-session-lifecycle) the work until the session is
+  next opened.
 - Approve tool calls later, from a browser, without holding a process open.
 - Run untrusted commands away from credentials and the session log.
 - Keep every existing guarantee: crash-safe runs, exactly-once input and no double side effects.
@@ -153,6 +155,15 @@ for a few minutes, meaning no run and no watchers. That bounds open files and SQ
 The server holds the lease while a session is open, so the CLI waits on the same session as it would
 for another CLI. To hand a session back to the CLI, close the browser tab and wait out the idle
 timeout.
+
+- **Outages pause unattended work.** A failed run retries with backoff. With no clients, an outage
+  keeps retrying for one idle timeout after it starts, then the session closes and releases the lease.
+  The work stays paused until a client or the CLI next opens the session, even if the provider
+  recovers sooner, and `ListSessions` doesn't show it as paused. A server restart pauses work the
+  same way, because sessions only open on demand. Reopening sessions with unfinished work on a timer
+  would remove the pause, and waits until it's needed.
+- **Lost lease.** If another process takes the lease, the run driver stops, RPCs and watch streams
+  return `UNAVAILABLE`, and the registry drops the session so the next request opens it fresh.
 
 ### The web UI is the primary client
 
@@ -328,11 +339,6 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
 
    Known gaps in the built slices:
 
-   - **Retries pin the lease.** A transient model outage leaves the submission running, and the run
-     driver retries with backoff. A retrying session never counts as idle, so the server holds the
-     lease for the whole outage and the CLI can't take the session back.
-   - **Lost lease.** If `Run` returns `ErrLeaseLost`, the driver treats it as a failure and retries
-     against a harness that no longer holds the lease. It should close the session instead.
    - **Open resumes work.** Opening a session kicks its run driver, so watching a session resumes its
      queued work. That includes a copy made by `durable.Restore`, which conflicts with "a restored
      session must not auto-resume" below.

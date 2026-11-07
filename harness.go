@@ -177,6 +177,9 @@ func OpenDB(ctx context.Context, db *sql.DB, opts Options) (*Harness, error) {
 	return h, nil
 }
 
+// LeaseLost closes when the background renewal finds another process holds the lease. It never closes on Close or Detach.
+func (h *Harness) LeaseLost() <-chan struct{} { return h.leaseLost }
+
 func (h *Harness) renewLoop(ctx context.Context) {
 	defer close(h.renewDone)
 	t := time.NewTicker(h.opts.LeaseTTL / 3)

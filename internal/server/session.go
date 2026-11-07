@@ -23,6 +23,7 @@ type Session struct {
 	kicked     bool
 	running    bool
 	retrying   bool // a re-kick is scheduled after a failed run
+	isLost     bool // the lease was taken by another process
 	lastActive time.Time
 
 	retryBase, retryCap time.Duration
@@ -35,6 +36,7 @@ type Session struct {
 	kick      chan struct{}
 	cancel    context.CancelFunc
 	done      chan struct{}
+	watchDone chan struct{} // closed when the lease watcher exits
 	closeOnce sync.Once
 }
 
@@ -46,6 +48,7 @@ func newSession(logger *slog.Logger, retryBase, retryCap time.Duration) *Session
 		changed:    make(chan struct{}),
 		kick:       make(chan struct{}, 1),
 		done:       make(chan struct{}),
+		watchDone:  make(chan struct{}),
 		lastActive: time.Now(),
 	}
 }
@@ -75,11 +78,12 @@ func (s *Session) observe(e durable.Event) {
 }
 
 // Wait returns once an event newer than afterSeq has committed, or ctx ends.
+// It also returns once the session is lost, so callers check lost() after a wake-up.
 // Callers re-read events afterwards: it signals progress and carries no data.
 func (s *Session) Wait(ctx context.Context, afterSeq int64) error {
 	for {
 		s.mu.Lock()
-		if s.newest > afterSeq {
+		if s.newest > afterSeq || s.isLost {
 			s.mu.Unlock()
 			return nil
 		}
@@ -104,17 +108,36 @@ func (s *Session) Kick() {
 	}
 }
 
+// markLost records that another process took the lease and wakes Wait callers.
+func (s *Session) markLost() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.isLost {
+		return
+	}
+	s.isLost = true
+	s.logger.Warn("session taken over by another process")
+	close(s.changed)
+	s.changed = make(chan struct{})
+}
+
+func (s *Session) lost() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.isLost
+}
+
 func (s *Session) touch() {
 	s.mu.Lock()
 	s.lastActive = time.Now()
 	s.mu.Unlock()
 }
 
-// idleFor is zero while a run is in progress or pending.
+// idleFor is zero while a run is in progress or pending; a scheduled retry doesn't count, so an outage can't hold the lease forever.
 func (s *Session) idleFor() time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.kicked || s.running || s.retrying {
+	if s.kicked || s.running {
 		return 0
 	}
 	return time.Since(s.lastActive)
@@ -140,8 +163,19 @@ func (s *Session) start(ctx context.Context, h *durable.Harness, asm *commands.A
 
 	ctx, s.cancel = context.WithCancel(ctx)
 	go s.drive(ctx)
+	go s.watchLease(ctx)
 	s.Kick()
 	return nil
+}
+
+// watchLease marks the session lost when background renewal fails, so an idle session doesn't wait for a write to notice.
+func (s *Session) watchLease(ctx context.Context) {
+	defer close(s.watchDone)
+	select {
+	case <-s.h.LeaseLost():
+		s.markLost()
+	case <-ctx.Done():
+	}
 }
 
 func (s *Session) drive(ctx context.Context) {
@@ -160,6 +194,14 @@ func (s *Session) drive(ctx context.Context) {
 		// An interrupted run is a normal outcome, so only a run nobody cancelled can have failed.
 		failed := err != nil && !errors.Is(err, durable.ErrAwaitingApproval) && runCtx.Err() == nil
 		cancel()
+		if errors.Is(err, durable.ErrLeaseLost) {
+			s.mu.Lock()
+			s.running = false
+			s.runCancel = nil
+			s.mu.Unlock()
+			s.markLost()
+			return
+		}
 		if failed {
 			s.logger.Error("run failed", slog.Any("error", err))
 		}
@@ -167,10 +209,14 @@ func (s *Session) drive(ctx context.Context) {
 		s.mu.Lock()
 		s.running = false
 		s.runCancel = nil
-		s.lastActive = time.Now()
 		if failed {
+			// Only the first failure of a streak counts as activity, so an outage ends in an idle close.
+			if s.retryDelay == 0 {
+				s.lastActive = time.Now()
+			}
 			s.scheduleRetryLocked()
 		} else {
+			s.lastActive = time.Now()
 			s.retryDelay = 0
 		}
 		s.mu.Unlock()
@@ -240,7 +286,7 @@ func (s *Session) scheduleRetryLocked() {
 	}
 	s.retrying = true
 	s.retryTimer = time.AfterFunc(s.retryDelay, func() {
-		// Kick first so the session is never briefly idle between the two.
+		// Kick first so the session is never briefly idle between the two; after close the kick is never read.
 		s.Kick()
 		s.mu.Lock()
 		s.retrying = false
@@ -253,6 +299,7 @@ func (s *Session) close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		<-s.done
+		<-s.watchDone
 		s.mu.Lock()
 		if s.retryTimer != nil {
 			s.retryTimer.Stop()

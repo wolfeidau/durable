@@ -26,6 +26,9 @@ func (s sessionService) Submit(ctx context.Context, req *connect.Request[v1.Subm
 	defer release()
 	sub, err := sess.Harness().Submit(ctx, req.Msg.GetRequestId(), req.Msg.GetText())
 	if err != nil {
+		if lerr := leaseLost(sess, err); lerr != nil {
+			return nil, lerr
+		}
 		return nil, s.internal(ctx, "submit", err)
 	}
 	sess.Kick()
@@ -42,6 +45,9 @@ func (s sessionService) Cancel(ctx context.Context, req *connect.Request[v1.Canc
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, connect.NewError(connect.CodeNotFound, errors.New("unknown request"))
+		}
+		if lerr := leaseLost(sess, err); lerr != nil {
+			return nil, lerr
 		}
 		return nil, s.internal(ctx, "cancel", err)
 	}
@@ -60,6 +66,8 @@ func (s sessionService) DecideApproval(ctx context.Context, req *connect.Request
 		return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("approval already decided differently"))
 	case errors.Is(err, sql.ErrNoRows):
 		return nil, connect.NewError(connect.CodeNotFound, errors.New("unknown approval"))
+	case errors.Is(err, durable.ErrLeaseLost):
+		return nil, leaseLost(sess, err)
 	case err != nil:
 		return nil, s.internal(ctx, "decide approval", err)
 	}
@@ -78,6 +86,19 @@ func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.
 		out.Sessions = append(out.Sessions, &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt)})
 	}
 	return connect.NewResponse(out), nil
+}
+
+// leaseLost marks the session lost and returns Unavailable for an ErrLeaseLost, or nil for any other error.
+func leaseLost(sess *Session, err error) error {
+	if !errors.Is(err, durable.ErrLeaseLost) {
+		return nil
+	}
+	sess.markLost()
+	return errLost()
+}
+
+func errLost() error {
+	return connect.NewError(connect.CodeUnavailable, errors.New("session taken over by another process"))
 }
 
 // internal logs err and returns a code-only error, so internals don't reach the client.
