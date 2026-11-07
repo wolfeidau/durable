@@ -24,9 +24,7 @@ Not goals for now: multi-tenant hosting, team features and an ACP or editor inte
   and `by` on an approval is free text. A team product would add auth, attribution and probably shared
   storage, and identity in the schema.
 - **Local first.** Phases 2 and 3 run on loopback, with the browser and server on one machine. No
-  public proxy and no public access until [hosting](#hosting-is-deferred). The one exception is
-  sharing over a private network such as Tailscale, through an
-  [alternate host name](server-access.md#alternate-host-names).
+  public proxy and no remote access until [hosting](#hosting-is-deferred).
 
 ## Architecture
 
@@ -189,11 +187,10 @@ work on a fresh clone without Bun. `buf` is pinned through mise, so the library'
 
 ### Server access (phase 3)
 
-The browser reaches the server at `https://durable.localhost:<port>` with an mkcert certificate, and
-signs in with a cookie backed by a server-only `server.sqlite`, so restarts don't log it out. Each
-server has exactly one login method, `oauth`, `webauthn` or `password`, and bearer tokens stay for
-the CLI. `durable-server setup` and `config` write and print the configuration. The design is in
-[server access](server-access.md).
+The browser reaches the server at `https://localhost:<port>` with an mkcert certificate, and signs
+in with a passkey. A session cookie backed by a server-only `server.sqlite` keeps it signed in across
+restarts, and bearer tokens stay for the CLI. `durable-server setup` and `config` write and print the
+configuration. The design, and what's shelved, is in [server access](server-access.md).
 
 ### Durable approvals
 
@@ -378,11 +375,10 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
      `APPROVAL_STATUS_PENDING` would be clearer.
 3. **Web UI.** One session view with a live transcript and an approval prompt. The first slice
-   validates [server access](server-access.md) before any UI is built: `setup`, `config` and `login-link`, TLS at `durable.localhost`, and cookie login with
-   each method. Rerun the layer 4 spike page over it, signed in by cookie, and check that `WatchEvents`
-   runs over HTTP/2, survives a restart without signing in again, and works through
-   `tailscale serve` on an alternate host name, including which `Host` and `Origin` arrive. Then
-   prove the streaming hook, and build the UI.
+   builds the [server access](server-access.md#first-cut) first cut before any UI: `setup` and
+   `config`, TLS on `localhost`, and passkey sign-in with a session cookie. Rerun the layer 4 spike
+   page over it and check that `WatchEvents` runs over HTTP/2 and survives a restart without signing
+   in again. Then prove the streaming hook, and build the UI.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
