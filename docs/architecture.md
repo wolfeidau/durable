@@ -198,46 +198,78 @@ Why TLS on loopback:
   is shared by every port, and an IP address can't be one.
 - It allows `Secure` and `__Host-` cookies, and exercises the `https` origins that hosting needs.
 
+With TLS configured, `serve` adds the configured host name on its port to the allowed hosts and
+accepts `https` origins. That brings forward part of [hosting](#hosting-is-deferred). Without a
+certificate it serves plain HTTP with h2c as now, and accepts bearer tokens only: cookie login needs
+TLS.
+
 Layout, all under `~/.durable`:
 
 | Path | Holds | Lifetime |
 |---|---|---|
-| `server-config.json` | Host name, port, certificate paths, enabled login methods | Written by `setup`, edited by hand |
+| `server-config.json` | Host name, address, certificate paths, the login method and its settings | Written by `setup`, edited by hand |
 | `certs/` | The mkcert certificate and key for the host name | Written by `setup`, reissued by it |
-| `server.sqlite` | Users, passkeys, OAuth identities, browser sessions | Server only; no run ever writes it |
-| `server.json` | Address and token of the running server | Per run, as now |
+| `server.sqlite` | Users, their credentials, login links and browser sessions | Server only; no run ever writes it |
+| `server.json` | Address and bearer token of the running server | Per run, as now |
 
 `server.sqlite` doesn't break the [session index](#session-index) rule against a shared database:
 only the server's login code writes it, and session files stay separate.
 
 Commands on `durable-server`:
 
-- `setup` writes the config, runs `mkcert` for the host name into `certs/`, and prints the URL,
-  the certificate paths and a one-time link for the first login. It checks that the name resolves to
-  loopback and prints the `/etc/hosts` line if not, rather than editing system files. If the mkcert
-  CA isn't installed, it says to run `mkcert -install`.
-- `config` prints the same summary on demand: URL, port, certificate paths and expiry, the mkcert CA
-  root, whether the name resolves, and the enabled login methods. It's for when you've forgotten.
-- `serve`, the default, reads the config. Flags override it, so tests run without one, and without a
-  certificate it serves plain HTTP with h2c as now.
+- `setup` writes the config, runs `mkcert` for the host name into `certs/`, and prints the URL, the
+  certificate paths and a login link for the first user. It asks for the login method, recommending
+  `oauth` or `webauthn`. It doesn't edit system files: if `mkcert` is missing or its CA isn't
+  installed, or the name doesn't resolve to loopback, it prints the command or `/etc/hosts` line to
+  fix it.
+- `config` prints the same summary on demand: URL, address, certificate paths and expiry, the mkcert
+  CA root, the login method, and whether the name resolves and the address accepts connections. It's
+  for when you've forgotten.
+- `login-link` creates a login link, for a new browser, a new user or an expired session.
+- `serve`, the default, reads the config. Flags override it, so tests run without one.
 
-Login, in build order:
+The listen address covers what the name resolves to: macOS resolves `durable.localhost` to `::1`
+first, so the server listens on both loopback addresses, or `config` reports the gap.
 
-1. **One-time link.** The server prints a single-use link that sets an `HttpOnly`, `Secure`,
-   `SameSite=Strict` session cookie backed by `server.sqlite`. Restarts no longer log the browser out.
-2. **Passkeys.** WebAuthn with relying party ID `durable.localhost`, through
-   [go-webauthn](https://github.com/go-webauthn/webauthn). Touch ID or a security key on a Mac.
-3. **OAuth or OIDC**, when hosting gives a stable public URL, behind an allowlist of subjects or
-   emails, because any account at the provider could otherwise sign in.
+#### One login method per server
 
-A local password is a fallback at most. Bearer tokens stay for the CLI and scripts: the auth check
-accepts the token or a cookie, and Host and Origin checks still apply to both.
+`server-config.json` names exactly one browser login method:
+
+| Method | Works offline | Identity is |
+|---|---|---|
+| `oauth` (recommended) | No | The exact issuer and subject from the provider's ID token |
+| `webauthn` (recommended) | Yes | The credential ID, with relying party ID set to the host name |
+| `password` | Yes | The username, with an argon2id hash and rate-limited attempts |
+
+No mixing and no matching between identities:
+
+- The server accepts only the configured method. There's no second method to fall back to, and no
+  linking of accounts across methods.
+- An identity matches only exactly. Email addresses are never used to match or allow a user,
+  because providers don't guarantee they're stable or unique.
+- Only identities enrolled through a login link can sign in. OAuth needs no allowlist: the first
+  sign-in through a link records the issuer and subject, and later sign-ins must match them.
+- Changing the method means enrolling every user again through login links. The old credentials
+  are deleted, not converted.
+
+A login link is single use and expires after 15 minutes. It's stored hashed in `server.sqlite`, and
+printed to stdout only, never to the log. Sign-in sets an `HttpOnly`, `Secure`, `SameSite=Strict`
+`__Host-` session cookie backed by `server.sqlite`, so restarts don't log the browser out.
+
+OAuth on loopback works where the provider accepts a `127.0.0.1` or `localhost` redirect. Hosting
+changes the redirect address, and for `webauthn` the relying party ID, so users enroll again through
+links.
+
+Bearer tokens aren't a browser login method. They stay for the CLI and scripts, new on each run and
+read from `server.json`. The auth check accepts the token or the configured method's cookie, and
+Host and Origin checks apply to both.
+
+#### Users and attribution
 
 Every signed-in user can approve shell commands on the host, so users are trusted equals with no
-per-user permissions. `by` on an approval comes from the signed-in identity, not from the client.
-
-Moving to a real domain changes the relying party ID, so passkeys made on `durable.localhost` must be
-registered again; the one-time link covers that.
+per-user permissions. The server sets `by` on an approval from the signed-in identity, and a
+bearer-token caller is recorded as `token`. The client's `by` is ignored, and the comment on
+`DecideApprovalRequest.by` changes in the same slice.
 
 ### Durable approvals
 
@@ -277,9 +309,9 @@ there's a hosting target. It brings:
 - **Proxy streaming.** Buffering proxies can hold a stream until it ends. Turn buffering off first,
   for nginx `proxy_buffering off` with `proxy_http_version 1.1`, and test with nginx in
   `e2e/compose.yaml`. Heartbeats already cover idle timeouts.
-- **Allowed hosts and origins.** The server accepts only its listen address, `localhost` and
-  `127.0.0.1` on its port, and `http` origins. A proxied server needs configurable hosts and origins,
-  including `https`.
+- **Allowed hosts and origins.** The server accepts its listen address, `localhost` and `127.0.0.1`
+  on its port, and from phase 3 the configured TLS host name with `https` origins. A proxied server
+  needs the public host name and origin added.
 - **TLS** at the proxy.
 - **SSE fallback.** If a proxy defeats streaming over `fetch`, serve `WatchEvents` as SSE next to
   Connect, for example with [connect-sse](https://pkg.go.dev/github.com/firetiger-oss/connect-sse),
@@ -324,7 +356,9 @@ and drive a scripted fake model.
   the call runs once.
 - **Protocols:** run the suite over Connect, gRPC and gRPC-Web with the connect-go clients.
 - **Redaction:** secrets a gate adds to `Event.Call` never reach the wire.
-- **Auth:** requests with a missing token, a wrong `Origin` or a wrong `Host` are rejected.
+- **Auth:** requests with a missing token, a wrong `Origin` or a wrong `Host` are rejected. Phase 3
+  adds real-binary tests for `setup`, `config` and `login-link`, TLS, cookie login for each method,
+  rejection of the other methods, and single-use expiring links.
 
 ### 2. Contention
 
@@ -421,8 +455,8 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
      `APPROVAL_STATUS_PENDING` would be clearer.
 3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
-   first, with validation layer 4. Before the UI: `setup` and `config`, TLS at `durable.localhost`,
-   and cookie login from a one-time link. Passkeys follow.
+   first, with validation layer 4. Before the UI: `setup`, `config` and `login-link`, TLS at
+   `durable.localhost`, and cookie login with one configured method.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
