@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -18,7 +19,10 @@ func tokenPath(home string) string { return filepath.Join(home, ".durable", "ser
 
 func runSub(t *testing.T, home string, args ...string) (string, string, error) {
 	t.Helper()
-	cmd := exec.Command(binPath, args...)
+	// A serve that fails to refuse would otherwise hang the test until the package timeout.
+	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binPath, args...)
 	cmd.Env = append(os.Environ(), "HOME="+home)
 	var stdout, stderr strings.Builder
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
@@ -130,4 +134,10 @@ func TestURLWithStaleServerInfo(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, stderr, "no server running")
 	require.NotContains(t, stdout+stderr, "stale-token")
+}
+
+func TestBrowserURLUsesLoopbackForWildcardAddress(t *testing.T) {
+	require.Equal(t, "http://127.0.0.1:7878/#token=t", browserURL("0.0.0.0:7878", "t"))
+	require.Equal(t, "http://127.0.0.1:7878/#token=t", browserURL("[::]:7878", "t"))
+	require.Equal(t, "http://127.0.0.1:7878/#token=t", browserURL("127.0.0.1:7878", "t"))
 }

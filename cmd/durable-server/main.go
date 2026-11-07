@@ -221,8 +221,18 @@ func (*urlCmd) Run(ctx context.Context) error {
 		return fmt.Errorf("no server running at %s (server.json is left over): %w", info.Addr, err)
 	}
 	_ = conn.Close()
-	fmt.Printf("http://%s/#token=%s\n", info.Addr, info.Token)
+	fmt.Println(browserURL(info.Addr, info.Token))
 	return nil
+}
+
+// browserURL swaps a wildcard listen address for loopback, which a browser can open and the Host check allows.
+func browserURL(addr, token string) string {
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && ip.IsUnspecified() {
+			addr = net.JoinHostPort("127.0.0.1", port)
+		}
+	}
+	return "http://" + addr + "/#token=" + token
 }
 
 func (*rotateTokenCmd) Run() error {
@@ -251,7 +261,7 @@ func main() {
 	err := k.Run()
 	stop()
 	if err != nil {
-		logger.Error("server failed", slog.Any("error", err))
+		logger.Error("command failed", slog.String("command", k.Command()), slog.Any("error", err))
 		os.Exit(1)
 	}
 }
