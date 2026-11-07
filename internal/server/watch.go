@@ -55,6 +55,9 @@ func (s sessionService) watch(ctx context.Context, req *durablev1.WatchEventsReq
 
 	h := sess.Harness()
 	for {
+		if sess.lost() {
+			return errLost()
+		}
 		events, err := h.Events(ctx, cursor, watchPage)
 		if err != nil {
 			return fmt.Errorf("failed to read events: %w", err)

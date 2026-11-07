@@ -56,7 +56,8 @@ type entry struct {
 	ready   chan struct{} // closed once s or err is set
 	s       *Session
 	err     error
-	holders int // guarded by Registry.mu
+	holders int  // guarded by Registry.mu
+	evicted bool // guarded by Registry.mu; the last release closes the session
 }
 
 // NewRegistry returns a Registry whose runs use a context derived from ctx.
@@ -126,6 +127,13 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 			}
 			return nil, nil, e.err
 		}
+		if e.s.lost() {
+			r.mu.Lock()
+			r.evictLocked(id, e)
+			r.mu.Unlock()
+			r.release(e)
+			continue
+		}
 		var once sync.Once
 		return e.s, func() { once.Do(func() { r.release(e) }) }, nil
 	}
@@ -153,12 +161,28 @@ func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry) {
 	close(e.ready)
 }
 
+// evictLocked removes e from the map if it is still the current entry for id.
+func (r *Registry) evictLocked(id string, e *entry) {
+	if r.entries[id] == e {
+		delete(r.entries, id)
+	}
+	e.evicted = true
+}
+
+// release closes an evicted session once its last holder leaves.
 func (r *Registry) release(e *entry) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	e.holders--
+	var closing *Session
 	if e.s != nil {
 		e.s.touch()
+		if e.evicted && e.holders == 0 {
+			closing = e.s
+		}
+	}
+	r.mu.Unlock()
+	if closing != nil {
+		closing.close()
 	}
 }
 
@@ -209,7 +233,7 @@ func notFound(err error) error {
 	return err
 }
 
-// sweepLoop closes sessions that have been idle for IdleTimeout.
+// sweepLoop closes sessions that have been idle for IdleTimeout, and lost ones at once.
 func (r *Registry) sweepLoop() {
 	interval := max(r.cfg.IdleTimeout/4, 5*time.Millisecond)
 	t := time.NewTicker(interval)
@@ -228,8 +252,18 @@ func (r *Registry) sweep() {
 	var idle []*Session
 	r.mu.Lock()
 	for id, e := range r.entries {
-		if e.s != nil && e.holders == 0 && e.s.idleFor() >= r.cfg.IdleTimeout {
-			delete(r.entries, id)
+		if e.s == nil {
+			continue
+		}
+		switch {
+		case e.s.lost():
+			// With holders, the last release closes it.
+			r.evictLocked(id, e)
+			if e.holders == 0 {
+				idle = append(idle, e.s)
+			}
+		case e.holders == 0 && e.s.idleFor() >= r.cfg.IdleTimeout:
+			r.evictLocked(id, e)
 			idle = append(idle, e.s)
 		}
 	}
