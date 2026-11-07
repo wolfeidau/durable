@@ -1,7 +1,7 @@
 # Server architecture
 
 **Status: phase 2 in progress.** Durable approvals, phase 1 and phase 2 slices A to F, S and R are
-built. The spike, G, H and I remain.
+built, and the browser spike passed. G, H and I remain.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -268,9 +268,32 @@ ends. The client resumes from its last seq. Proxy tests with nginx wait for
 
 ### 4. Browser
 
-Playwright, run from its Docker image, loads a minimal test page that uses connect-web's
-`WatchEvents` on loopback. It checks that streaming over `fetch` works on HTTP/1.1, then restarts the
-server and checks that the page resumes. If this fails, fall back to SSE for the browser.
+A minimal test page uses connect-web's `WatchEvents` on loopback. It checks that streaming over
+`fetch` works on HTTP/1.1, then restarts the server and checks that the page resumes. If this fails,
+fall back to SSE for the browser. Phase 3 automates it with Playwright, run from its Docker image.
+
+**Spike result: passed.** The page lives on the unmerged
+[`spike/browser-watch`](https://github.com/wolfeidau/durable/tree/spike/browser-watch) branch. It was
+driven by hand in Chrome against a real OpenRouter model:
+
+- `WatchEvents` was one `fetch` over HTTP/1.1, open for 50s, and events arrived as they committed,
+  not when the stream ended. Heartbeats arrived every 5s while idle.
+- An approval parked, Allow from the page ran the call once, and two tabs showed identical seqs.
+- After `kill -9` and a restart, the page resumed from its cursor under the same epoch with no gaps
+  or duplicates.
+- After `durable.Restore`, the page got `FAILED_PRECONDITION` with a decodable `EpochMismatch`
+  detail, replayed from 0 and then followed new events.
+
+What phase 3 needs from it:
+
+- **Stable auth across restarts.** The token is new on each run, so after a restart the page stops
+  at `Unauthenticated` until it's given the new one. Keep the token across restarts, or move the
+  browser to a cookie set from a one-time link.
+- **The hook's shape.** It holds `(epoch, cursor)`, counts a seq that isn't `cursor + 1` as a gap,
+  resets to `("", 0)` on `FAILED_PRECONDITION`, waits for new auth on `Unauthenticated`, and
+  otherwise reconnects after a 1s backoff.
+- **Toolchain.** `protoc-gen-es` has a `node` shebang, so with Bun alone run it through
+  `bun run --bun`.
 
 ### 5. Remote workers (phase 4)
 
@@ -296,10 +319,10 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 3 | **R.** Session registry | D, S | #56 |
    | 3 | **E.** `WatchEvents`, with layer 1 stream tests | A, D, R | #58 |
    | 3 | **F.** `Submit`, `Cancel`, `DecideApproval` and `ListSessions`, with layer 1 approval tests | B, D, R | #57 |
-   | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | Next |
-   | 5 | **G.** Deltas on the stream | E | |
-   | 5 | **H.** Layer 2 contention tests | E | |
-   | 5 | **I.** Layer 3 network fault tests | E | |
+   | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | [Passed](#4-browser) |
+   | 5 | **G.** Deltas on the stream | E | Next |
+   | 5 | **H.** Layer 2 contention tests | E | Next |
+   | 5 | **I.** Layer 3 network fault tests | E | Next |
 
    The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
 
@@ -313,6 +336,9 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    - **Open resumes work.** Opening a session kicks its run driver, so watching a session resumes its
      queued work. That includes a copy made by `durable.Restore`, which conflicts with "a restored
      session must not auto-resume" below.
+   - **Approval status on request.** An `approval_requested` event carries no status, so it reaches
+     the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
+     `APPROVAL_STATUS_PENDING` would be clearer.
 3. **Web UI.** One session view with a live transcript and an approval prompt. Prove the streaming hook
    first, with validation layer 4.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
