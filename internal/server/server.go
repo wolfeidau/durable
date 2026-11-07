@@ -20,8 +20,23 @@ import (
 	"github.com/wolfeidau/durable/api/durable/v1/durablev1connect"
 )
 
-//go:embed ui/dist
+// all: embeds ui/dist when it exists, which a fresh clone lacks.
+//
+//go:embed all:ui
 var uiFS embed.FS
+
+// uiRoot serves the built UI when it has an index.html, otherwise the committed placeholder.
+func uiRoot(fsys fs.FS) fs.FS {
+	dir := "ui/placeholder"
+	if _, err := fs.Stat(fsys, "ui/dist/index.html"); err == nil {
+		dir = "ui/dist"
+	}
+	ui, err := fs.Sub(fsys, dir)
+	if err != nil {
+		panic(err) // the path is valid by construction
+	}
+	return ui
+}
 
 // Config configures a Server.
 type Config struct {
@@ -69,11 +84,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.Handle(path, s.requireToken(h))
 
-	ui, err := fs.Sub(uiFS, "ui/dist")
-	if err != nil {
-		panic(err) // the embedded path is fixed at compile time
-	}
-	mux.Handle("/", http.FileServerFS(ui))
+	mux.Handle("/", http.FileServerFS(uiRoot(uiFS)))
 
 	return s.checkHostAndOrigin(mux)
 }

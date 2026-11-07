@@ -180,7 +180,7 @@ func TestGetDoesNotRunDecideApproval(t *testing.T) {
 	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
 }
 
-func TestServesPlaceholderUI(t *testing.T) {
+func TestServesUI(t *testing.T) {
 	base, _ := startServer(t)
 	// No Authorization header: the UI is exempt from the token.
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/", nil)
@@ -191,7 +191,7 @@ func TestServesPlaceholderUI(t *testing.T) {
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	require.Contains(t, string(body), "UI not built")
+	require.Contains(t, string(body), "<title>durable</title>")
 }
 
 func TestServerJSONModeAndCleanup(t *testing.T) {

@@ -1,0 +1,7 @@
+{
+  // Bun types only for the tests, so browser code can't type-check against Bun or Node globals.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["bun"] },
+  "include": ["src"],
+  "exclude": []
+}
