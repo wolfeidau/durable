@@ -220,8 +220,8 @@ Commands on `durable-server`:
 - `setup` first checks that `mkcert` is on the `PATH` and its CA is installed (`mkcert -CAROOT`
   holds `rootCA.pem`). If not, it stops before writing anything and prints the fix, such as
   `brew install mkcert nss` then `mkcert -install`. It then writes the config, runs `mkcert` for the
-  host name into `certs/`, and prints the URL, the certificate paths and a login link for the first
-  user. It asks for the login method, recommending `oauth` or `webauthn`. It doesn't edit system
+  host name into `certs/`, and prints the URL, the certificate paths and, except with `oauth`, a
+  login link for the first user. It asks for the login method, recommending `oauth` or `webauthn`. It doesn't edit system
   files: if the name doesn't resolve to loopback, it prints the `/etc/hosts` line to add.
 - `config` prints the same summary on demand: URL, address, certificate paths and expiry, the mkcert
   CA root, the login method, and whether the name resolves and the address accepts connections. It's
@@ -248,8 +248,10 @@ No mixing and no matching between identities:
   linking of accounts across methods.
 - An identity matches only exactly. Email addresses are never used to match or allow a user,
   because providers don't guarantee they're stable or unique.
-- Only identities enrolled through a login link can sign in. OAuth needs no allowlist: the first
-  sign-in through a link records the issuer and subject, and later sign-ins must match them.
+- With `oauth`, the first sign-in on an empty `server.sqlite` saves its issuer and subject as the
+  first user, with no link or allowlist. The claim is open only on a loopback connection and closes
+  once a user exists, because a hosted server would let anyone at the provider claim it first. Later
+  users, and the other methods, enroll through a login link, and later sign-ins must match exactly.
 - Changing the method means enrolling every user again through login links. The old credentials
   are deleted, not converted.
 
