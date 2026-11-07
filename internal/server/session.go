@@ -36,6 +36,7 @@ type Session struct {
 	kick      chan struct{}
 	cancel    context.CancelFunc
 	done      chan struct{}
+	watchDone chan struct{} // closed when the lease watcher exits
 	closeOnce sync.Once
 }
 
@@ -47,6 +48,7 @@ func newSession(logger *slog.Logger, retryBase, retryCap time.Duration) *Session
 		changed:    make(chan struct{}),
 		kick:       make(chan struct{}, 1),
 		done:       make(chan struct{}),
+		watchDone:  make(chan struct{}),
 		lastActive: time.Now(),
 	}
 }
@@ -161,8 +163,19 @@ func (s *Session) start(ctx context.Context, h *durable.Harness, asm *commands.A
 
 	ctx, s.cancel = context.WithCancel(ctx)
 	go s.drive(ctx)
+	go s.watchLease(ctx)
 	s.Kick()
 	return nil
+}
+
+// watchLease marks the session lost when background renewal fails, so an idle session doesn't wait for a write to notice.
+func (s *Session) watchLease(ctx context.Context) {
+	defer close(s.watchDone)
+	select {
+	case <-s.h.LeaseLost():
+		s.markLost()
+	case <-ctx.Done():
+	}
 }
 
 func (s *Session) drive(ctx context.Context) {
@@ -286,6 +299,7 @@ func (s *Session) close() {
 	s.closeOnce.Do(func() {
 		s.cancel()
 		<-s.done
+		<-s.watchDone
 		s.mu.Lock()
 		if s.retryTimer != nil {
 			s.retryTimer.Stop()

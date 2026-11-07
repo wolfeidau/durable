@@ -362,6 +362,32 @@ func TestLeaseLossCancelsRunningTool(t *testing.T) {
 	}
 }
 
+func TestLeaseLostSignalsOnlyOnLoss(t *testing.T) {
+	ctx := context.Background()
+	h := openWith(t, ctx, Options{Model: &scriptedModel{}, LeaseTTL: ttl})
+	defer h.abandon()
+	select {
+	case <-h.LeaseLost():
+		t.Fatal("LeaseLost closed on a healthy harness")
+	default:
+	}
+	_, err := h.db.ExecContext(ctx, `UPDATE lease SET owner = 'thief' WHERE id = 1`)
+	require.NoError(t, err)
+	select {
+	case <-h.LeaseLost():
+	case <-time.After(5 * time.Second):
+		t.Fatal("LeaseLost did not close after the lease was taken")
+	}
+
+	healthy := openWith(t, ctx, Options{Model: &scriptedModel{}, LeaseTTL: ttl})
+	require.NoError(t, healthy.Close())
+	select {
+	case <-healthy.LeaseLost():
+		t.Fatal("LeaseLost closed on Close")
+	default:
+	}
+}
+
 func TestConcurrentRunsDoNotDoubleExecute(t *testing.T) {
 	ctx := context.Background()
 	model := &scriptedModel{}

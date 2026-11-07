@@ -66,12 +66,12 @@ func (e *registryEnv) openPlain(t *testing.T) *durable.Harness {
 }
 
 // stealLease rewrites the lease row through a separate connection, as another process would.
-func stealLease(t *testing.T, s *Session, owner string, expiresAt int64) {
+func stealLease(t *testing.T, s *Session, expiresAt int64) {
 	t.Helper()
 	db, err := sql.Open("sqlite3", "file:"+s.asm.Path+"?_busy_timeout=5000")
 	require.NoError(t, err)
 	defer db.Close()
-	_, err = db.ExecContext(t.Context(), `UPDATE lease SET owner = ?, expires_at = ?`, owner, expiresAt)
+	_, err = db.ExecContext(t.Context(), `UPDATE lease SET owner = 'thief', expires_at = ?`, expiresAt)
 	require.NoError(t, err)
 }
 
@@ -114,7 +114,7 @@ func TestLostLeaseStopsDriverAndEvicts(t *testing.T) {
 	require.NoError(t, err)
 	s.Kick()
 	<-model.started
-	stealLease(t, s, "thief", time.Now().Add(time.Hour).UnixMilli())
+	stealLease(t, s, time.Now().Add(time.Hour).UnixMilli())
 	close(model.proceed) // the answer's commit hits the fence
 
 	require.Eventually(t, s.lost, 10*time.Second, 5*time.Millisecond)
@@ -138,11 +138,128 @@ func TestLostLeaseStopsDriverAndEvicts(t *testing.T) {
 	_, err = s.Harness().Events(t.Context(), 0, 1)
 	require.Error(t, err)
 
-	stealLease(t, s, "thief", 0)
+	stealLease(t, s, 0)
 	s2, release2, err := r.Acquire(t.Context(), e.id)
 	require.NoError(t, err)
 	defer release2()
 	require.NotSame(t, s, s2)
+}
+
+func TestLostLeaseMapsCancelAndDecideToUnavailable(t *testing.T) {
+	for _, op := range []string{"cancel", "decide"} {
+		t.Run(op, func(t *testing.T) {
+			e := newEnv(t)
+			e.cfg.OpenTimeout = 200 * time.Millisecond
+			client, r := e.watchClient(t)
+			s, release, err := r.Acquire(t.Context(), e.id)
+			require.NoError(t, err)
+			defer release()
+			// Submitted without a kick so it stays queued and Cancel reaches the fence.
+			_, err = s.Harness().Submit(t.Context(), "r1", "hi")
+			require.NoError(t, err)
+			// The opening run would otherwise notice the loss first and the client would see a fresh open fail.
+			require.Eventually(t, func() bool {
+				s.mu.Lock()
+				defer s.mu.Unlock()
+				return !s.kicked && !s.running
+			}, 10*time.Second, time.Millisecond)
+			stealLease(t, s, time.Now().Add(time.Hour).UnixMilli())
+
+			if op == "cancel" {
+				req := connect.NewRequest(&v1.CancelRequest{SessionId: e.id, RequestId: "r1"})
+				req.Header().Set("Authorization", "Bearer "+testToken)
+				_, err = client.Cancel(t.Context(), req)
+			} else {
+				req := connect.NewRequest(&v1.DecideApprovalRequest{SessionId: e.id, ApprovalSeq: 1, Allow: true, By: "me"})
+				req.Header().Set("Authorization", "Bearer "+testToken)
+				_, err = client.DecideApproval(t.Context(), req)
+			}
+			require.Equal(t, connect.CodeUnavailable, connect.CodeOf(err), "%v", err)
+			require.ErrorContains(t, err, "session taken over by another process")
+			require.True(t, s.lost())
+		})
+	}
+}
+
+func TestBackgroundRenewalMarksIdleSessionLost(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.OpenTimeout = 200 * time.Millisecond
+	e.cfg.assemble = func(ctx context.Context, c commands.AssembleConfig) (*commands.Assembled, error) {
+		c.APIToken = "k"
+		a, err := commands.Assemble(ctx, c)
+		if err == nil {
+			a.Options.Model = echoModel{}
+			a.Options.LeaseTTL = 300 * time.Millisecond
+		}
+		return a, err
+	}
+	client, r := e.watchClient(t)
+	s, release, err := r.Acquire(t.Context(), e.id)
+	require.NoError(t, err)
+	defer release()
+
+	watched := make(chan error, 1)
+	go func() {
+		stream, err := client.WatchEvents(t.Context(), watchReq(e.id))
+		if err != nil {
+			watched <- err
+			return
+		}
+		for stream.Receive() {
+		}
+		watched <- stream.Err()
+	}()
+	require.Eventually(t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		en := r.entries[e.id]
+		return en != nil && en.holders == 2
+	}, 10*time.Second, 5*time.Millisecond)
+	// Let the first kick's run finish, so only the renewal can notice the loss.
+	require.Eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.kicked && !s.running
+	}, 10*time.Second, 5*time.Millisecond)
+	stealLease(t, s, time.Now().Add(time.Hour).UnixMilli())
+
+	require.Eventually(t, s.lost, 10*time.Second, 10*time.Millisecond)
+	select {
+	case werr := <-watched:
+		require.Equal(t, connect.CodeUnavailable, connect.CodeOf(werr), "%v", werr)
+	case <-time.After(10 * time.Second):
+		t.Fatal("watch did not end after the lease was lost")
+	}
+}
+
+func TestRetryPendingAtCloseDoesNotRun(t *testing.T) {
+	e := newEnv(t)
+	e.cfg.RetryBase = 200 * time.Millisecond
+	model := &outageModel{}
+	e.useModel(model)
+	r := e.registry(t)
+
+	s, release, err := r.Acquire(t.Context(), e.id)
+	require.NoError(t, err)
+	// The opening kick must finish first, or it could pick up the submission and run twice.
+	require.Eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return !s.kicked && !s.running
+	}, 10*time.Second, time.Millisecond)
+	_, err = s.Harness().Submit(t.Context(), "r1", "hello")
+	require.NoError(t, err)
+	s.Kick()
+	require.Eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return model.calls.Load() == 1 && s.retrying
+	}, 10*time.Second, time.Millisecond)
+
+	release()
+	r.Close()
+	time.Sleep(500 * time.Millisecond)
+	require.EqualValues(t, 1, model.calls.Load())
 }
 
 func TestUnaryAndWatchMapLostLeaseToUnavailable(t *testing.T) {
@@ -169,9 +286,10 @@ func TestUnaryAndWatchMapLostLeaseToUnavailable(t *testing.T) {
 	require.Eventually(t, func() bool {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		return r.entries[e.id].holders == 2
+		en := r.entries[e.id]
+		return en != nil && en.holders == 2
 	}, 10*time.Second, 5*time.Millisecond)
-	stealLease(t, s, "thief", time.Now().Add(time.Hour).UnixMilli())
+	stealLease(t, s, time.Now().Add(time.Hour).UnixMilli())
 
 	req := connect.NewRequest(&v1.SubmitRequest{SessionId: e.id, RequestId: "r1", Text: "hi"})
 	req.Header().Set("Authorization", "Bearer "+testToken)
