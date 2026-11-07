@@ -279,9 +279,16 @@ pool under watcher reads.
 
 ### 3. Network faults
 
-Add **toxiproxy** to `e2e/compose.yaml` for latency, a reset mid-stream and a stream cut off before it
-ends. The client resumes from its last seq. Proxy tests with nginx wait for
-[hosting](#hosting-is-deferred).
+A fault-injecting TCP proxy inside the real-binary tests (`cmd/durable-server/faults_test.go`) adds
+latency, a TCP reset mid-stream, a closed connection mid-stream and a break during a heartbeat wait.
+The client resumes from its last seq and ends with the same contiguous seqs as a clean watch. The
+breaks run over HTTP/2 for Connect, gRPC and gRPC-Web, and over HTTP/1.1, the browser's transport,
+for Connect and gRPC-Web. Every break surfaced as an error, never a clean end. It replaces toxiproxy,
+because it needs no Docker or new dependency and runs in plain `go test`.
+
+Not covered: a response that ends cleanly without Connect's end-of-stream message, which an
+HTTP-aware proxy can produce on a timeout. It needs a real proxy, so it waits for
+[hosting](#hosting-is-deferred) with the nginx tests.
 
 ### 4. Browser
 
@@ -339,7 +346,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | 4 | **Spike.** A throwaway page streams `WatchEvents` on loopback (layer 4) | E | [Passed](#4-browser) |
    | 5 | **G.** Deltas on the stream | E | #66 |
    | 5 | **H.** Layer 2 contention tests | E | Next |
-   | 5 | **I.** Layer 3 network fault tests | E | Next |
+   | 5 | **I.** Layer 3 network fault tests | E | #64 |
 
    The spike comes before G to I because, if it fails, falling back to SSE changes C and E.
 
