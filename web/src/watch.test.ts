@@ -324,3 +324,28 @@ describe("WatchEngine", () => {
     expect(engine.getSnapshot().status).toBe("stopped");
   });
 });
+
+describe("WatchEngine review fixes", () => {
+  test("drops live text from a previous connection", async () => {
+    const { engine } = setup([
+      { items: [ev(1), delta(DeltaKind.RESET), delta(DeltaKind.TEXT, { text: "ab" })], end: "close" },
+      { items: [delta(DeltaKind.TEXT, { text: "cd" }), ev(2)], end: "hang" },
+    ]);
+    engine.start();
+    const s = await until(engine, (st) => st.cursor === 2n);
+    expect(s.partialText.has(1n)).toBe(false);
+    engine.stop();
+  });
+
+  test("publishes a long replay in few snapshots", async () => {
+    const items = Array.from({ length: 2000 }, (_, i) => ev(i + 1));
+    const { engine } = setup([{ items, end: "hang" }]);
+    let notified = 0;
+    engine.subscribe(() => notified++);
+    engine.start();
+    const s = await until(engine, (st) => st.cursor === 2000n);
+    expect(s.events.length).toBe(2000);
+    expect(notified).toBeLessThan(2000);
+    engine.stop();
+  });
+});

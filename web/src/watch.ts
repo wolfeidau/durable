@@ -54,6 +54,7 @@ function withEntry<K, V>(m: ReadonlyMap<K, V>, key: K, value: V): ReadonlyMap<K,
 export class WatchEngine {
   private readonly client: Client<typeof SessionService>;
   private readonly sleep: (ms: number) => Promise<void>;
+  // The working state; subscribers see `snapshot`, published at most once per task so a replay renders once per chunk.
   private state: WatchState = {
     status: "connecting",
     epoch: "",
@@ -65,6 +66,11 @@ export class WatchEngine {
     partialText: new Map(),
     toolOutput: new Map(),
   };
+  private snapshot: WatchState = this.state;
+  // Appended in place and copied into the snapshot on flush, so a replay isn't quadratic.
+  private events: Event[] = [];
+  private eventsDirty = false;
+  private flushScheduled = false;
   private readonly listeners = new Set<() => void>();
   private readonly resetSubmissions = new Set<bigint>();
   private token: string | undefined;
@@ -87,7 +93,7 @@ export class WatchEngine {
     return () => this.listeners.delete(listener);
   };
 
-  getSnapshot = (): WatchState => this.state;
+  getSnapshot = (): WatchState => this.snapshot;
 
   start(): void {
     if (this.started) return;
@@ -101,6 +107,7 @@ export class WatchEngine {
     this.abort?.abort();
     this.signalStop();
     this.update({ status: "stopped" });
+    this.flush();
   }
 
   setToken(token: string): void {
@@ -114,16 +121,38 @@ export class WatchEngine {
 
   private update(patch: Patch): void {
     this.state = { ...this.state, ...patch };
-    for (const l of this.listeners) l();
+    if (this.flushScheduled) return;
+    this.flushScheduled = true;
+    setTimeout(this.flush, 0);
   }
+
+  private flush = (): void => {
+    this.flushScheduled = false;
+    const events = this.eventsDirty ? this.events.slice() : this.snapshot.events;
+    this.eventsDirty = false;
+    this.snapshot = { ...this.state, events };
+    for (const l of this.listeners) l();
+  };
 
   private async run(): Promise<void> {
     while (!this.stopped) {
       this.abort = new AbortController();
+      // Deltas missed while disconnected would leave a hole, so live views restart with the connection.
+      this.resetSubmissions.clear();
+      if (this.state.partialText.size || this.state.toolOutput.size) {
+        this.update({ partialText: new Map(), toolOutput: new Map() });
+      }
       try {
         const stream = this.client.watchEvents(
           { sessionId: this.opts.sessionId, epoch: this.state.epoch, afterSeq: this.state.cursor, includeDeltas: true },
-          { signal: this.abort.signal, headers: { Authorization: `Bearer ${this.token ?? this.opts.getToken()}` } },
+          {
+            signal: this.abort.signal,
+            headers: { Authorization: `Bearer ${this.token ?? this.opts.getToken()}` },
+            // The server sends headers once the watch holds the session, before any event or heartbeat.
+            onHeader: () => {
+              if (!this.stopped && this.state.status !== "live") this.update({ status: "live" });
+            },
+          },
         );
         for await (const r of stream) {
           if (this.stopped) return;
@@ -166,11 +195,12 @@ export class WatchEngine {
 
   private resetAll(): void {
     this.resetSubmissions.clear();
+    this.events = [];
+    this.eventsDirty = true;
     this.update({
       status: "connecting",
       epoch: "",
       cursor: 0n,
-      events: [],
       partialText: new Map(),
       toolOutput: new Map(),
     });
@@ -179,8 +209,9 @@ export class WatchEngine {
   private applyEvent(e: Event): void {
     const { cursor } = this.state;
     if (e.seq <= cursor) return;
+    this.events.push(e);
+    this.eventsDirty = true;
     const patch: Patch = {
-      events: [...this.state.events, e],
       cursor: e.seq,
       epoch: e.epoch,
     };
