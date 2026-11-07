@@ -209,6 +209,8 @@ client rebuilds from events after reconnecting.
   `Tool` unchanged, gives wrappers nothing to forward, and keeps compaction silent.
 - A reset delta before every model attempt tells clients to discard partial text.
 - Tool output must be valid UTF-8 and is capped per call.
+- A client that attaches mid-reply skips text until the submission's next reset, because what it
+  would show is a fragment.
 - **Live tool output is suppressed when a `PostToolUse` hook matches**, because those hooks can redact
   or withhold output and a delta would bypass them.
 
@@ -378,7 +380,9 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    builds the [server access](server-access.md#first-cut-a-stable-token) first cut before any UI: a
    stable token, `url` and `rotate-token`. Rerun the layer 4 spike page opened from `url`, and check
    that it keeps streaming across a restart without a new URL. Then prove the streaming hook, and
-   build the UI.
+   build the UI. Slice J (this PR) built the `web/` scaffold, the `WatchEngine` and the
+   `useWatchEvents` hook, with a minimal page and `bun test` coverage of the hook's rules. Playwright
+   automation of layer 4 is the next slice.
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 

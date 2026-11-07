@@ -50,7 +50,7 @@ run = """
 set -e
 bun install --frozen-lockfile
 rm -rf ../internal/server/ui/dist
-bun build src/main.tsx --outdir ../internal/server/ui/dist --target browser
+bun build src/main.tsx --outdir ../internal/server/ui/dist --target browser --production
 cp index.html ../internal/server/ui/dist/index.html
 """
 

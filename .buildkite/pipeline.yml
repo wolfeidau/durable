@@ -29,6 +29,11 @@ steps:
           - ./.buildkite/plugins/go-cache:
               name: go_test
 
+      - label: ":bun: web"
+        command: mise run check:web
+        plugins:
+          - mise#v1.1.5: ~
+
   # Runs alongside QA, because it spends no key and waiting on QA added about 1m30 to every branch build.
   - label: ":docker: e2e sandbox"
     if: build.branch != pipeline.default_branch
