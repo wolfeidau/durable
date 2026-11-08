@@ -1,8 +1,8 @@
 # Server architecture
 
 **Status: phase 3 in progress.** Durable approvals, phase 1 and every phase 2 slice are built. In
-phase 3 the stable token (#69) and the streaming hook (#70) are built. Next is a working browser UI
-end to end: the API gaps it needs, then the session view.
+phase 3 the stable token (#69), the streaming hook (#70), the API slice (#78, #79) and the session
+view are built. Next is the browser tests.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -182,8 +182,10 @@ A session has one writer, the lease holder, so the CLI and the server hand a ses
 share it: whichever opens it first runs it, and the other waits until it closes. Sharing a session
 live, with the CLI as a client of the server, would be nice but isn't planned.
 
-The stack is Bun, React, TanStack Router and Query, and `connect-query`, embedded in the server
-binary. `connect-query` suits unary calls; `WatchEvents` needs a hand-written hook.
+The stack is Bun, React, TanStack Query and `connect-query`, embedded in the server binary.
+TanStack Router is deferred until the UI needs more than one view; the selected session lives in
+`?session=<id>`, so the server needs no route for it. `connect-query` suits unary calls;
+`WatchEvents` needs a hand-written hook.
 
 ### Separate server binary
 
@@ -393,8 +395,8 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | **Access.** | The [server access](server-access.md#first-cut-a-stable-token) first cut: a stable token, `url` and `rotate-token`. The spike page kept streaming across a restart without a new URL | #69 |
    | **J.** | The `web/` scaffold, `WatchEngine`, `useWatchEvents`, a minimal page, and `bun test` coverage of the hook's rules | #70 |
    | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred until the UI works end to end |
-   | **API.** | What the browser needs to work without the CLI: `CreateSession`, a status per session in `ListSessions`, `APPROVAL_STATUS_PENDING` on `approval_requested`, and `request_id` on submission events. Details below | Next |
-   | **View.** | A session list showing each session's status, with a new-session form. The live transcript, rendered as text only, with tool calls and their results, submission errors and compaction events. The approval prompt, submit and cancel, and a status line that also reports a session taken over by another process. Cancel needs the `request_id` from the queued event, which submissions queued before the API slice lack, so it is offered only from the tab that submitted them | After API |
+   | **API.** | What the browser needs to work without the CLI: `CreateSession`, a status per session in `ListSessions`, `APPROVAL_STATUS_PENDING` on `approval_requested`, and `request_id` on submission events. Details below | #78, #79 |
+   | **View.** | A session list showing each session's status, with a new-session form. The live transcript, rendered as text only, with tool calls and their results, submission errors and compaction events. The approval prompt, submit and cancel, and a status line that also reports a session taken over by another process. Cancel needs the `request_id` from the queued event, so turns queued before the API slice have no Cancel in the UI. A session that doesn't exist stops the watch and says so | #80 |
    The API slice in detail:
 
    - **`CreateSession(cwd, name)`.** It creates through the `Registry`, so `commands.Assemble` runs once

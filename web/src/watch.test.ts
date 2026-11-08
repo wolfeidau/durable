@@ -197,6 +197,33 @@ describe("WatchEngine", () => {
     engine.stop();
   });
 
+  test("lastError is set on a reconnect and cleared once live", async () => {
+    const { engine } = setup([{ end: new ConnectError("session in use", Code.Unavailable) }, { items: [ev(1)] }]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    (engine as unknown as { sleep: () => Promise<void> }).sleep = () => gate;
+    engine.start();
+    const s = await until(engine, (s) => s.status === "reconnecting");
+    expect(s.lastError).toBe("session in use");
+    release();
+    const live = await until(engine, (s) => s.cursor === 1n);
+    expect(live.status).toBe("live");
+    expect(live.lastError).toBeUndefined();
+    engine.stop();
+  });
+
+  test("a missing or malformed session stops instead of retrying", async () => {
+    for (const code of [Code.NotFound, Code.InvalidArgument]) {
+      const { engine, seen, sleeps } = setup([{ end: new ConnectError("no such session", code) }, { items: [ev(1)] }]);
+      engine.start();
+      const s = await until(engine, (s) => s.status === "not-found");
+      expect(s.lastError).toBe("no such session");
+      expect(seen).toHaveLength(1);
+      expect(sleeps).toEqual([]);
+      engine.stop();
+    }
+  });
+
   test("heartbeat updates lastHeartbeat", async () => {
     const { engine } = setup([{ items: [hb] }]);
     engine.start();
