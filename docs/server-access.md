@@ -35,6 +35,9 @@ through a printed URL.
   unchanged.
 - The token is never written to the log. `serve` logs its URL without the token, and says to run
   `durable-server url`.
+- `serve` holds an exclusive lock on `~/.durable/server.lock` while it runs, so there's one server
+  per home and only it writes and removes `server.json`. A second `serve` exits, pointing at
+  `durable-server url`.
 
 ### Commands
 
@@ -75,6 +78,8 @@ Real-binary tests, as AGENTS.md requires for new commands:
 - `rotate-token` changes it, and the old token is rejected after a restart.
 - `url` prints the running server's address and token, and reports when none is running.
 - The server's log never contains the token.
+- A second `serve` on the same home is refused, and the first keeps its `server.json`. A restart
+  after `kill -9` succeeds, because the kernel drops the lock.
 
 The browser check reruns the spike page, opened from `url`, and restarts the server: the page keeps
 streaming without a new URL.
@@ -83,6 +88,17 @@ streaming without a new URL.
 
 Shelved until Tailscale or hosting makes the server reachable from another machine. The decisions
 below hold when they arrive.
+
+### Content Security Policy
+
+Deferred. A full policy, `default-src 'self'; script-src 'self'; connect-src 'self'; object-src
+'none'; base-uri 'none'`, plus `X-Content-Type-Options: nosniff`, is defense in depth: the UI can
+read the token from `localStorage`, and injected script could steal it.
+
+- The inline `<style>` in `web/index.html` must move to a file first, or the policy needs
+  `style-src 'self' 'unsafe-inline'`.
+- Wait until the session view settles the page's assets.
+- `frame-ancestors 'none'` already ships.
 
 ### TLS
 
