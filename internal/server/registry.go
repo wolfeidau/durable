@@ -127,6 +127,13 @@ func (r *Registry) Create(ctx context.Context, cwd, name string) (meta commands.
 	}
 	_, release, err := r.acquire(ctx, id, dir, &createSpec{cwd: cwd, name: name})
 	if err != nil {
+		// Another process may have created it meanwhile, and its pin can reject the server's provider flags.
+		if errors.Is(err, errCreate) {
+			if meta, merr := commands.ReadSessionMeta(dir); merr == nil {
+				meta.ID = id
+				return meta, false, nil
+			}
+		}
 		return commands.SessionMeta{}, false, err
 	}
 	release()

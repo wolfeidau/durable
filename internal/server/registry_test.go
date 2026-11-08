@@ -373,3 +373,29 @@ func TestConcurrentAcquireAndCreateShareOneSession(t *testing.T) {
 	}
 	require.EqualValues(t, 1, e.opens.Load())
 }
+
+func TestCreateReturnsSessionAnotherProcessCreatedMeanwhile(t *testing.T) {
+	e := newEnv(t)
+	inner := e.cfg.assemble
+	e.cfg.assemble = func(ctx context.Context, c commands.AssembleConfig) (*commands.Assembled, error) {
+		if c.ExistingOnly {
+			return inner(ctx, c)
+		}
+		// The CLI creates the session first, then its pin rejects the server's flags.
+		a, err := inner(ctx, c)
+		require.NoError(t, err)
+		h, err := durable.Open(ctx, a.Path, a.Options)
+		require.NoError(t, err)
+		require.NoError(t, h.Close())
+		a.Close()
+		return nil, errors.New("--provider openrouter does not match the session's pin")
+	}
+	r := e.registry(t)
+	cwd := t.TempDir()
+
+	meta, created, err := r.Create(t.Context(), cwd, "raced")
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, cwd, meta.CWD)
+	require.NotEmpty(t, meta.ID)
+}
