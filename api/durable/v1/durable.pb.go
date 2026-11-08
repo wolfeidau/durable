@@ -310,6 +310,113 @@ func (Role) EnumDescriptor() ([]byte, []int) {
 	return file_durable_v1_durable_proto_rawDescGZIP(), []int{4}
 }
 
+type CreateSessionRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// cwd must be an absolute path to an existing directory.
+	Cwd string `protobuf:"bytes,1,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	// name defaults to "default", as in durable chat.
+	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateSessionRequest) Reset() {
+	*x = CreateSessionRequest{}
+	mi := &file_durable_v1_durable_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSessionRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSessionRequest) ProtoMessage() {}
+
+func (x *CreateSessionRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSessionRequest.ProtoReflect.Descriptor instead.
+func (*CreateSessionRequest) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *CreateSessionRequest) GetCwd() string {
+	if x != nil {
+		return x.Cwd
+	}
+	return ""
+}
+
+func (x *CreateSessionRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+type CreateSessionResponse struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Session *SessionInfo           `protobuf:"bytes,1,opt,name=session,proto3" json:"session,omitempty"`
+	// created is false when the session already existed.
+	Created       bool `protobuf:"varint,2,opt,name=created,proto3" json:"created,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateSessionResponse) Reset() {
+	*x = CreateSessionResponse{}
+	mi := &file_durable_v1_durable_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateSessionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateSessionResponse) ProtoMessage() {}
+
+func (x *CreateSessionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateSessionResponse.ProtoReflect.Descriptor instead.
+func (*CreateSessionResponse) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateSessionResponse) GetSession() *SessionInfo {
+	if x != nil {
+		return x.Session
+	}
+	return nil
+}
+
+func (x *CreateSessionResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
 type ListSessionsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	unknownFields protoimpl.UnknownFields
@@ -318,7 +425,7 @@ type ListSessionsRequest struct {
 
 func (x *ListSessionsRequest) Reset() {
 	*x = ListSessionsRequest{}
-	mi := &file_durable_v1_durable_proto_msgTypes[0]
+	mi := &file_durable_v1_durable_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -330,7 +437,7 @@ func (x *ListSessionsRequest) String() string {
 func (*ListSessionsRequest) ProtoMessage() {}
 
 func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[0]
+	mi := &file_durable_v1_durable_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -343,7 +450,7 @@ func (x *ListSessionsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsRequest.ProtoReflect.Descriptor instead.
 func (*ListSessionsRequest) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{0}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{2}
 }
 
 type ListSessionsResponse struct {
@@ -357,7 +464,7 @@ type ListSessionsResponse struct {
 
 func (x *ListSessionsResponse) Reset() {
 	*x = ListSessionsResponse{}
-	mi := &file_durable_v1_durable_proto_msgTypes[1]
+	mi := &file_durable_v1_durable_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -369,7 +476,7 @@ func (x *ListSessionsResponse) String() string {
 func (*ListSessionsResponse) ProtoMessage() {}
 
 func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[1]
+	mi := &file_durable_v1_durable_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -382,7 +489,7 @@ func (x *ListSessionsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSessionsResponse.ProtoReflect.Descriptor instead.
 func (*ListSessionsResponse) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{1}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ListSessionsResponse) GetSessions() []*SessionInfo {
@@ -412,7 +519,7 @@ type SessionInfo struct {
 
 func (x *SessionInfo) Reset() {
 	*x = SessionInfo{}
-	mi := &file_durable_v1_durable_proto_msgTypes[2]
+	mi := &file_durable_v1_durable_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -424,7 +531,7 @@ func (x *SessionInfo) String() string {
 func (*SessionInfo) ProtoMessage() {}
 
 func (x *SessionInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[2]
+	mi := &file_durable_v1_durable_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -437,7 +544,7 @@ func (x *SessionInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SessionInfo.ProtoReflect.Descriptor instead.
 func (*SessionInfo) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{2}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *SessionInfo) GetId() string {
@@ -479,7 +586,7 @@ type SubmitRequest struct {
 
 func (x *SubmitRequest) Reset() {
 	*x = SubmitRequest{}
-	mi := &file_durable_v1_durable_proto_msgTypes[3]
+	mi := &file_durable_v1_durable_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -491,7 +598,7 @@ func (x *SubmitRequest) String() string {
 func (*SubmitRequest) ProtoMessage() {}
 
 func (x *SubmitRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[3]
+	mi := &file_durable_v1_durable_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -504,7 +611,7 @@ func (x *SubmitRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitRequest.ProtoReflect.Descriptor instead.
 func (*SubmitRequest) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{3}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SubmitRequest) GetSessionId() string {
@@ -537,7 +644,7 @@ type SubmitResponse struct {
 
 func (x *SubmitResponse) Reset() {
 	*x = SubmitResponse{}
-	mi := &file_durable_v1_durable_proto_msgTypes[4]
+	mi := &file_durable_v1_durable_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -549,7 +656,7 @@ func (x *SubmitResponse) String() string {
 func (*SubmitResponse) ProtoMessage() {}
 
 func (x *SubmitResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[4]
+	mi := &file_durable_v1_durable_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -562,7 +669,7 @@ func (x *SubmitResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubmitResponse.ProtoReflect.Descriptor instead.
 func (*SubmitResponse) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{4}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SubmitResponse) GetSubmission() *Submission {
@@ -582,7 +689,7 @@ type CancelRequest struct {
 
 func (x *CancelRequest) Reset() {
 	*x = CancelRequest{}
-	mi := &file_durable_v1_durable_proto_msgTypes[5]
+	mi := &file_durable_v1_durable_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -594,7 +701,7 @@ func (x *CancelRequest) String() string {
 func (*CancelRequest) ProtoMessage() {}
 
 func (x *CancelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[5]
+	mi := &file_durable_v1_durable_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -607,7 +714,7 @@ func (x *CancelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelRequest.ProtoReflect.Descriptor instead.
 func (*CancelRequest) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{5}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CancelRequest) GetSessionId() string {
@@ -633,7 +740,7 @@ type CancelResponse struct {
 
 func (x *CancelResponse) Reset() {
 	*x = CancelResponse{}
-	mi := &file_durable_v1_durable_proto_msgTypes[6]
+	mi := &file_durable_v1_durable_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -645,7 +752,7 @@ func (x *CancelResponse) String() string {
 func (*CancelResponse) ProtoMessage() {}
 
 func (x *CancelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[6]
+	mi := &file_durable_v1_durable_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -658,7 +765,7 @@ func (x *CancelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelResponse.ProtoReflect.Descriptor instead.
 func (*CancelResponse) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{6}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *CancelResponse) GetSubmission() *Submission {
@@ -681,7 +788,7 @@ type DecideApprovalRequest struct {
 
 func (x *DecideApprovalRequest) Reset() {
 	*x = DecideApprovalRequest{}
-	mi := &file_durable_v1_durable_proto_msgTypes[7]
+	mi := &file_durable_v1_durable_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -693,7 +800,7 @@ func (x *DecideApprovalRequest) String() string {
 func (*DecideApprovalRequest) ProtoMessage() {}
 
 func (x *DecideApprovalRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[7]
+	mi := &file_durable_v1_durable_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -706,7 +813,7 @@ func (x *DecideApprovalRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecideApprovalRequest.ProtoReflect.Descriptor instead.
 func (*DecideApprovalRequest) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{7}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *DecideApprovalRequest) GetSessionId() string {
@@ -746,7 +853,7 @@ type DecideApprovalResponse struct {
 
 func (x *DecideApprovalResponse) Reset() {
 	*x = DecideApprovalResponse{}
-	mi := &file_durable_v1_durable_proto_msgTypes[8]
+	mi := &file_durable_v1_durable_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -758,7 +865,7 @@ func (x *DecideApprovalResponse) String() string {
 func (*DecideApprovalResponse) ProtoMessage() {}
 
 func (x *DecideApprovalResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[8]
+	mi := &file_durable_v1_durable_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -771,7 +878,7 @@ func (x *DecideApprovalResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecideApprovalResponse.ProtoReflect.Descriptor instead.
 func (*DecideApprovalResponse) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{8}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *DecideApprovalResponse) GetApproval() *Approval {
@@ -799,7 +906,7 @@ type WatchEventsRequest struct {
 
 func (x *WatchEventsRequest) Reset() {
 	*x = WatchEventsRequest{}
-	mi := &file_durable_v1_durable_proto_msgTypes[9]
+	mi := &file_durable_v1_durable_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -811,7 +918,7 @@ func (x *WatchEventsRequest) String() string {
 func (*WatchEventsRequest) ProtoMessage() {}
 
 func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[9]
+	mi := &file_durable_v1_durable_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -824,7 +931,7 @@ func (x *WatchEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsRequest.ProtoReflect.Descriptor instead.
 func (*WatchEventsRequest) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{9}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *WatchEventsRequest) GetSessionId() string {
@@ -869,7 +976,7 @@ type WatchEventsResponse struct {
 
 func (x *WatchEventsResponse) Reset() {
 	*x = WatchEventsResponse{}
-	mi := &file_durable_v1_durable_proto_msgTypes[10]
+	mi := &file_durable_v1_durable_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -881,7 +988,7 @@ func (x *WatchEventsResponse) String() string {
 func (*WatchEventsResponse) ProtoMessage() {}
 
 func (x *WatchEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[10]
+	mi := &file_durable_v1_durable_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -894,7 +1001,7 @@ func (x *WatchEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchEventsResponse.ProtoReflect.Descriptor instead.
 func (*WatchEventsResponse) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{10}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *WatchEventsResponse) GetItem() isWatchEventsResponse_Item {
@@ -961,7 +1068,7 @@ type Heartbeat struct {
 
 func (x *Heartbeat) Reset() {
 	*x = Heartbeat{}
-	mi := &file_durable_v1_durable_proto_msgTypes[11]
+	mi := &file_durable_v1_durable_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -973,7 +1080,7 @@ func (x *Heartbeat) String() string {
 func (*Heartbeat) ProtoMessage() {}
 
 func (x *Heartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[11]
+	mi := &file_durable_v1_durable_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -986,7 +1093,7 @@ func (x *Heartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
 func (*Heartbeat) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{11}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{13}
 }
 
 // Delta is a live view of work in progress; the committed events stay authoritative.
@@ -1005,7 +1112,7 @@ type Delta struct {
 
 func (x *Delta) Reset() {
 	*x = Delta{}
-	mi := &file_durable_v1_durable_proto_msgTypes[12]
+	mi := &file_durable_v1_durable_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +1124,7 @@ func (x *Delta) String() string {
 func (*Delta) ProtoMessage() {}
 
 func (x *Delta) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[12]
+	mi := &file_durable_v1_durable_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +1137,7 @@ func (x *Delta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Delta.ProtoReflect.Descriptor instead.
 func (*Delta) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{12}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *Delta) GetLastSeq() int64 {
@@ -1084,7 +1191,7 @@ type Submission struct {
 
 func (x *Submission) Reset() {
 	*x = Submission{}
-	mi := &file_durable_v1_durable_proto_msgTypes[13]
+	mi := &file_durable_v1_durable_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1096,7 +1203,7 @@ func (x *Submission) String() string {
 func (*Submission) ProtoMessage() {}
 
 func (x *Submission) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[13]
+	mi := &file_durable_v1_durable_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1109,7 +1216,7 @@ func (x *Submission) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Submission.ProtoReflect.Descriptor instead.
 func (*Submission) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{13}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Submission) GetSeq() int64 {
@@ -1168,7 +1275,7 @@ type Approval struct {
 
 func (x *Approval) Reset() {
 	*x = Approval{}
-	mi := &file_durable_v1_durable_proto_msgTypes[14]
+	mi := &file_durable_v1_durable_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1180,7 +1287,7 @@ func (x *Approval) String() string {
 func (*Approval) ProtoMessage() {}
 
 func (x *Approval) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[14]
+	mi := &file_durable_v1_durable_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1193,7 +1300,7 @@ func (x *Approval) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Approval.ProtoReflect.Descriptor instead.
 func (*Approval) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{14}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Approval) GetSeq() int64 {
@@ -1251,7 +1358,7 @@ type ToolCall struct {
 
 func (x *ToolCall) Reset() {
 	*x = ToolCall{}
-	mi := &file_durable_v1_durable_proto_msgTypes[15]
+	mi := &file_durable_v1_durable_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1263,7 +1370,7 @@ func (x *ToolCall) String() string {
 func (*ToolCall) ProtoMessage() {}
 
 func (x *ToolCall) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[15]
+	mi := &file_durable_v1_durable_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1276,7 +1383,7 @@ func (x *ToolCall) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ToolCall.ProtoReflect.Descriptor instead.
 func (*ToolCall) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{15}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ToolCall) GetId() string {
@@ -1315,7 +1422,7 @@ type Message struct {
 
 func (x *Message) Reset() {
 	*x = Message{}
-	mi := &file_durable_v1_durable_proto_msgTypes[16]
+	mi := &file_durable_v1_durable_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1327,7 +1434,7 @@ func (x *Message) String() string {
 func (*Message) ProtoMessage() {}
 
 func (x *Message) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[16]
+	mi := &file_durable_v1_durable_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1340,7 +1447,7 @@ func (x *Message) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Message.ProtoReflect.Descriptor instead.
 func (*Message) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{16}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *Message) GetRole() Role {
@@ -1409,7 +1516,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_durable_v1_durable_proto_msgTypes[17]
+	mi := &file_durable_v1_durable_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1421,7 +1528,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[17]
+	mi := &file_durable_v1_durable_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1434,7 +1541,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{17}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *Event) GetSeq() int64 {
@@ -1539,7 +1646,7 @@ type EpochMismatch struct {
 
 func (x *EpochMismatch) Reset() {
 	*x = EpochMismatch{}
-	mi := &file_durable_v1_durable_proto_msgTypes[18]
+	mi := &file_durable_v1_durable_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1551,7 +1658,7 @@ func (x *EpochMismatch) String() string {
 func (*EpochMismatch) ProtoMessage() {}
 
 func (x *EpochMismatch) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[18]
+	mi := &file_durable_v1_durable_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1564,7 +1671,7 @@ func (x *EpochMismatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochMismatch.ProtoReflect.Descriptor instead.
 func (*EpochMismatch) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{18}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *EpochMismatch) GetEpoch() string {
@@ -1586,7 +1693,13 @@ var File_durable_v1_durable_proto protoreflect.FileDescriptor
 const file_durable_v1_durable_proto_rawDesc = "" +
 	"\n" +
 	"\x18durable/v1/durable.proto\x12\n" +
-	"durable.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x15\n" +
+	"durable.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"<\n" +
+	"\x14CreateSessionRequest\x12\x10\n" +
+	"\x03cwd\x18\x01 \x01(\tR\x03cwd\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"d\n" +
+	"\x15CreateSessionResponse\x121\n" +
+	"\asession\x18\x01 \x01(\v2\x17.durable.v1.SessionInfoR\asession\x12\x18\n" +
+	"\acreated\x18\x02 \x01(\bR\acreated\"\x15\n" +
 	"\x13ListSessionsRequest\"g\n" +
 	"\x14ListSessionsResponse\x123\n" +
 	"\bsessions\x18\x01 \x03(\v2\x17.durable.v1.SessionInfoR\bsessions\x12\x1a\n" +
@@ -1730,13 +1843,14 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\x10ROLE_UNSPECIFIED\x10\x00\x12\r\n" +
 	"\tROLE_USER\x10\x01\x12\x12\n" +
 	"\x0eROLE_ASSISTANT\x10\x02\x12\r\n" +
-	"\tROLE_TOOL\x10\x032\x90\x03\n" +
+	"\tROLE_TOOL\x10\x032\xe6\x03\n" +
 	"\x0eSessionService\x12?\n" +
 	"\x06Submit\x12\x19.durable.v1.SubmitRequest\x1a\x1a.durable.v1.SubmitResponse\x12?\n" +
 	"\x06Cancel\x12\x19.durable.v1.CancelRequest\x1a\x1a.durable.v1.CancelResponse\x12W\n" +
 	"\x0eDecideApproval\x12!.durable.v1.DecideApprovalRequest\x1a\".durable.v1.DecideApprovalResponse\x12P\n" +
 	"\vWatchEvents\x12\x1e.durable.v1.WatchEventsRequest\x1a\x1f.durable.v1.WatchEventsResponse0\x01\x12Q\n" +
-	"\fListSessions\x12\x1f.durable.v1.ListSessionsRequest\x1a .durable.v1.ListSessionsResponseB7Z5github.com/wolfeidau/durable/api/durable/v1;durablev1b\x06proto3"
+	"\fListSessions\x12\x1f.durable.v1.ListSessionsRequest\x1a .durable.v1.ListSessionsResponse\x12T\n" +
+	"\rCreateSession\x12 .durable.v1.CreateSessionRequest\x1a!.durable.v1.CreateSessionResponseB7Z5github.com/wolfeidau/durable/api/durable/v1;durablev1b\x06proto3"
 
 var (
 	file_durable_v1_durable_proto_rawDescOnce sync.Once
@@ -1751,69 +1865,74 @@ func file_durable_v1_durable_proto_rawDescGZIP() []byte {
 }
 
 var file_durable_v1_durable_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_durable_v1_durable_proto_goTypes = []any{
 	(DeltaKind)(0),                 // 0: durable.v1.DeltaKind
 	(SubmissionStatus)(0),          // 1: durable.v1.SubmissionStatus
 	(ApprovalStatus)(0),            // 2: durable.v1.ApprovalStatus
 	(EventKind)(0),                 // 3: durable.v1.EventKind
 	(Role)(0),                      // 4: durable.v1.Role
-	(*ListSessionsRequest)(nil),    // 5: durable.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),   // 6: durable.v1.ListSessionsResponse
-	(*SessionInfo)(nil),            // 7: durable.v1.SessionInfo
-	(*SubmitRequest)(nil),          // 8: durable.v1.SubmitRequest
-	(*SubmitResponse)(nil),         // 9: durable.v1.SubmitResponse
-	(*CancelRequest)(nil),          // 10: durable.v1.CancelRequest
-	(*CancelResponse)(nil),         // 11: durable.v1.CancelResponse
-	(*DecideApprovalRequest)(nil),  // 12: durable.v1.DecideApprovalRequest
-	(*DecideApprovalResponse)(nil), // 13: durable.v1.DecideApprovalResponse
-	(*WatchEventsRequest)(nil),     // 14: durable.v1.WatchEventsRequest
-	(*WatchEventsResponse)(nil),    // 15: durable.v1.WatchEventsResponse
-	(*Heartbeat)(nil),              // 16: durable.v1.Heartbeat
-	(*Delta)(nil),                  // 17: durable.v1.Delta
-	(*Submission)(nil),             // 18: durable.v1.Submission
-	(*Approval)(nil),               // 19: durable.v1.Approval
-	(*ToolCall)(nil),               // 20: durable.v1.ToolCall
-	(*Message)(nil),                // 21: durable.v1.Message
-	(*Event)(nil),                  // 22: durable.v1.Event
-	(*EpochMismatch)(nil),          // 23: durable.v1.EpochMismatch
-	(*timestamppb.Timestamp)(nil),  // 24: google.protobuf.Timestamp
+	(*CreateSessionRequest)(nil),   // 5: durable.v1.CreateSessionRequest
+	(*CreateSessionResponse)(nil),  // 6: durable.v1.CreateSessionResponse
+	(*ListSessionsRequest)(nil),    // 7: durable.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),   // 8: durable.v1.ListSessionsResponse
+	(*SessionInfo)(nil),            // 9: durable.v1.SessionInfo
+	(*SubmitRequest)(nil),          // 10: durable.v1.SubmitRequest
+	(*SubmitResponse)(nil),         // 11: durable.v1.SubmitResponse
+	(*CancelRequest)(nil),          // 12: durable.v1.CancelRequest
+	(*CancelResponse)(nil),         // 13: durable.v1.CancelResponse
+	(*DecideApprovalRequest)(nil),  // 14: durable.v1.DecideApprovalRequest
+	(*DecideApprovalResponse)(nil), // 15: durable.v1.DecideApprovalResponse
+	(*WatchEventsRequest)(nil),     // 16: durable.v1.WatchEventsRequest
+	(*WatchEventsResponse)(nil),    // 17: durable.v1.WatchEventsResponse
+	(*Heartbeat)(nil),              // 18: durable.v1.Heartbeat
+	(*Delta)(nil),                  // 19: durable.v1.Delta
+	(*Submission)(nil),             // 20: durable.v1.Submission
+	(*Approval)(nil),               // 21: durable.v1.Approval
+	(*ToolCall)(nil),               // 22: durable.v1.ToolCall
+	(*Message)(nil),                // 23: durable.v1.Message
+	(*Event)(nil),                  // 24: durable.v1.Event
+	(*EpochMismatch)(nil),          // 25: durable.v1.EpochMismatch
+	(*timestamppb.Timestamp)(nil),  // 26: google.protobuf.Timestamp
 }
 var file_durable_v1_durable_proto_depIdxs = []int32{
-	7,  // 0: durable.v1.ListSessionsResponse.sessions:type_name -> durable.v1.SessionInfo
-	24, // 1: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
-	18, // 2: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
-	18, // 3: durable.v1.CancelResponse.submission:type_name -> durable.v1.Submission
-	19, // 4: durable.v1.DecideApprovalResponse.approval:type_name -> durable.v1.Approval
-	22, // 5: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
-	16, // 6: durable.v1.WatchEventsResponse.heartbeat:type_name -> durable.v1.Heartbeat
-	17, // 7: durable.v1.WatchEventsResponse.delta:type_name -> durable.v1.Delta
-	0,  // 8: durable.v1.Delta.kind:type_name -> durable.v1.DeltaKind
-	1,  // 9: durable.v1.Submission.status:type_name -> durable.v1.SubmissionStatus
-	20, // 10: durable.v1.Approval.call:type_name -> durable.v1.ToolCall
-	2,  // 11: durable.v1.Approval.status:type_name -> durable.v1.ApprovalStatus
-	4,  // 12: durable.v1.Message.role:type_name -> durable.v1.Role
-	20, // 13: durable.v1.Message.tool_calls:type_name -> durable.v1.ToolCall
-	3,  // 14: durable.v1.Event.kind:type_name -> durable.v1.EventKind
-	1,  // 15: durable.v1.Event.status:type_name -> durable.v1.SubmissionStatus
-	21, // 16: durable.v1.Event.message:type_name -> durable.v1.Message
-	20, // 17: durable.v1.Event.call:type_name -> durable.v1.ToolCall
-	2,  // 18: durable.v1.Event.approval:type_name -> durable.v1.ApprovalStatus
-	8,  // 19: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
-	10, // 20: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
-	12, // 21: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
-	14, // 22: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
-	5,  // 23: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
-	9,  // 24: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
-	11, // 25: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
-	13, // 26: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
-	15, // 27: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
-	6,  // 28: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
-	24, // [24:29] is the sub-list for method output_type
-	19, // [19:24] is the sub-list for method input_type
-	19, // [19:19] is the sub-list for extension type_name
-	19, // [19:19] is the sub-list for extension extendee
-	0,  // [0:19] is the sub-list for field type_name
+	9,  // 0: durable.v1.CreateSessionResponse.session:type_name -> durable.v1.SessionInfo
+	9,  // 1: durable.v1.ListSessionsResponse.sessions:type_name -> durable.v1.SessionInfo
+	26, // 2: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
+	20, // 3: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
+	20, // 4: durable.v1.CancelResponse.submission:type_name -> durable.v1.Submission
+	21, // 5: durable.v1.DecideApprovalResponse.approval:type_name -> durable.v1.Approval
+	24, // 6: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
+	18, // 7: durable.v1.WatchEventsResponse.heartbeat:type_name -> durable.v1.Heartbeat
+	19, // 8: durable.v1.WatchEventsResponse.delta:type_name -> durable.v1.Delta
+	0,  // 9: durable.v1.Delta.kind:type_name -> durable.v1.DeltaKind
+	1,  // 10: durable.v1.Submission.status:type_name -> durable.v1.SubmissionStatus
+	22, // 11: durable.v1.Approval.call:type_name -> durable.v1.ToolCall
+	2,  // 12: durable.v1.Approval.status:type_name -> durable.v1.ApprovalStatus
+	4,  // 13: durable.v1.Message.role:type_name -> durable.v1.Role
+	22, // 14: durable.v1.Message.tool_calls:type_name -> durable.v1.ToolCall
+	3,  // 15: durable.v1.Event.kind:type_name -> durable.v1.EventKind
+	1,  // 16: durable.v1.Event.status:type_name -> durable.v1.SubmissionStatus
+	23, // 17: durable.v1.Event.message:type_name -> durable.v1.Message
+	22, // 18: durable.v1.Event.call:type_name -> durable.v1.ToolCall
+	2,  // 19: durable.v1.Event.approval:type_name -> durable.v1.ApprovalStatus
+	10, // 20: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
+	12, // 21: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
+	14, // 22: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
+	16, // 23: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
+	7,  // 24: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
+	5,  // 25: durable.v1.SessionService.CreateSession:input_type -> durable.v1.CreateSessionRequest
+	11, // 26: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
+	13, // 27: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
+	15, // 28: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
+	17, // 29: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
+	8,  // 30: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
+	6,  // 31: durable.v1.SessionService.CreateSession:output_type -> durable.v1.CreateSessionResponse
+	26, // [26:32] is the sub-list for method output_type
+	20, // [20:26] is the sub-list for method input_type
+	20, // [20:20] is the sub-list for extension type_name
+	20, // [20:20] is the sub-list for extension extendee
+	0,  // [0:20] is the sub-list for field type_name
 }
 
 func init() { file_durable_v1_durable_proto_init() }
@@ -1821,7 +1940,7 @@ func file_durable_v1_durable_proto_init() {
 	if File_durable_v1_durable_proto != nil {
 		return
 	}
-	file_durable_v1_durable_proto_msgTypes[10].OneofWrappers = []any{
+	file_durable_v1_durable_proto_msgTypes[12].OneofWrappers = []any{
 		(*WatchEventsResponse_Event)(nil),
 		(*WatchEventsResponse_Heartbeat)(nil),
 		(*WatchEventsResponse_Delta)(nil),
@@ -1832,7 +1951,7 @@ func file_durable_v1_durable_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_v1_durable_proto_rawDesc), len(file_durable_v1_durable_proto_rawDesc)),
 			NumEnums:      5,
-			NumMessages:   19,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

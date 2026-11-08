@@ -326,3 +326,50 @@ func TestAcquireReportsHeldLeaseAsUnavailable(t *testing.T) {
 	require.NoError(t, err)
 	release()
 }
+
+func TestConcurrentAcquireAndCreateShareOneSession(t *testing.T) {
+	e := newEnv(t)
+	r := e.registry(t)
+	cwd := t.TempDir()
+	path, err := commands.SessionPath(cwd, "new")
+	require.NoError(t, err)
+	id := filepath.Base(filepath.Dir(path))
+
+	const n = 4
+	sessions := make([]*Session, n)
+	errs := make(chan error, 2*n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			_, _, err := r.Create(t.Context(), cwd, "new")
+			errs <- err
+		})
+		wg.Go(func() {
+			// Acquire can't open a session that doesn't exist yet, so it retries until Create has made it.
+			for {
+				s, release, err := r.Acquire(t.Context(), id)
+				if err == nil {
+					release()
+					sessions[i] = s
+					return
+				}
+				if connect.CodeOf(err) != connect.CodeNotFound {
+					errs <- err
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	for _, s := range sessions {
+		require.NotNil(t, s)
+		require.Same(t, sessions[0], s)
+	}
+	require.EqualValues(t, 1, e.opens.Load())
+}
