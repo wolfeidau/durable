@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Bumping MISE_VERSION also needs the release's SHA256s in pre-command; it is part of the cache key.
+export MISE_VERSION="2026.11.4"
+# mise itself lives in the cached directory too, so a warm cache needs nothing from GitHub. Must match target_paths in .buildkite/cache.yml.
+export MISE_DATA_DIR="${HOME}/.cache/durable-mise"
+export MISE_YES=1
+export MISE_TRUSTED_CONFIG_PATHS="${BUILDKITE_BUILD_CHECKOUT_PATH:-$PWD}"
+export PATH="${MISE_DATA_DIR}/bin:${MISE_DATA_DIR}/shims:${PATH}"

@@ -1,0 +1,6 @@
+name: Mise Cache
+description: Installs a pinned mise and the tools in mise.toml, cached with Buildkite Cache
+author: https://github.com/wolfeidau
+configuration:
+  properties: {}
+  additionalProperties: false
