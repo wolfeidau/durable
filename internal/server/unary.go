@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
+	"path/filepath"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -83,7 +85,16 @@ func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.
 	}
 	out := &v1.ListSessionsResponse{Warnings: warnings}
 	for _, m := range metas {
-		out.Sessions = append(out.Sessions, &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt)})
+		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt)}
+		st, err := durable.ReadStatus(ctx, filepath.Join(s.home, ".durable", "sessions", m.ID, "session.sqlite"))
+		if err != nil {
+			// The warning is returned to the client, so it isn't logged here.
+			out.Warnings = append(out.Warnings, fmt.Sprintf("status unavailable for %s", m.ID))
+		} else {
+			info.PendingApprovals = int32(st.PendingApprovals) //nolint:gosec // counts of rows in one session
+			info.UnfinishedSubmissions = int32(st.Unfinished)  //nolint:gosec // counts of rows in one session
+		}
+		out.Sessions = append(out.Sessions, info)
 	}
 	return connect.NewResponse(out), nil
 }

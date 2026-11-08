@@ -2422,3 +2422,36 @@ func TestDeferredApprovalWithNilInput(t *testing.T) {
 		require.False(t, e.Rewritten)
 	}
 }
+
+func TestReadStatusBesideTheLeaseHolder(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	var gated atomic.Int32
+	h, err := Open(ctx, path, deferOpts(gateModel(), askGate(&gated), &fakeTool{name: "write_file"}))
+	require.NoError(t, err)
+	defer func() { _ = h.Close() }()
+	parkOne(t, ctx, h)
+	_, err = h.Submit(ctx, "b", "later")
+	require.NoError(t, err)
+
+	st, err := ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{PendingApprovals: 1, Unfinished: 2}, st)
+}
+
+func TestReadStatusEmptySession(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	h, err := Open(ctx, path, Options{Model: gateModel()})
+	require.NoError(t, err)
+	require.NoError(t, h.Close())
+
+	st, err := ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{}, st)
+}
+
+func TestReadStatusMissingDatabase(t *testing.T) {
+	_, err := ReadStatus(context.Background(), filepath.Join(t.TempDir(), "none.sqlite"))
+	require.Error(t, err)
+}

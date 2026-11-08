@@ -81,6 +81,22 @@ func TestEventKindsMapped(t *testing.T) {
 	require.Len(t, seen, len(durablev1.EventKind_name)-1)
 }
 
+func TestEventApprovalRequestedIsPending(t *testing.T) {
+	got := Event(durable.Event{Kind: durable.EventApprovalRequested, ApprovalSeq: 3}, "ep")
+	require.Equal(t, durablev1.ApprovalStatus_APPROVAL_STATUS_PENDING, got.Approval)
+
+	got = Event(durable.Event{Kind: durable.EventApprovalDecided, Approval: durable.ApprovalAllowed}, "ep")
+	require.Equal(t, durablev1.ApprovalStatus_APPROVAL_STATUS_ALLOWED, got.Approval)
+
+	got = Event(durable.Event{Kind: durable.EventCallDone}, "ep")
+	require.Equal(t, durablev1.ApprovalStatus_APPROVAL_STATUS_UNSPECIFIED, got.Approval)
+}
+
+func TestEventCarriesRequestID(t *testing.T) {
+	got := Event(durable.Event{Kind: durable.EventSubmission, Status: durable.StatusQueued, RequestID: "r1"}, "ep")
+	require.Equal(t, "r1", got.RequestId)
+}
+
 func TestSubmissionStatusesMapped(t *testing.T) {
 	all := []durable.SubmissionStatus{
 		durable.StatusQueued, durable.StatusRunning, durable.StatusDone,
