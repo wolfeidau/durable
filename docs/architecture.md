@@ -1,7 +1,8 @@
 # Server architecture
 
 **Status: phase 3 in progress.** Durable approvals, phase 1 and every phase 2 slice are built. In
-phase 3 the stable token (#69) and the streaming hook (#70) are built; the session view is next.
+phase 3 the stable token (#69) and the streaming hook (#70) are built. Next is a working browser UI
+end to end: the API gaps it needs, then the session view.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -165,16 +166,21 @@ timeout.
 - **Outages pause unattended work.** A failed run retries with backoff. With no clients, an outage
   keeps retrying for one idle timeout after it starts, then the session closes and releases the lease.
   The work stays paused until a client or the CLI next opens the session, even if the provider
-  recovers sooner, and `ListSessions` doesn't show it as paused. A server restart pauses work the
-  same way, because sessions only open on demand. Reopening sessions with unfinished work on a timer
-  would remove the pause, and waits until it's needed.
+  recovers sooner. From phase 3's API slice, `ListSessions` shows its queued work. A server restart
+  pauses work the same way, because sessions only open on demand. Reopening sessions with unfinished
+  work on a timer would remove the pause, and waits until it's needed.
 - **Lost lease.** If another process takes the lease, the run driver stops, RPCs and watch streams
   return `UNAVAILABLE`, and the registry drops the session so the next request opens it fresh.
 
 ### The web UI is the primary client
 
-Background work, delayed approvals and watching several sessions suit a browser. The CLI stays as it
-is, and a TUI can be another client later.
+Background work, delayed approvals and watching several sessions suit a browser. The browser creates
+and drives sessions on its own; the CLI stays for one-shot prompts, and a TUI can be another client
+later.
+
+A session has one writer, the lease holder, so the CLI and the server hand a session over rather than
+share it: whichever opens it first runs it, and the other waits until it closes. Sharing a session
+live, with the CLI as a client of the server, would be nice but isn't planned.
 
 The stack is Bun, React, TanStack Router and Query, and `connect-query`, embedded in the server
 binary. `connect-query` suits unary calls; `WatchEvents` needs a hand-written hook.
@@ -256,6 +262,9 @@ The API can approve shell commands, so the bar is higher than for a typical dash
 - Validate `Host` and `Origin`, and leave CORS off.
 - Never mark `DecideApproval` as side-effect free, so it can't be called through GET.
 - Treat exports, replicas and event streams as sensitive.
+- `CreateSession` accepts any absolute, existing directory, by decision rather than an allow list of
+  roots. A leaked token therefore means a shell anywhere the user can reach, not just in sessions the
+  CLI started.
 
 `by` on an approval is attribution, not authentication.
 
@@ -374,20 +383,45 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      queued work. That includes a copy made by `durable.Restore`, which conflicts with "a restored
      session must not auto-resume" below.
    - **Approval status on request.** An `approval_requested` event carries no status, so it reaches
-     the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
-     `APPROVAL_STATUS_PENDING` would be clearer.
-3. **Web UI.** One session view with a live transcript and an approval prompt.
+     the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. The API slice in
+     phase 3 sets `APPROVAL_STATUS_PENDING`.
+3. **Web UI.** A browser UI that works end to end without the CLI: create a session, submit, watch the
+   reply stream, approve tool calls and cancel. Tests in the browser wait until that works.
 
    | Slice | Scope | Status |
    |---|---|---|
    | **Access.** | The [server access](server-access.md#first-cut-a-stable-token) first cut: a stable token, `url` and `rotate-token`. The spike page kept streaming across a restart without a new URL | #69 |
    | **J.** | The `web/` scaffold, `WatchEngine`, `useWatchEvents`, a minimal page, and `bun test` coverage of the hook's rules | #70 |
-   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred |
-   | **View.** | The session view: live transcript and approval prompt | Next |
+   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred until the UI works end to end |
+   | **API.** | What the browser needs to work without the CLI: `CreateSession`, a status per session in `ListSessions`, `APPROVAL_STATUS_PENDING` on `approval_requested`, and `request_id` on submission events. Details below | Next |
+   | **View.** | A session list showing each session's status, with a new-session form. The live transcript, rendered as text only, with tool calls and their results, submission errors and compaction events. The approval prompt, submit and cancel, and a status line that also reports a session taken over by another process | After API |
+   The API slice in detail:
+
+   - **`CreateSession(cwd, name)`.** It creates through the `Registry`, so `commands.Assemble` runs once
+     and the session opens like any other. The provider, protocol and model for new sessions come
+     from new `serve` flags, `--provider`, `--protocol` and `--model`, which match `durable chat`'s.
+     Without them the default is `anthropic`, as in the CLI. The key is checked before the pin is
+     written, so a misconfigured server fails the create instead of pinning a broken route.
+   - **The cwd** must be absolute and an existing directory. It's cleaned but symlinks aren't
+     resolved, because the CLI hashes `os.Getwd()` as given, so both name the same session. The name
+     defaults to `default`, as in the CLI.
+   - **An existing session** with that cwd and name is returned as it is, not an error, so a retried
+     create is safe.
+   - **`ListSessions` status:** the number of pending approvals and whether work is queued or running,
+     read from each session's database without taking its lease. It can be a moment stale while
+     another process writes, which is fine for a list. This is what makes approving later usable:
+     a session parked on an approval closes once idle and is otherwise invisible.
+   - **Tests,** real binary: create, an existing session, a relative or missing cwd, and a server
+     misconfigured for its provider. Cancel by `request_id` from a second client. The status of a
+     session that idled out with an approval pending.
+
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
 ## Open questions
+
+- **Later:** should the CLI share a session live with the browser, as a client of the server? Nice to
+  have, not planned; until then the lease hands a session over.
 
 - **Before the UI offers restore:** should a restored session wait for an explicit resume before the
   server runs it? See the known gap "Open resumes work" in phase 2.
