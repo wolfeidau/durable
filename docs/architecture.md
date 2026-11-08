@@ -394,7 +394,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    | **J.** | The `web/` scaffold, `WatchEngine`, `useWatchEvents`, a minimal page, and `bun test` coverage of the hook's rules | #70 |
    | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred until the UI works end to end |
    | **API.** | What the browser needs to work without the CLI: `CreateSession`, a status per session in `ListSessions`, `APPROVAL_STATUS_PENDING` on `approval_requested`, and `request_id` on submission events. Details below | Next |
-   | **View.** | A session list showing each session's status, with a new-session form. The live transcript, rendered as text only, with tool calls and their results, submission errors and compaction events. The approval prompt, submit and cancel, and a status line that also reports a session taken over by another process | After API |
+   | **View.** | A session list showing each session's status, with a new-session form. The live transcript, rendered as text only, with tool calls and their results, submission errors and compaction events. The approval prompt, submit and cancel, and a status line that also reports a session taken over by another process. Cancel needs the `request_id` from the queued event, which submissions queued before the API slice lack, so it is offered only from the tab that submitted them | After API |
    The API slice in detail:
 
    - **`CreateSession(cwd, name)`.** It creates through the `Registry`, so `commands.Assemble` runs once

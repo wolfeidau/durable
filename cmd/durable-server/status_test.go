@@ -54,15 +54,17 @@ func TestCancelByRequestIDFromAClientThatDidNotSubmit(t *testing.T) {
 	require.NoError(t, err)
 
 	w := newWatcher(r, id)
-	var requestID string
+	// Stop at the queued event itself, so a missing request_id fails here rather than at the timeout.
+	var queued *v1.Event
 	w.follow(t, func() bool {
 		for _, e := range w.events {
 			if e.GetKind() == v1.EventKind_EVENT_KIND_SUBMISSION && e.GetStatus() == v1.SubmissionStatus_SUBMISSION_STATUS_QUEUED {
-				requestID = e.GetRequestId()
+				queued = e
 			}
 		}
-		return requestID != ""
+		return queued != nil
 	})
+	requestID := queued.GetRequestId()
 	require.Equal(t, "req-1", requestID)
 
 	resp, err := b.Cancel(t.Context(), authed(b, &v1.CancelRequest{SessionId: id, RequestId: requestID}))
