@@ -326,3 +326,76 @@ func TestAcquireReportsHeldLeaseAsUnavailable(t *testing.T) {
 	require.NoError(t, err)
 	release()
 }
+
+func TestConcurrentAcquireAndCreateShareOneSession(t *testing.T) {
+	e := newEnv(t)
+	r := e.registry(t)
+	cwd := t.TempDir()
+	path, err := commands.SessionPath(cwd, "new")
+	require.NoError(t, err)
+	id := filepath.Base(filepath.Dir(path))
+
+	const n = 4
+	sessions := make([]*Session, n)
+	errs := make(chan error, 2*n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			_, _, err := r.Create(t.Context(), cwd, "new")
+			errs <- err
+		})
+		wg.Go(func() {
+			// Acquire can't open a session that doesn't exist yet, so it retries until Create has made it.
+			for {
+				s, release, err := r.Acquire(t.Context(), id)
+				if err == nil {
+					release()
+					sessions[i] = s
+					return
+				}
+				if connect.CodeOf(err) != connect.CodeNotFound {
+					errs <- err
+					return
+				}
+				time.Sleep(time.Millisecond)
+			}
+		})
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+
+	for _, s := range sessions {
+		require.NotNil(t, s)
+		require.Same(t, sessions[0], s)
+	}
+	require.EqualValues(t, 1, e.opens.Load())
+}
+
+func TestCreateReturnsSessionAnotherProcessCreatedMeanwhile(t *testing.T) {
+	e := newEnv(t)
+	inner := e.cfg.assemble
+	e.cfg.assemble = func(ctx context.Context, c commands.AssembleConfig) (*commands.Assembled, error) {
+		if c.ExistingOnly {
+			return inner(ctx, c)
+		}
+		// The CLI creates the session first, then its pin rejects the server's flags.
+		a, err := inner(ctx, c)
+		require.NoError(t, err)
+		h, err := durable.Open(ctx, a.Path, a.Options)
+		require.NoError(t, err)
+		require.NoError(t, h.Close())
+		a.Close()
+		return nil, errors.New("--provider openrouter does not match the session's pin")
+	}
+	r := e.registry(t)
+	cwd := t.TempDir()
+
+	meta, created, err := r.Create(t.Context(), cwd, "raced")
+	require.NoError(t, err)
+	require.False(t, created)
+	require.Equal(t, cwd, meta.CWD)
+	require.NotEmpty(t, meta.ID)
+}

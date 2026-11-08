@@ -401,7 +401,11 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      and the session opens like any other. The provider, protocol and model for new sessions come
      from new `serve` flags, `--provider`, `--protocol` and `--model`, which match `durable chat`'s.
      Without them the default is `anthropic`, as in the CLI. The key is checked before the pin is
-     written, so a misconfigured server fails the create instead of pinning a broken route.
+     written, so a misconfigured server fails the create instead of pinning a broken route. The flags
+     apply to new sessions only: reopening never passes them, because a flag that differs from a
+     session's pin is rejected. A misconfigured server returns `FAILED_PRECONDITION` with a fixed
+     message and logs the detail, which can echo a credential reference. Known limit: anthropic
+     doesn't pin its model, so reopening an anthropic session uses the built-in default, as today.
    - **The cwd** must be absolute and an existing directory. It's cleaned but symlinks aren't
      resolved, because the CLI hashes `os.Getwd()` as given, so both name the same session. The name
      defaults to `default`, as in the CLI.

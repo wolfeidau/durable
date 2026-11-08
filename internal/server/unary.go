@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 
 	"connectrpc.com/connect"
@@ -97,6 +98,35 @@ func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.
 		out.Sessions = append(out.Sessions, info)
 	}
 	return connect.NewResponse(out), nil
+}
+
+func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error) {
+	name := req.Msg.GetName()
+	if name == "" {
+		name = "default"
+	}
+	cwd := req.Msg.GetCwd()
+	if !filepath.IsAbs(cwd) {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an absolute path"))
+	}
+	// Symlinks stay unresolved: the CLI hashes os.Getwd() as given, so both name the same session.
+	cwd = filepath.Clean(cwd)
+	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an existing directory"))
+	}
+	meta, created, err := s.reg.Create(ctx, cwd, name)
+	if err != nil {
+		if errors.Is(err, errCreate) {
+			// The detail can echo a credential reference, so only the log gets it.
+			s.logger.ErrorContext(ctx, "request failed", slog.String("op", "create session"), slog.Any("error", err))
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("server can't create sessions: see its log"))
+		}
+		return nil, s.publicErr(ctx, "create session", err)
+	}
+	return connect.NewResponse(&v1.CreateSessionResponse{
+		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt)},
+		Created: created,
+	}), nil
 }
 
 // leaseLost marks the session lost and returns Unavailable for an ErrLeaseLost, or nil for any other error.

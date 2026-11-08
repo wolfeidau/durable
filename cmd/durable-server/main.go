@@ -29,6 +29,9 @@ type serveCmd struct {
 	IdleTimeout           time.Duration `name:"idle-timeout" help:"Close a session with no clients and no work after this long." default:"5m"`
 	OpenTimeout           time.Duration `name:"open-timeout" help:"Give up opening a session after this long, for example while durable chat holds it." default:"10s"`
 	Heartbeat             time.Duration `name:"heartbeat" help:"Send a heartbeat on an idle event stream this often." default:"20s"`
+	Provider              string        `help:"Model provider for new sessions: anthropic or openrouter. Empty uses anthropic. Existing sessions keep their pin."`
+	Protocol              string        `help:"Wire protocol for new sessions: anthropic-messages or openai-responses. Empty uses the provider's default (anthropic: anthropic-messages, openrouter: openai-responses)."`
+	Model                 string        `help:"Model name for new sessions. Required for new openrouter sessions, which pin it. For anthropic, empty uses the built-in default."`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
 }
@@ -98,6 +101,9 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		IdleTimeout: c.IdleTimeout,
 		OpenTimeout: c.OpenTimeout,
 		APIToken:    apiToken,
+		Provider:    c.Provider,
+		Protocol:    c.Protocol,
+		Model:       c.Model,
 		Logger:      logger,
 	})
 	defer registry.Close()

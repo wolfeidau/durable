@@ -20,6 +20,9 @@ const DefaultIdleTimeout = 5 * time.Minute
 
 var errRegistryClosed = errors.New("session registry is closed")
 
+// errCreate marks a failure to assemble a new session, such as a misconfigured provider.
+var errCreate = errors.New("failed to assemble new session")
+
 // RegistryConfig configures a Registry.
 type RegistryConfig struct {
 	Home string
@@ -29,6 +32,10 @@ type RegistryConfig struct {
 	OpenTimeout time.Duration
 	// APIToken is the resolved provider key; empty lets Assemble use the provider's environment variable.
 	APIToken string
+	// Provider, Protocol and Model apply to sessions created through Create; reopening uses the session's pin.
+	Provider string
+	Protocol string
+	Model    string
 	// RetryBase and RetryCap bound the delay before a failed run is retried; the delay doubles from base. Zero means 5s and 5m.
 	RetryBase time.Duration
 	RetryCap  time.Duration
@@ -95,6 +102,51 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 	if err != nil {
 		return nil, nil, err
 	}
+	return r.acquire(ctx, id, dir, nil)
+}
+
+// createSpec makes open create the session instead of requiring it to exist.
+type createSpec struct{ cwd, name string }
+
+// Create returns the session for cwd and name, creating and opening it if it doesn't exist.
+// created is false for an existing session, which is returned as it is.
+func (r *Registry) Create(ctx context.Context, cwd, name string) (meta commands.SessionMeta, created bool, err error) {
+	path, err := commands.SessionPath(cwd, name)
+	if err != nil {
+		return commands.SessionMeta{}, false, err
+	}
+	dir := filepath.Dir(path)
+	id := filepath.Base(dir)
+	meta, err = commands.ReadSessionMeta(dir)
+	if err == nil {
+		meta.ID = id
+		return meta, false, nil
+	}
+	if !errors.Is(err, commands.ErrNoSession) {
+		return commands.SessionMeta{}, false, err
+	}
+	_, release, err := r.acquire(ctx, id, dir, &createSpec{cwd: cwd, name: name})
+	if err != nil {
+		// Another process may have created it meanwhile, and its pin can reject the server's provider flags.
+		if errors.Is(err, errCreate) {
+			if meta, merr := commands.ReadSessionMeta(dir); merr == nil {
+				meta.ID = id
+				return meta, false, nil
+			}
+		}
+		return commands.SessionMeta{}, false, err
+	}
+	release()
+	meta, err = commands.ReadSessionMeta(dir)
+	if err != nil {
+		return commands.SessionMeta{}, false, err
+	}
+	meta.ID = id
+	return meta, true, nil
+}
+
+// acquire opens the session with spec only if no caller has it open yet.
+func (r *Registry) acquire(ctx context.Context, id, dir string, spec *createSpec) (*Session, func(), error) {
 	for {
 		r.mu.Lock()
 		if r.closed {
@@ -110,7 +162,7 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 		r.mu.Unlock()
 
 		if !ok {
-			r.finishOpen(ctx, id, dir, e)
+			r.finishOpen(ctx, id, dir, e, spec)
 		}
 
 		select {
@@ -122,7 +174,8 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 		if e.err != nil {
 			r.release(e)
 			// The leader's own cancellation says nothing about this caller's context.
-			if ctx.Err() == nil && (errors.Is(e.err, context.Canceled) || errors.Is(e.err, context.DeadlineExceeded)) {
+			// A creator that joined a lookup of a missing session leads the next attempt.
+			if ctx.Err() == nil && (errors.Is(e.err, context.Canceled) || errors.Is(e.err, context.DeadlineExceeded) || (spec != nil && errors.Is(e.err, commands.ErrNoSession))) {
 				continue
 			}
 			return nil, nil, e.err
@@ -140,8 +193,8 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 }
 
 // finishOpen opens the session for the entry's first caller and wakes the others.
-func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry) {
-	s, err := r.open(ctx, dir)
+func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry, spec *createSpec) {
+	s, err := r.open(ctx, dir, spec)
 	r.mu.Lock()
 	// Close can't see an entry with no session, so the opener closes it.
 	lateClose := err == nil && r.closed
@@ -186,22 +239,30 @@ func (r *Registry) release(e *entry) {
 	}
 }
 
-func (r *Registry) open(ctx context.Context, dir string) (*Session, error) {
-	meta, err := commands.ReadSessionMeta(dir)
-	if err != nil {
-		return nil, notFound(err)
-	}
+func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Session, error) {
 	s := newSession(r.logger.With(slog.String("session", filepath.Base(dir))), r.cfg.RetryBase, r.cfg.RetryCap)
-	asm, err := r.cfg.assemble(ctx, commands.AssembleConfig{
-		CWD:          meta.CWD,
-		Session:      meta.Name,
-		Home:         r.cfg.Home,
-		APIToken:     r.cfg.APIToken,
-		ExistingOnly: true,
-		Interactive:  false,
-		Observer:     s.observe,
-	})
+	ac := commands.AssembleConfig{
+		Home:        r.cfg.Home,
+		APIToken:    r.cfg.APIToken,
+		Interactive: false,
+		Observer:    s.observe,
+	}
+	if spec != nil {
+		ac.CWD, ac.Session = spec.cwd, spec.name
+		ac.Provider, ac.Protocol, ac.Model = r.cfg.Provider, r.cfg.Protocol, r.cfg.Model
+	} else {
+		meta, err := commands.ReadSessionMeta(dir)
+		if err != nil {
+			return nil, notFound(err)
+		}
+		// No provider fields: route.matches rejects a flag that differs from the session's pin.
+		ac.CWD, ac.Session, ac.ExistingOnly = meta.CWD, meta.Name, true
+	}
+	asm, err := r.cfg.assemble(ctx, ac)
 	if err != nil {
+		if spec != nil && ctx.Err() == nil {
+			return nil, fmt.Errorf("%w: %w", errCreate, err)
+		}
 		return nil, notFound(err)
 	}
 	asm.Options.OnDelta = s.onDelta

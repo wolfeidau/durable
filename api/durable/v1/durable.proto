@@ -18,6 +18,23 @@ service SessionService {
   rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
   // ListSessions lists the sessions under the server's home, without opening any.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
+  // CreateSession creates the session for an absolute cwd and name, or returns the existing one.
+  // A server that can't create sessions, for example a missing provider key, returns
+  // FAILED_PRECONDITION and logs the detail.
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+}
+
+message CreateSessionRequest {
+  // cwd must be an absolute path to an existing directory.
+  string cwd = 1;
+  // name defaults to "default", as in durable chat.
+  string name = 2;
+}
+
+message CreateSessionResponse {
+  SessionInfo session = 1;
+  // created is false when the session already existed.
+  bool created = 2;
 }
 
 message ListSessionsRequest {}
