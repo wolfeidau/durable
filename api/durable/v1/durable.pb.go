@@ -1434,6 +1434,8 @@ type Message struct {
 	ToolCallId    string                 `protobuf:"bytes,4,opt,name=tool_call_id,json=toolCallId,proto3" json:"tool_call_id,omitempty"`
 	IsError       bool                   `protobuf:"varint,5,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
 	ContextTokens int64                  `protobuf:"varint,6,opt,name=context_tokens,json=contextTokens,proto3" json:"context_tokens,omitempty"`
+	// note marks text the harness wrote in the user's turn, such as a cancellation notice, not the user.
+	Note          bool `protobuf:"varint,7,opt,name=note,proto3" json:"note,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1508,6 +1510,13 @@ func (x *Message) GetContextTokens() int64 {
 		return x.ContextTokens
 	}
 	return 0
+}
+
+func (x *Message) GetNote() bool {
+	if x != nil {
+		return x.Note
+	}
+	return false
 }
 
 type Event struct {
@@ -1809,7 +1818,7 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\bToolCall\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
-	"\x05input\x18\x03 \x01(\fR\x05input\"\xdc\x01\n" +
+	"\x05input\x18\x03 \x01(\fR\x05input\"\xf0\x01\n" +
 	"\aMessage\x12$\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x10.durable.v1.RoleR\x04role\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x123\n" +
@@ -1818,7 +1827,8 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\ftool_call_id\x18\x04 \x01(\tR\n" +
 	"toolCallId\x12\x19\n" +
 	"\bis_error\x18\x05 \x01(\bR\aisError\x12%\n" +
-	"\x0econtext_tokens\x18\x06 \x01(\x03R\rcontextTokens\"\xf1\x03\n" +
+	"\x0econtext_tokens\x18\x06 \x01(\x03R\rcontextTokens\x12\x12\n" +
+	"\x04note\x18\a \x01(\bR\x04note\"\xf1\x03\n" +
 	"\x05Event\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\tR\x05epoch\x12)\n" +

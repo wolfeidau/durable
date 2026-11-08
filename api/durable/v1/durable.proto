@@ -203,6 +203,8 @@ message Message {
   string tool_call_id = 4;
   bool is_error = 5;
   int64 context_tokens = 6;
+  // note marks text the harness wrote in the user's turn, such as a cancellation notice, not the user.
+  bool note = 7;
 }
 
 message Event {
