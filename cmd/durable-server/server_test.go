@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -192,6 +193,20 @@ func TestServesUI(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, string(body), "<title>durable</title>")
+}
+
+func TestIsLoopback(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"127.0.0.1:7878": true,
+		"[::1]:7878":     true,
+		"0.0.0.0:7878":   false,
+		"[::]:7878":      false,
+		"10.0.0.5:7878":  false,
+	} {
+		tcp, err := net.ResolveTCPAddr("tcp", addr)
+		require.NoError(t, err)
+		require.Equal(t, want, isLoopback(tcp), addr)
+	}
 }
 
 func TestServerJSONModeAndCleanup(t *testing.T) {

@@ -72,6 +72,9 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("failed to listen on %s: %w", c.Addr, err)
 	}
 	addr := ln.Addr().String()
+	if !isLoopback(ln.Addr()) {
+		logger.Warn("listening on a non-loopback address: other machines can reach the API over plain HTTP, guarded only by the bearer token", slog.String("addr", addr))
+	}
 	infoPath := filepath.Join(home, ".durable", "server.json")
 	if err := writeServerInfo(infoPath, serverInfo{Addr: addr, Token: token}); err != nil {
 		_ = ln.Close()
@@ -223,6 +226,12 @@ func (*urlCmd) Run(ctx context.Context) error {
 	_ = conn.Close()
 	fmt.Println(browserURL(info.Addr, info.Token))
 	return nil
+}
+
+// isLoopback reports whether addr accepts connections only from this machine; a wildcard address does not.
+func isLoopback(addr net.Addr) bool {
+	tcp, ok := addr.(*net.TCPAddr)
+	return ok && tcp.IP.IsLoopback()
 }
 
 // browserURL swaps a wildcard listen address for loopback, which a browser can open and the Host check allows.

@@ -15,7 +15,9 @@ through a printed URL.
 
 ### What stays
 
-- The server binds to loopback only.
+- The server binds to loopback by default. `--addr` accepts any address, but `serve` logs a warning
+  for a non-loopback one, because the API is then reachable over plain HTTP, guarded only by the
+  token.
 - The `Host` check, which stops DNS rebinding.
 - The exact `Origin` check, scheme, host and port, with CORS off.
 - A bearer token on every RPC. The `Host` and `Origin` checks already stop web pages, but the token
