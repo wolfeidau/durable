@@ -49,6 +49,8 @@ type Event struct {
 	ApprovalSeq int64          `json:"approval_seq,omitempty"` // approval events
 	Approval    ApprovalStatus `json:"approval,omitempty"`     // approval_decided: the answer
 	DecidedBy   string         `json:"decided_by,omitempty"`   // approval_decided: who answered
+
+	RequestID string `json:"request_id,omitempty"` // the queued submission event only, so any client can cancel
 }
 
 // Events returns up to limit events after seq, oldest first. A limit of zero

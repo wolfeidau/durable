@@ -246,7 +246,7 @@ func (h *Harness) Submit(ctx context.Context, requestID, text string) (Submissio
 		}
 		seq, _ := res.LastInsertId()
 		sub = Submission{Seq: seq, RequestID: requestID, Text: text, Status: StatusQueued}
-		return addEvent(ctx, tx, Event{Kind: EventSubmission, Submission: seq, Status: StatusQueued})
+		return addEvent(ctx, tx, Event{Kind: EventSubmission, Submission: seq, Status: StatusQueued, RequestID: requestID})
 	})
 	return sub, err
 }

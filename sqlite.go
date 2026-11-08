@@ -38,3 +38,14 @@ func openSQL(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
+
+// openReadOnly opens an existing database without creating or migrating it.
+func openReadOnly(path string) (*sql.DB, error) {
+	dsn := fmt.Sprintf("file:%s?mode=ro&_busy_timeout=5000", (&url.URL{Path: path}).EscapedPath())
+	db, err := sql.Open("sqlite3", dsn)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
+}

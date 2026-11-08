@@ -42,6 +42,11 @@ var roles = map[durable.Role]durablev1.Role{
 // Event converts e. A rewritten call loses its input, because a gate can only add secrets by
 // rewriting and the model's own arguments are already in the assistant message.
 func Event(e durable.Event, epoch string) *durablev1.Event {
+	approval := approvalStatuses[e.Approval]
+	// Stored approval_requested events carry no status and are always pending.
+	if e.Kind == durable.EventApprovalRequested && e.Approval == "" {
+		approval = durablev1.ApprovalStatus_APPROVAL_STATUS_PENDING
+	}
 	return &durablev1.Event{
 		Seq:         e.Seq,
 		Epoch:       epoch,
@@ -54,8 +59,9 @@ func Event(e durable.Event, epoch string) *durablev1.Event {
 		Rewritten:   e.Rewritten,
 		IsError:     e.IsError,
 		ApprovalSeq: e.ApprovalSeq,
-		Approval:    approvalStatuses[e.Approval],
+		Approval:    approval,
 		DecidedBy:   e.DecidedBy,
+		RequestId:   e.RequestID,
 	}
 }
 
