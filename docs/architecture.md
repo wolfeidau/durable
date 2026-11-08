@@ -1,7 +1,8 @@
 # Server architecture
 
 **Status: phase 3 in progress.** Durable approvals, phase 1 and every phase 2 slice are built. In
-phase 3 the stable token (#69) and the streaming hook (#70) are built; the session view is next.
+phase 3 the stable token (#69) and the streaming hook (#70) are built. Next is a working browser UI
+end to end: the API gaps it needs, then the session view.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -173,8 +174,13 @@ timeout.
 
 ### The web UI is the primary client
 
-Background work, delayed approvals and watching several sessions suit a browser. The CLI stays as it
-is, and a TUI can be another client later.
+Background work, delayed approvals and watching several sessions suit a browser. The browser creates
+and drives sessions on its own; the CLI stays for one-shot prompts, and a TUI can be another client
+later.
+
+A session has one writer, the lease holder, so the CLI and the server hand a session over rather than
+share it: whichever opens it first runs it, and the other waits until it closes. Sharing a session
+live, with the CLI as a client of the server, would be nice but isn't planned.
 
 The stack is Bun, React, TanStack Router and Query, and `connect-query`, embedded in the server
 binary. `connect-query` suits unary calls; `WatchEvents` needs a hand-written hook.
@@ -374,20 +380,25 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      queued work. That includes a copy made by `durable.Restore`, which conflicts with "a restored
      session must not auto-resume" below.
    - **Approval status on request.** An `approval_requested` event carries no status, so it reaches
-     the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
-     `APPROVAL_STATUS_PENDING` would be clearer.
-3. **Web UI.** One session view with a live transcript and an approval prompt.
+     the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. The API slice in
+     phase 3 sets `APPROVAL_STATUS_PENDING`.
+3. **Web UI.** A browser UI that works end to end without the CLI: create a session, submit, watch the
+   reply stream, approve tool calls and cancel. Tests in the browser wait until that works.
 
    | Slice | Scope | Status |
    |---|---|---|
    | **Access.** | The [server access](server-access.md#first-cut-a-stable-token) first cut: a stable token, `url` and `rotate-token`. The spike page kept streaming across a restart without a new URL | #69 |
    | **J.** | The `web/` scaffold, `WatchEngine`, `useWatchEvents`, a minimal page, and `bun test` coverage of the hook's rules | #70 |
-   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred |
-   | **View.** | The session view: live transcript and approval prompt | Next |
+   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred until the UI works end to end |
+   | **API.** | `CreateSession(cwd, name)` through `commands.Assemble` without `ExistingOnly`, with the CLI's provider defaults and a cwd that must be an absolute, existing directory. `APPROVAL_STATUS_PENDING` on `approval_requested`. `request_id` on submission events, so any tab can cancel | Next |
+   | **View.** | A session list with a new-session form, the live transcript with tool calls and results, the approval prompt, submit and cancel, and a status line | After API |
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
 ## Open questions
+
+- **Later:** should the CLI share a session live with the browser, as a client of the server? Nice to
+  have, not planned; until then the lease hands a session over.
 
 - **Before the UI offers restore:** should a restored session wait for an explicit resume before the
   server runs it? See the known gap "Open resumes work" in phase 2.
