@@ -58,6 +58,7 @@ func TestTokenSurvivesRestartAndStaysOutOfOutput(t *testing.T) {
 	require.NotContains(t, first.out.String(), first.token)
 	require.NotContains(t, second.out.String(), second.token)
 	require.Contains(t, second.out.String(), "durable-server url")
+	require.NotContains(t, second.out.String(), "non-loopback", "the default address is loopback")
 }
 
 func TestRotateTokenReplacesToken(t *testing.T) {
