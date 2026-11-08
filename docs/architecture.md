@@ -1,7 +1,7 @@
 # Server architecture
 
-**Status: phase 2 complete.** Durable approvals, phase 1 and every phase 2 slice are built, and the
-browser spike passed. Phase 3, the web UI, is next.
+**Status: phase 3 in progress.** Durable approvals, phase 1 and every phase 2 slice are built. In
+phase 3 the stable token (#69) and the streaming hook (#70) are built; the session view is next.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -328,14 +328,14 @@ driven by hand in Chrome against a real OpenRouter model:
 
 What phase 3 needs from it:
 
-- **Stable auth across restarts.** The token is new on each run, so after a restart the page stops
-  at `Unauthenticated` until it's given the new one. Phase 3 keeps the token across restarts, as in
-  [server access](server-access.md).
-- **The hook's shape.** It holds `(epoch, cursor)`, counts a seq that isn't `cursor + 1` as a gap,
-  resets to `("", 0)` on `FAILED_PRECONDITION`, waits for new auth on `Unauthenticated`, and
-  otherwise reconnects after a 1s backoff.
-- **Toolchain.** `protoc-gen-es` has a `node` shebang, so with Bun alone run it through
-  `bun run --bun`.
+- **Stable auth across restarts. Done in #69.** The token was new on each run, so after a restart the
+  page stopped at `Unauthenticated`. The token now persists, as in [server access](server-access.md),
+  and the page kept streaming across a `kill -9` and restart.
+- **The hook's shape. Done in #70.** `WatchEngine` holds `(epoch, cursor)`, counts a seq that isn't
+  `cursor + 1` as a gap, resets to `("", 0)` on `FAILED_PRECONDITION`, waits for new auth on
+  `Unauthenticated`, and otherwise reconnects with a backoff from 1s doubling to 10s.
+- **Toolchain. Done in #70.** `protoc-gen-es` has a `node` shebang, so `mise run web:gen` runs it
+  through `bun run --bun`.
 
 ### 5. Remote workers (phase 4)
 
@@ -376,22 +376,21 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    - **Approval status on request.** An `approval_requested` event carries no status, so it reaches
      the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. Setting
      `APPROVAL_STATUS_PENDING` would be clearer.
-3. **Web UI.** One session view with a live transcript and an approval prompt. The first slice
-   builds the [server access](server-access.md#first-cut-a-stable-token) first cut before any UI: a
-   stable token, `url` and `rotate-token`. Rerun the layer 4 spike page opened from `url`, and check
-   that it keeps streaming across a restart without a new URL. Then prove the streaming hook, and
-   build the UI. Slice J (#70) built the `web/` scaffold, the `WatchEngine` and the
-   `useWatchEvents` hook, with a minimal page and `bun test` coverage of the hook's rules. Slice K
-   automates layer 4 with Playwright, including that a watch shows live before its first item, which
-   connect's in-memory transport can't show. It also stops the transcript re-rendering every row on
-   each update, by memoizing committed rows or virtualizing the list, before sessions grow to
-   thousands of events. Slice K can wait while other work goes first.
+3. **Web UI.** One session view with a live transcript and an approval prompt.
+
+   | Slice | Scope | Status |
+   |---|---|---|
+   | **Access.** | The [server access](server-access.md#first-cut-a-stable-token) first cut: a stable token, `url` and `rotate-token`. The spike page kept streaming across a restart without a new URL | #69 |
+   | **J.** | The `web/` scaffold, `WatchEngine`, `useWatchEvents`, a minimal page, and `bun test` coverage of the hook's rules | #70 |
+   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred |
+   | **View.** | The session view: live transcript and approval prompt | Next |
 4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
 5. **Scale.** Queues, multiple workers and microVMs.
 
 ## Open questions
 
-- **Before slice G:** should a restored session wait for an explicit resume before the server runs it?
+- **Before the UI offers restore:** should a restored session wait for an explicit resume before the
+  server runs it? See the known gap "Open resumes work" in phase 2.
 - **Before hosting:** where does it run, and which proxy sits in front? That decides the proxy tests
   and whether the SSE fallback is needed.
 - **Before phase 4:** are containers acceptable? [Issue #9](https://github.com/wolfeidau/durable/issues/9)

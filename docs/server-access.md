@@ -5,6 +5,8 @@ validated before the UI; see [phases](architecture.md#phases).
 
 ## First cut: a stable token
 
+**Built in #69.**
+
 One user, one machine, loopback only. The server keeps the bearer token it already requires, but
 stops changing it on each run, so a restart no longer signs the browser out. This follows the
 pattern of [Jupyter Server](https://jupyter-server.readthedocs.io/en/latest/operators/security.html)
