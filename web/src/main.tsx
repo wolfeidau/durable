@@ -3,40 +3,11 @@ import { createConnectTransport } from "@connectrpc/connect-web";
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { ApprovalStatus, EventKind, Role, SessionService, type Event, type SessionInfo } from "./gen/durable/v1/durable_pb";
+import { getToken, setToken } from "./token";
 import { useWatchEvents } from "./useWatchEvents";
 
-const tokenKey = "durable.token";
-
-function readStored(): string {
-  try {
-    return localStorage.getItem(tokenKey) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function store(token: string): void {
-  try {
-    localStorage.setItem(tokenKey, token);
-  } catch {
-    // Storage can be blocked; the token then lasts for this page only.
-  }
-}
-
-function initialToken(): string {
-  const fromHash = new URLSearchParams(location.hash.slice(1)).get("token");
-  if (!fromHash) return readStored();
-  store(fromHash);
-  // Keep the token out of history and the address bar.
-  history.replaceState(null, "", location.pathname + location.search);
-  return fromHash;
-}
-
-let token = initialToken();
-const getToken = () => token;
-
 const bearer: Interceptor = (next) => (req) => {
-  req.header.set("Authorization", `Bearer ${token}`);
+  req.header.set("Authorization", `Bearer ${getToken()}`);
   return next(req);
 };
 const transport = createConnectTransport({ baseUrl: location.origin, interceptors: [bearer] });
@@ -79,7 +50,7 @@ function Session({ sessionId, needsAuth, onToken }: { sessionId: string; needsAu
 
   const applyToken = (t: string) => {
     onToken(t);
-    w.setToken(t);
+    w.resumeAuth();
   };
 
   const submit = async () => {
@@ -169,8 +140,7 @@ function App(): ReactElement {
   }, [load]);
 
   const onToken = (t: string) => {
-    token = t;
-    store(t);
+    setToken(t);
     void load();
   };
 
