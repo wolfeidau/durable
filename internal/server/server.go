@@ -86,7 +86,16 @@ func (s *Server) Handler() http.Handler {
 
 	mux.Handle("/", http.FileServerFS(uiRoot(uiFS)))
 
-	return s.checkHostAndOrigin(mux)
+	return s.checkHostAndOrigin(denyFraming(mux))
+}
+
+// denyFraming stops another site from framing the UI and tricking a click on Allow.
+func denyFraming(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
+		w.Header().Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) logger() *slog.Logger {

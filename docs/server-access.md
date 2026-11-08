@@ -18,6 +18,9 @@ through a printed URL.
 - The server binds to loopback only.
 - The `Host` check, which stops DNS rebinding.
 - The exact `Origin` check, scheme, host and port, with CORS off.
+- `frame-ancestors 'none'` and `X-Frame-Options: DENY` on every response, so another site can't
+  frame the UI and trick a click on Allow. Framing would pass the `Origin` check, because the framed
+  page makes its own requests.
 - A bearer token on every RPC. The `Host` and `Origin` checks already stop web pages, but the token
   also stops other users' processes on the machine, and anything outside a browser, from approving
   shell commands.

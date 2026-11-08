@@ -192,6 +192,8 @@ func TestServesUI(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	require.Contains(t, string(body), "<title>durable</title>")
+	require.Equal(t, "frame-ancestors 'none'", resp.Header.Get("Content-Security-Policy"))
+	require.Equal(t, "DENY", resp.Header.Get("X-Frame-Options"))
 }
 
 func TestServerJSONModeAndCleanup(t *testing.T) {
