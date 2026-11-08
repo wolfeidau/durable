@@ -92,6 +92,18 @@ describe("buildTranscript", () => {
     ]);
   });
 
+  test("a harness note in the user's turn is a notice, not a user message", () => {
+    const [turn] = buildTranscript([
+      msg(Role.USER, "do it"),
+      msg(Role.USER, "The user cancelled the request above.", { note: true }),
+      sub(SubmissionStatus.CANCELLED),
+    ]);
+    expect(turn?.entries).toEqual([
+      { kind: "user", text: "do it" },
+      { kind: "notice", text: "The user cancelled the request above." },
+    ]);
+  });
+
   test("compaction events become notices", () => {
     const [t] = buildTranscript([
       ev({ kind: EventKind.COMPACTED }),

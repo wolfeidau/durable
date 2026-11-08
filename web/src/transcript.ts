@@ -65,7 +65,7 @@ export function buildTranscript(events: readonly Event[]): Turn[] {
         const m = e.message;
         if (!m) break;
         if (m.role === Role.USER) {
-          turn.entries.push({ kind: "user", text: m.text });
+          turn.entries.push({ kind: m.note ? "notice" : "user", text: m.text });
         } else if (m.role === Role.ASSISTANT) {
           if (m.text) turn.entries.push({ kind: "assistant", text: m.text });
           for (const tc of m.toolCalls) callFor(turn, tc.id, tc.name, decode(tc.input));

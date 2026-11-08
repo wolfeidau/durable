@@ -109,6 +109,8 @@ func message(m *durable.Message) *durablev1.Message {
 		ToolCallId:    m.ToolCallID,
 		IsError:       m.IsError,
 		ContextTokens: m.ContextTokens,
+		// The harness stores its cancellation notice as a user message, so the exact text marks it.
+		Note: m.Role == durable.RoleUser && m.Text == durable.RequestCancelled,
 	}
 	for i := range m.ToolCalls {
 		out.ToolCalls = append(out.ToolCalls, toolCall(&m.ToolCalls[i], false))

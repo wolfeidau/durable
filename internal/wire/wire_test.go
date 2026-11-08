@@ -124,3 +124,14 @@ func TestApprovalStatusesMapped(t *testing.T) {
 	}
 	require.Len(t, seen, len(durablev1.ApprovalStatus_name)-1)
 }
+
+func TestCancellationNoticeIsANote(t *testing.T) {
+	note := Event(durable.Event{Kind: durable.EventMessage, Message: &durable.Message{Role: durable.RoleUser, Text: durable.RequestCancelled}}, "e")
+	require.True(t, note.GetMessage().GetNote())
+
+	typed := Event(durable.Event{Kind: durable.EventMessage, Message: &durable.Message{Role: durable.RoleUser, Text: "hello"}}, "e")
+	require.False(t, typed.GetMessage().GetNote())
+
+	reply := Event(durable.Event{Kind: durable.EventMessage, Message: &durable.Message{Role: durable.RoleAssistant, Text: durable.RequestCancelled}}, "e")
+	require.False(t, reply.GetMessage().GetNote())
+}

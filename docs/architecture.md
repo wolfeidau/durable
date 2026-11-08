@@ -2,7 +2,7 @@
 
 **Status: phase 3 in progress.** Durable approvals, phase 1 and every phase 2 slice are built. In
 phase 3 the stable token (#69), the streaming hook (#70), the API slice (#78, #79) and the session
-view are built. Next is the browser tests.
+view (#80) are built. The browser tests (slice K) are deferred while the UI is in use.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -394,7 +394,7 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    |---|---|---|
    | **Access.** | The [server access](server-access.md#first-cut-a-stable-token) first cut: a stable token, `url` and `rotate-token`. The spike page kept streaming across a restart without a new URL | #69 |
    | **J.** | The `web/` scaffold, `WatchEngine`, `useWatchEvents`, a minimal page, and `bun test` coverage of the hook's rules | #70 |
-   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred until the UI works end to end |
+   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred while the UI is in use |
    | **API.** | What the browser needs to work without the CLI: `CreateSession`, a status per session in `ListSessions`, `APPROVAL_STATUS_PENDING` on `approval_requested`, and `request_id` on submission events. Details below | #78, #79 |
    | **View.** | A session list showing each session's status, with a new-session form. The live transcript, rendered as text only, with tool calls and their results, submission errors and compaction events. The approval prompt, submit and cancel, and a status line that also reports a session taken over by another process. Cancel needs the `request_id` from the queued event, so turns queued before the API slice have no Cancel in the UI. A session that doesn't exist stops the watch and says so | #80 |
    The API slice in detail:
