@@ -56,6 +56,13 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("failed to find home directory: %w", err)
 	}
 
+	// Only the lock holder writes and removes server.json, so a second server can't break discovery.
+	lock, err := lockHome(filepath.Join(home, ".durable"))
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
+
 	// Resolved once so a 1Password reference isn't read on every session open.
 	apiToken, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
 	if err != nil {
@@ -172,6 +179,25 @@ func writeFileAtomic(path string, data []byte, replace bool) error {
 		return fmt.Errorf("failed to replace %s: %w", path, err)
 	}
 	return nil
+}
+
+// lockHome takes an exclusive lock for the process lifetime; the kernel drops it on exit, so it is never stale.
+func lockHome(dir string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create %s: %w", dir, err)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "server.lock"), os.O_RDWR|os.O_CREATE, 0o600) //nolint:gosec // fixed name inside the durable directory
+	if err != nil {
+		return nil, fmt.Errorf("failed to open server lock: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = f.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errors.New("another durable-server is running for this home; run durable-server url")
+		}
+		return nil, fmt.Errorf("failed to lock %s: %w", f.Name(), err)
+	}
+	return f, nil
 }
 
 // loadOrCreateToken keeps the token across restarts so a restart doesn't sign the browser out.

@@ -109,6 +109,30 @@ func TestServeRejectsEmptyTokenFile(t *testing.T) {
 	require.Contains(t, stderr, "empty")
 }
 
+func TestSecondServerRefusedAndFirstKeepsDiscovery(t *testing.T) {
+	home := t.TempDir()
+	first := startIn(t, home)
+
+	_, stderr, err := runSub(t, home, "--addr", "127.0.0.1:0")
+	require.Error(t, err)
+	require.Contains(t, stderr, "another durable-server is running")
+
+	_, err = os.Stat(filepath.Join(home, ".durable", "server.json"))
+	require.NoError(t, err)
+	stdout, _, err := runSub(t, home, "url")
+	require.NoError(t, err)
+	require.Contains(t, stdout, strings.TrimPrefix(first.url, "http://"))
+}
+
+func TestLockNotStaleAfterKill(t *testing.T) {
+	home := t.TempDir()
+	first := startIn(t, home)
+	first.crash(t)
+
+	second := startIn(t, home)
+	require.NotEmpty(t, second.url)
+}
+
 func TestURLPrintsBrowserLink(t *testing.T) {
 	r := start(t)
 	stdout, _, err := runSub(t, r.home, "url")
