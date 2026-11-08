@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Download failures exit with this, so the step's automatic retry catches GitHub outages but not real errors.
+retry_exit=75
+
 echo "~~~ :recycle: Restoring mise cache"
 buildkite-agent cache restore --name mise
 
@@ -13,15 +16,17 @@ if [[ "$(mise --version 2>/dev/null | cut -d' ' -f1)" != "${MISE_VERSION}" ]]; t
   echo "~~~ :toolbox: Installing mise ${MISE_VERSION}"
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' EXIT
-  curl -fsSL --retry 3 -o "${tmp}/mise.tar.gz" \
-    "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-${arch}-musl.tar.gz"
+  # GitHub hangs about 2m before a 504, so cap each attempt.
+  curl -fsSL --connect-timeout 10 --max-time 60 --retry 3 -o "${tmp}/mise.tar.gz" \
+    "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-${arch}-musl.tar.gz" ||
+    exit "${retry_exit}"
   echo "${sha}  ${tmp}/mise.tar.gz" | sha256sum -c -
   mkdir -p "${MISE_DATA_DIR}/bin"
   tar -xzf "${tmp}/mise.tar.gz" -C "${MISE_DATA_DIR}/bin" --strip-components=2 mise/bin/mise
 fi
 
 echo "~~~ :toolbox: Installing tools from mise.toml"
-mise install --quiet
+mise install --quiet || exit "${retry_exit}"
 
 # Saved as soon as the tools install, because the step's command passing says nothing about them.
 # Branches only restore, matching go-cache, so main never inherits what a branch build wrote.
