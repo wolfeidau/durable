@@ -52,7 +52,7 @@ func TestCreateSessionRunsAndIsIdempotent(t *testing.T) {
 	require.Equal(t, "DONE", waitDone(t, c, got.GetSession().GetId()).GetResult())
 
 	// An unclean path names the same session as the CLI would.
-	again, err := c.create(t, filepath.Join(ws, "."), "default")
+	again, err := c.create(t, ws+"/./", "default")
 	require.NoError(t, err)
 	require.False(t, again.GetCreated())
 	require.Equal(t, got.GetSession().GetId(), again.GetSession().GetId())
