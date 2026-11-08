@@ -8,7 +8,7 @@ steps:
           - mise run check:api
           - golangci-lint run --verbose --timeout 3m
         plugins:
-          - mise#v1.1.5: ~
+          - ./.buildkite/plugins/mise-cache: ~
           - ./.buildkite/plugins/go-cache:
               name: go_lint
 
@@ -23,7 +23,7 @@ steps:
           # Each real-binary run would otherwise sleep 1s at exit.
           GORACE: atexit_sleep_ms=0
         plugins:
-          - mise#v1.1.5: ~
+          - ./.buildkite/plugins/mise-cache: ~
           - wolfeidau/go-test-annotate#v1.0.0:
               file: tests.json
           - ./.buildkite/plugins/go-cache:
@@ -32,14 +32,14 @@ steps:
       - label: ":bun: web"
         command: mise run check:web
         plugins:
-          - mise#v1.1.5: ~
+          - ./.buildkite/plugins/mise-cache: ~
 
   # Runs alongside QA, because it spends no key and waiting on QA added about 1m30 to every branch build.
   - label: ":docker: e2e sandbox"
     if: build.branch != pipeline.default_branch
     command: mise run test:e2e
     plugins:
-      - mise#v1.1.5: ~
+      - ./.buildkite/plugins/mise-cache: ~
 
   # Live model calls spend the key and run model-chosen commands, so only default-branch builds get it.
   - label: ":docker: e2e sandbox (live)"
@@ -49,4 +49,4 @@ steps:
     secrets:
       - OPENROUTER_API_KEY
     plugins:
-      - mise#v1.1.5: ~
+      - ./.buildkite/plugins/mise-cache: ~

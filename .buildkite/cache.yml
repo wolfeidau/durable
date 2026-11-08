@@ -17,3 +17,12 @@ caches:
       - { checksum: [go.mod, go.sum, "**/*.go"] }
     target_paths:
       - ~/.cache/durable-go
+  - name: mise
+    cache_key:
+      - durable-mise-v1
+      - { agent: os }
+      - { agent: arch }
+      - { env: MISE_VERSION }
+      - { checksum: [mise.toml, mise.lock, ".buildkite/plugins/mise-cache/hooks/*"] }
+    target_paths:
+      - ~/.cache/durable-mise

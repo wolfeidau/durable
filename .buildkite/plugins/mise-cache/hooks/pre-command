@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "--- :recycle: Restoring mise cache"
+buildkite-agent cache restore --name mise
+
+if [[ "$(mise --version 2>/dev/null | cut -d' ' -f1)" != "${MISE_VERSION}" ]]; then
+  case "$(uname -m)" in
+    x86_64) arch="x64" sha="ff81b3a813edbb1e884a0a68b0c1f1aa726f15f6c4e47606f83359fb12beb009" ;;
+    aarch64 | arm64) arch="arm64" sha="d2b1f015317baff1e3a1486ff323a1a3c571e6b7233778318dd39d5349d42062" ;;
+    *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+  esac
+  echo "--- :toolbox: Installing mise ${MISE_VERSION}"
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "${tmp}"' EXIT
+  curl -fsSL --retry 3 -o "${tmp}/mise.tar.gz" \
+    "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-${arch}-musl.tar.gz"
+  echo "${sha}  ${tmp}/mise.tar.gz" | sha256sum -c -
+  mkdir -p "${MISE_DATA_DIR}/bin"
+  tar -xzf "${tmp}/mise.tar.gz" -C "${MISE_DATA_DIR}/bin" --strip-components=2 mise/bin/mise
+fi
+
+echo "--- :toolbox: Installing tools from mise.toml"
+mise install
+
+# Saved as soon as the tools install, because the step's command passing says nothing about them.
+# Branches only restore, matching go-cache, so main never inherits what a branch build wrote.
+if [[ "${BUILDKITE_BRANCH:-}" == "${BUILDKITE_PIPELINE_DEFAULT_BRANCH:-main}" ]]; then
+  buildkite-agent cache save --name mise
+fi
