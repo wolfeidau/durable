@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "--- :recycle: Restoring mise cache"
+echo "~~~ :recycle: Restoring mise cache"
 buildkite-agent cache restore --name mise
 
 if [[ "$(mise --version 2>/dev/null | cut -d' ' -f1)" != "${MISE_VERSION}" ]]; then
@@ -10,7 +10,7 @@ if [[ "$(mise --version 2>/dev/null | cut -d' ' -f1)" != "${MISE_VERSION}" ]]; t
     aarch64 | arm64) arch="arm64" sha="d2b1f015317baff1e3a1486ff323a1a3c571e6b7233778318dd39d5349d42062" ;;
     *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
   esac
-  echo "--- :toolbox: Installing mise ${MISE_VERSION}"
+  echo "~~~ :toolbox: Installing mise ${MISE_VERSION}"
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' EXIT
   curl -fsSL --retry 3 -o "${tmp}/mise.tar.gz" \
@@ -20,8 +20,8 @@ if [[ "$(mise --version 2>/dev/null | cut -d' ' -f1)" != "${MISE_VERSION}" ]]; t
   tar -xzf "${tmp}/mise.tar.gz" -C "${MISE_DATA_DIR}/bin" --strip-components=2 mise/bin/mise
 fi
 
-echo "--- :toolbox: Installing tools from mise.toml"
-mise install
+echo "~~~ :toolbox: Installing tools from mise.toml"
+mise install --quiet
 
 # Saved as soon as the tools install, because the step's command passing says nothing about them.
 # Branches only restore, matching go-cache, so main never inherits what a branch build wrote.
