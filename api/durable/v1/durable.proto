@@ -51,6 +51,10 @@ message SessionInfo {
   string cwd = 2;
   string name = 3;
   google.protobuf.Timestamp created_at = 4;
+  // pending_approvals counts calls waiting for a decision, including in a session that is not open.
+  int32 pending_approvals = 5;
+  // unfinished_submissions counts queued plus running submissions; it may lag while another process writes.
+  int32 unfinished_submissions = 6;
 }
 
 message SubmitRequest {
@@ -216,8 +220,11 @@ message Event {
   bool rewritten = 9;
   bool is_error = 10;
   int64 approval_seq = 11;
+  // approval is PENDING on approval_requested, and the answer on approval_decided.
   ApprovalStatus approval = 12;
   string decided_by = 13;
+  // request_id is set on the queued submission event only.
+  string request_id = 14;
 }
 
 // EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.

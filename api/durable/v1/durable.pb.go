@@ -509,12 +509,16 @@ func (x *ListSessionsResponse) GetWarnings() []string {
 type SessionInfo struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// id is the session_id other RPCs take.
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	Cwd           string                 `protobuf:"bytes,2,opt,name=cwd,proto3" json:"cwd,omitempty"`
-	Name          string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
-	CreatedAt     *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Id        string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Cwd       string                 `protobuf:"bytes,2,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	Name      string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	CreatedAt *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// pending_approvals counts calls waiting for a decision, including in a session that is not open.
+	PendingApprovals int32 `protobuf:"varint,5,opt,name=pending_approvals,json=pendingApprovals,proto3" json:"pending_approvals,omitempty"`
+	// unfinished_submissions counts queued plus running submissions; it may lag while another process writes.
+	UnfinishedSubmissions int32 `protobuf:"varint,6,opt,name=unfinished_submissions,json=unfinishedSubmissions,proto3" json:"unfinished_submissions,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *SessionInfo) Reset() {
@@ -573,6 +577,20 @@ func (x *SessionInfo) GetCreatedAt() *timestamppb.Timestamp {
 		return x.CreatedAt
 	}
 	return nil
+}
+
+func (x *SessionInfo) GetPendingApprovals() int32 {
+	if x != nil {
+		return x.PendingApprovals
+	}
+	return 0
+}
+
+func (x *SessionInfo) GetUnfinishedSubmissions() int32 {
+	if x != nil {
+		return x.UnfinishedSubmissions
+	}
+	return 0
 }
 
 type SubmitRequest struct {
@@ -1505,11 +1523,14 @@ type Event struct {
 	Message    *Message         `protobuf:"bytes,7,opt,name=message,proto3" json:"message,omitempty"`
 	Call       *ToolCall        `protobuf:"bytes,8,opt,name=call,proto3" json:"call,omitempty"`
 	// rewritten means a gate changed the call input, which call then omits.
-	Rewritten     bool           `protobuf:"varint,9,opt,name=rewritten,proto3" json:"rewritten,omitempty"`
-	IsError       bool           `protobuf:"varint,10,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
-	ApprovalSeq   int64          `protobuf:"varint,11,opt,name=approval_seq,json=approvalSeq,proto3" json:"approval_seq,omitempty"`
-	Approval      ApprovalStatus `protobuf:"varint,12,opt,name=approval,proto3,enum=durable.v1.ApprovalStatus" json:"approval,omitempty"`
-	DecidedBy     string         `protobuf:"bytes,13,opt,name=decided_by,json=decidedBy,proto3" json:"decided_by,omitempty"`
+	Rewritten   bool  `protobuf:"varint,9,opt,name=rewritten,proto3" json:"rewritten,omitempty"`
+	IsError     bool  `protobuf:"varint,10,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	ApprovalSeq int64 `protobuf:"varint,11,opt,name=approval_seq,json=approvalSeq,proto3" json:"approval_seq,omitempty"`
+	// approval is PENDING on approval_requested, and the answer on approval_decided.
+	Approval  ApprovalStatus `protobuf:"varint,12,opt,name=approval,proto3,enum=durable.v1.ApprovalStatus" json:"approval,omitempty"`
+	DecidedBy string         `protobuf:"bytes,13,opt,name=decided_by,json=decidedBy,proto3" json:"decided_by,omitempty"`
+	// request_id is set on the queued submission event only.
+	RequestId     string `protobuf:"bytes,14,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1635,6 +1656,13 @@ func (x *Event) GetDecidedBy() string {
 	return ""
 }
 
+func (x *Event) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
 // EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.
 type EpochMismatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1703,13 +1731,15 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\x13ListSessionsRequest\"g\n" +
 	"\x14ListSessionsResponse\x123\n" +
 	"\bsessions\x18\x01 \x03(\v2\x17.durable.v1.SessionInfoR\bsessions\x12\x1a\n" +
-	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"~\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"\xe2\x01\n" +
 	"\vSessionInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03cwd\x18\x02 \x01(\tR\x03cwd\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x129\n" +
 	"\n" +
-	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\"a\n" +
+	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12+\n" +
+	"\x11pending_approvals\x18\x05 \x01(\x05R\x10pendingApprovals\x125\n" +
+	"\x16unfinished_submissions\x18\x06 \x01(\x05R\x15unfinishedSubmissions\"a\n" +
 	"\rSubmitRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1d\n" +
@@ -1788,7 +1818,7 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\ftool_call_id\x18\x04 \x01(\tR\n" +
 	"toolCallId\x12\x19\n" +
 	"\bis_error\x18\x05 \x01(\bR\aisError\x12%\n" +
-	"\x0econtext_tokens\x18\x06 \x01(\x03R\rcontextTokens\"\xd2\x03\n" +
+	"\x0econtext_tokens\x18\x06 \x01(\x03R\rcontextTokens\"\xf1\x03\n" +
 	"\x05Event\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\tR\x05epoch\x12)\n" +
@@ -1806,7 +1836,9 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\fapproval_seq\x18\v \x01(\x03R\vapprovalSeq\x126\n" +
 	"\bapproval\x18\f \x01(\x0e2\x1a.durable.v1.ApprovalStatusR\bapproval\x12\x1d\n" +
 	"\n" +
-	"decided_by\x18\r \x01(\tR\tdecidedBy\"@\n" +
+	"decided_by\x18\r \x01(\tR\tdecidedBy\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x0e \x01(\tR\trequestId\"@\n" +
 	"\rEpochMismatch\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\tR\x05epoch\x12\x19\n" +
 	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*n\n" +
