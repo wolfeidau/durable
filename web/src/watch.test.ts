@@ -197,6 +197,21 @@ describe("WatchEngine", () => {
     engine.stop();
   });
 
+  test("lastError is set on a reconnect and cleared once live", async () => {
+    const { engine } = setup([{ end: new ConnectError("session in use", Code.Unavailable) }, { items: [ev(1)] }]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    (engine as unknown as { sleep: () => Promise<void> }).sleep = () => gate;
+    engine.start();
+    const s = await until(engine, (s) => s.status === "reconnecting");
+    expect(s.lastError).toBe("session in use");
+    release();
+    const live = await until(engine, (s) => s.cursor === 1n);
+    expect(live.status).toBe("live");
+    expect(live.lastError).toBeUndefined();
+    engine.stop();
+  });
+
   test("heartbeat updates lastHeartbeat", async () => {
     const { engine } = setup([{ items: [hb] }]);
     engine.start();

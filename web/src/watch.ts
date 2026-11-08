@@ -19,6 +19,7 @@ export interface WatchState {
   readonly gaps: number;
   readonly reconnects: number;
   readonly lastHeartbeat: number | undefined;
+  readonly lastError?: string;
   // Live views only: the committed events stay authoritative.
   readonly partialText: ReadonlyMap<bigint, string>;
   readonly toolOutput: ReadonlyMap<string, string>;
@@ -114,7 +115,7 @@ export class WatchEngine {
   }
 
   private update(patch: Patch): void {
-    this.state = { ...this.state, ...patch };
+    this.state = { ...this.state, ...patch, ...(patch.status === "live" ? { lastError: undefined } : {}) };
     if (this.flushScheduled) return;
     this.flushScheduled = true;
     setTimeout(this.flush, 0);
@@ -131,6 +132,7 @@ export class WatchEngine {
   private async run(): Promise<void> {
     while (!this.stopped) {
       this.abort = new AbortController();
+      let lastError: string | undefined;
       // Deltas missed while disconnected would leave a hole, so live views restart with the connection.
       this.resetSubmissions.clear();
       if (this.state.partialText.size || this.state.toolOutput.size) {
@@ -178,9 +180,10 @@ export class WatchEngine {
           if (!this.stopped) this.update({ status: "connecting" });
           continue;
         }
+        lastError = ConnectError.from(err).rawMessage;
       }
       if (this.stopped) return;
-      this.update({ status: "reconnecting", reconnects: this.state.reconnects + 1 });
+      this.update({ status: "reconnecting", reconnects: this.state.reconnects + 1, lastError });
       const delay = this.backoff;
       this.backoff = Math.min(this.backoff * 2, maxBackoffMs);
       await Promise.race([this.sleep(delay), this.stopSignal]);
