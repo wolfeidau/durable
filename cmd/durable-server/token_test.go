@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,8 +20,13 @@ func tokenPath(home string) string { return filepath.Join(home, ".durable", "ser
 
 func runSub(t *testing.T, home string, args ...string) (string, string, error) {
 	t.Helper()
+	return runSubWithin(t, home, testTimeout, args...)
+}
+
+func runSubWithin(t *testing.T, home string, timeout time.Duration, args ...string) (string, string, error) {
+	t.Helper()
 	// A serve that fails to refuse would otherwise hang the test until the package timeout.
-	ctx, cancel := context.WithTimeout(t.Context(), testTimeout)
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binPath, args...)
 	cmd.Env = append(os.Environ(), "HOME="+home)
@@ -113,7 +119,8 @@ func TestSecondServerRefusedAndFirstKeepsDiscovery(t *testing.T) {
 	home := t.TempDir()
 	first := startIn(t, home)
 
-	_, stderr, err := runSub(t, home, "--addr", "127.0.0.1:0")
+	// Refusal is immediate, so a serve still running after 5s means the lock didn't hold.
+	_, stderr, err := runSubWithin(t, home, 5*time.Second, "--addr", "127.0.0.1:0")
 	require.Error(t, err)
 	require.Contains(t, stderr, "another durable-server is running")
 

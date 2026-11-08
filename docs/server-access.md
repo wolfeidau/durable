@@ -98,7 +98,8 @@ read the token from `localStorage`, and injected script could steal it.
 - The inline `<style>` in `web/index.html` must move to a file first, or the policy needs
   `style-src 'self' 'unsafe-inline'`.
 - Wait until the session view settles the page's assets.
-- `frame-ancestors 'none'` already ships.
+- `frame-ancestors 'none'` already ships in the same header, so the full policy replaces the one
+  `denyFraming` sets and must keep that directive.
 
 ### TLS
 
