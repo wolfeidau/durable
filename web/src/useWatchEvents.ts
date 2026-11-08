@@ -3,7 +3,6 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { WatchEngine, type WatchState } from "./watch";
 
 export interface WatchHandle extends WatchState {
-  setToken: (token: string) => void;
   resumeAuth: () => void;
 }
 
@@ -40,7 +39,6 @@ export function useWatchEvents(transport: Transport, sessionId: string, getToken
   const state = useSyncExternalStore(engine?.subscribe ?? noSubscribe, engine?.getSnapshot ?? (() => idle));
   return {
     ...state,
-    setToken: (t) => engine?.setToken(t),
     resumeAuth: () => engine?.resumeAuth(),
   };
 }

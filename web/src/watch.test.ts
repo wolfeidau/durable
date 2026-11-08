@@ -165,11 +165,13 @@ describe("WatchEngine", () => {
     engine.stop();
   });
 
-  test("setToken resumes with the new token", async () => {
-    const { engine, seen } = setup([{ end: new ConnectError("no", Code.Unauthenticated) }, { items: [ev(1)] }]);
+  test("resumeAuth reconnects with the current token", async () => {
+    let tok = "tok";
+    const { engine, seen } = setup([{ end: new ConnectError("no", Code.Unauthenticated) }, { items: [ev(1)] }], () => tok);
     engine.start();
     await until(engine, (s) => s.status === "auth-needed");
-    engine.setToken("fresh");
+    tok = "fresh";
+    engine.resumeAuth();
     await until(engine, (s) => s.cursor === 1n);
     expect(seen.map((s) => s.auth)).toEqual(["Bearer tok", "Bearer fresh"]);
     engine.stop();

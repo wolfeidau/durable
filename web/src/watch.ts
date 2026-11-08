@@ -73,7 +73,6 @@ export class WatchEngine {
   private flushScheduled = false;
   private readonly listeners = new Set<() => void>();
   private readonly resetSubmissions = new Set<bigint>();
-  private token: string | undefined;
   private started = false;
   private stopped = false;
   private abort: AbortController | undefined;
@@ -110,11 +109,6 @@ export class WatchEngine {
     this.flush();
   }
 
-  setToken(token: string): void {
-    this.token = token;
-    this.resumeAuth();
-  }
-
   resumeAuth(): void {
     this.wake?.();
   }
@@ -147,7 +141,7 @@ export class WatchEngine {
           { sessionId: this.opts.sessionId, epoch: this.state.epoch, afterSeq: this.state.cursor, includeDeltas: true },
           {
             signal: this.abort.signal,
-            headers: { Authorization: `Bearer ${this.token ?? this.opts.getToken()}` },
+            headers: { Authorization: `Bearer ${this.opts.getToken()}` },
             // The server sends headers once the watch holds the session, before any event or heartbeat.
             onHeader: () => {
               if (!this.stopped && this.state.status !== "live") this.update({ status: "live" });
