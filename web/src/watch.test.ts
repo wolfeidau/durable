@@ -212,6 +212,18 @@ describe("WatchEngine", () => {
     engine.stop();
   });
 
+  test("a missing or malformed session stops instead of retrying", async () => {
+    for (const code of [Code.NotFound, Code.InvalidArgument]) {
+      const { engine, seen, sleeps } = setup([{ end: new ConnectError("no such session", code) }, { items: [ev(1)] }]);
+      engine.start();
+      const s = await until(engine, (s) => s.status === "not-found");
+      expect(s.lastError).toBe("no such session");
+      expect(seen).toHaveLength(1);
+      expect(sleeps).toEqual([]);
+      engine.stop();
+    }
+  });
+
   test("heartbeat updates lastHeartbeat", async () => {
     const { engine } = setup([{ items: [hb] }]);
     engine.start();

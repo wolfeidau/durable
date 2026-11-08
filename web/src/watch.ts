@@ -9,7 +9,7 @@ import {
   type Event,
 } from "./gen/durable/v1/durable_pb";
 
-export type WatchStatus = "connecting" | "live" | "reconnecting" | "auth-needed" | "stopped";
+export type WatchStatus = "connecting" | "live" | "reconnecting" | "auth-needed" | "not-found" | "stopped";
 
 export interface WatchState {
   readonly status: WatchStatus;
@@ -179,6 +179,11 @@ export class WatchEngine {
           this.wake = undefined;
           if (!this.stopped) this.update({ status: "connecting" });
           continue;
+        }
+        // Retrying can't make a missing or malformed session appear, so stop.
+        if (code === Code.NotFound || code === Code.InvalidArgument) {
+          this.update({ status: "not-found", lastError: ConnectError.from(err).rawMessage });
+          return;
         }
         lastError = ConnectError.from(err).rawMessage;
       }

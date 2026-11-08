@@ -30,6 +30,8 @@ function describe(w: WatchHandle): { text: string; tone: string } {
       return { text: w.lastError ? `reconnecting: ${w.lastError}` : "reconnecting", tone: "warn" };
     case "auth-needed":
       return { text: "token needed", tone: "bad" };
+    case "not-found":
+      return { text: "session not found", tone: "bad" };
     default:
       return { text: "stopped", tone: "muted" };
   }
