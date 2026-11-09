@@ -3,28 +3,45 @@
 Phase 4 of the [architecture](architecture.md#phases): the agent's tools run in a sandbox, and the
 model loop, the session and every control stay outside it.
 
-**Status: draft.** The first spike passed (`spike/openshell-worker`, see its `FINDINGS.md`). This
-draft records the decisions so far and what the second spike must prove. The slice plan follows the
-second spike.
+**Status: designed, not built.** Two spikes passed against a local OpenShell gateway. Their code and
+`FINDINGS.md` are on the unmerged branches `spike/openshell-worker`, `spike/openshell-workspace` and
+`spike/openshell-server`, kept until the slices land; the results this design depends on are copied
+below. The [slices](#slices) build it properly.
 
 ## Shape
 
 ```text
- Browser                Server (host)                         OpenShell sandbox
-+---------+  Connect  +---------------------------+  SDK      +----------------------+
-| Web UI  | --------> | durable-server            | --------> | durable-worker       |
-+---------+           |  - model loop, model key  |  connects |  - read_file, grep,  |
-                      |  - session.sqlite         |  in       |    list_files,       |
-                      |  - hooks and approvals    |           |    edit_file, bash   |
-                      |  - fixed tool table       |           |  - MCP servers       |
-                      +---------------------------+           |  - workspace         |
-                                   |                          |  - egress allowlist  |
-                                   v                          |    only              |
-                             Model provider                   +----------------------+
+ Browser               Server (host)                          OpenShell sandbox
++---------+ Connect  +---------------------------+  SDK TCP  +----------------------+
+| Web UI  | -------> | durable-server            | --------> | durable-worker       |
++---------+          |  - model loop, model key  |  tunnel,  |  - read_file, grep,  |
+                     |  - session.sqlite         |  connects |    list_files,       |
+                     |  - hooks and approvals    |  in       |    edit_file, bash   |
+                     |  - fixed tool table       |           |  - MCP servers       |
+                     |  - git host tokens        |           |  - workspace: empty  |
+                     +---------------------------+           |    or a repo clone   |
+                          |               |                  +----------------------+
+                          v               v                        | egress: allowlist
+                    Model provider   OpenShell gateway             v only, credentials
+                                     (providers, policy)      git host   as placeholders
 ```
 
-`durable chat` keeps its in-process tools. The server gains the sandbox; local tools stay its
-default until the sandbox path is proven.
+`durable chat` keeps its in-process tools. The server gains the sandbox behind a flag; local tools
+stay its default until the slices land.
+
+## What the spikes proved
+
+| | Result |
+|---|---|
+| Connect | The SDK's TCP tunnel carries Connect over HTTP/2: no host port, no `ssh` child, and after `sandbox start` the next call just dials again |
+| Latency | About 1 ms per tool call at p50, the same as the CLI's forward |
+| Streaming | `bash` output arrives as it's written, through the existing delta path |
+| Cancel | A cancelled `sleep 30` stops within 10 ms and is never re-run |
+| Recovery | A dropped connection doesn't stop a call; `Result` recovers it on the next dial |
+| Untrusted metadata | A worker that claims `bash` is read-only, or adds a tool, is ignored |
+| Workspace | The sandbox cloned a private repo, edited it through the remote tools and pushed; the host saw the same commit |
+| Credentials | The agent's environment held only a placeholder for the GitHub token. `curl` to other hosts was denied, and git was limited to one repo (another repo returned 403) |
+| Server | A session's `bash` call parked for approval, ran once in the sandbox as uid 1500 and streamed its output. The sandbox stopped about 4 s after the session idled and started again on reopen in about 0.6 s |
 
 ## Decisions
 
@@ -35,58 +52,50 @@ it controls. With the loop inside, `bash` runs as the same user as the harness a
 approved row, edit the log or kill a hook. Outside, the loop never executes model output: it routes
 it to the provider, to hooks and approvals, and to the worker, and what comes back is data.
 
-This holds under the rules below. It also changes what [hooks](hooks.md) are: with tools in the
-sandbox, `bash` can no longer edit `~/.durable/hooks.json`, so hooks become a boundary.
+This also changes what [hooks](hooks.md) are: with tools in the sandbox, `bash` can no longer edit
+`~/.durable/hooks.json`, so hooks become a boundary.
 
 ### The server connects in
 
-This replaces [workers dial out](architecture.md#workers-dial-out). The server starts the worker and
-connects to it, as go-plugin does, so the sandbox has no route to the server and its egress lists
-only what the tools need. A compromised sandbox can't reach the API that approves commands.
+This replaces [workers dial out](architecture.md#workers-dial-out). The server creates the sandbox,
+starts the worker in it and connects to it, so the sandbox has no route to the server and its egress
+lists only what the tools need. A compromised sandbox can't reach the API that approves commands.
 
-A launcher returns a connection to the worker:
+A launcher creates, starts, stops and deletes a sandbox and returns a connection to its worker:
 
-- **OpenShell,** through its Go SDK. See below.
-- **Local subprocess** on loopback, for tests.
+- **OpenShell,** through its Go SDK.
+- **Local subprocess** on loopback, for tests and development.
 
-The worker serves Connect over unencrypted HTTP/2 and runs each call detached from the connection,
-so a dropped connection never stops a call.
+The worker serves Connect over unencrypted HTTP/2 on `127.0.0.1` inside the sandbox, and runs each
+call detached from the connection.
 
 ### The OpenShell launcher uses the Go SDK
 
-The launcher talks to the gateway through
 [`github.com/ai-openshell/sdk-go`](https://github.com/ai-openshell/sdk-go), pinned to the gateway's
-version (`v0.1.7` today). The module moved there from `github.com/NVIDIA/OpenShell/sdk/go`, which is
-deprecated. It gives typed calls and errors, authenticates with the gateway's existing mTLS setup,
-and removes the `openshell` binary as a runtime dependency. The CLI is used only for what the SDK
-can't do, and the second spike finds out what that is.
+version (`v0.1.7` today). It lives in its own package, which only `durable-server` imports, so
+`durable chat` and the library don't link it. It adds `grpc`, `genproto` and a few `x/` modules; the
+worker binary links none of it.
 
-Its dependencies are small: `grpc`, `x/oauth2`, `coder/websocket` and `genproto`, beside `protobuf`,
-`x/sync` and `testify`, which durable already has. None needs cgo. It lives in its own package, which
-only `durable-server` imports, so `durable chat` and the library don't link it.
-
-How the connection reaches the worker depends on what the SDK offers:
-
-- **A port forward, if the SDK has one.** The worker listens on `127.0.0.1` inside the sandbox, as
-  in the first spike.
-- **Otherwise, exec with a relay.** The worker listens on a Unix socket. For each connection the
-  launcher runs `durable-worker connect` through the SDK's exec, which only relays stdin and stdout
-  to that socket, and Connect runs over the stream with yamux. A dropped stream kills only the relay.
-  This needs no host port, no port per session and no forward to recreate after `sandbox start`.
-
-The first spike used the CLI's forward. It works, but it's an `ssh -L` child process with no
-documented auth on its host port, it hangs a caller that pipes its output, and `sandbox start`
-doesn't restore it.
-
-The worker requires a bearer token on a host port, to keep other host processes off it. Over exec
-only the gateway's authenticated stream reaches the socket, so the token becomes optional. Either
-way it isn't a secret from the agent, which can read the worker's environment.
+- **Connection:** `TCP().Forward` returns a byte stream to a port inside the sandbox over the
+  gateway's authenticated gRPC connection. It is the `http.Transport`'s dial function. Its stream
+  context must not be the dial's context, which ends when the dial returns.
+- **Lifecycle:** `Sandboxes()` `Create`, `WaitReady`, `Stop`, `Start`, `WaitStopped`, `Delete`.
+- **Credentials:** `Providers()` creates a provider from a value.
+- **Client:** `gateway.NewClient` rejects a gateway in mTLS mode, which is the local default. The
+  launcher passes `WithAuth(v1.NoAuth())` and `WithTLS` with the gateway directory's `mtls/` files,
+  which skips that check. Raise it with OpenShell.
+- **Still the CLI:** importing a provider profile with L7 rules (`openshell profile import`), because
+  the SDK's profile endpoints can't carry them. The server needs the `openshell` binary for that one
+  step until the SDK can.
+- **Not used:** the SDK's file upload, which isn't implemented, and uploads through `exec`, which
+  allocate a terminal and needed four workarounds. The workspace arrives by `git clone` instead.
 
 ### OpenShell is the first sandbox
 
 It gives default-deny egress with rules per binary, credentials the agent only sees as placeholders,
-stop and start that keep the workspace, and a Go SDK, which the launcher uses. It's Apache-2.0 and alpha, and its telemetry
-is on by default: the server's setup turns it off with `OPENSHELL_TELEMETRY_ENABLED=false`.
+stop and start that keep the workspace, and a Go SDK. It's Apache-2.0 and alpha. Its anonymous
+telemetry is on by default and is a gateway setting, not something `durable-server` controls as a
+client: the setup docs tell you to set `OPENSHELL_TELEMETRY_ENABLED=false` on the gateway.
 
 Nothing in the worker API depends on OpenShell, so another sandbox only needs a launcher.
 
@@ -95,18 +104,19 @@ Nothing in the worker API depends on OpenShell, so another sandbox only needs a 
 The worker is untrusted. Whether a tool is read-only decides approval, and its replay decides
 whether it re-runs, so both come from the server's fixed table. The server also owns each tool's
 name, description and schema, because they go into the system prompt. `ListTools` only checks that
-the worker serves the tools the server expects, with matching schemas; a mismatch fails the session
-open. Unknown tools are ignored. This is the rule MCP server hints already follow.
+the worker serves the tools the server expects, in the same order with the same schemas; a mismatch
+fails the session open. Unknown tools are ignored. This is the rule MCP server hints already follow.
 
 ### Worker output is hostile input
 
-Results are capped and must be valid UTF-8, and a malformed response is an error result.
+Results and deltas are capped and must be valid UTF-8, and a malformed response is an error result.
 `PostToolUse` hooks run on the server, before the result is stored.
 
 ### Hooks get untrusted input
 
 Hooks still run on the host, as you. Their input now comes from a sandbox the agent controls, so a
-hook that runs its input, for example through `eval`, is a host escape. [Hooks](hooks.md) says so.
+hook that runs its input, for example through `eval`, is a host escape. Slice S adds this to
+[hooks](hooks.md).
 
 ### Worker API
 
@@ -120,10 +130,25 @@ hook that runs its input, for example through `eval`, is a host escape. [Hooks](
 | `Result(call_id)` | The result of a finished call, for recovery |
 | `Cancel(call_id)` | Stops a running call |
 
-- **A dropped connection doesn't stop a call.** The worker runs it detached, and the server recovers
-  the result with `Result`. User cancel and lease loss send `Cancel`.
+- **A dropped connection doesn't stop a call.** The server recovers the result with `Result`. User
+  cancel and lease loss send `Cancel`.
 - **`stream_output` is false when a `PostToolUse` hook matches.** The server decides before the
-  call, as `durable.WithoutToolOutput` does today, so live output never bypasses a hook.
+  call, so live output never bypasses a hook. The library exports `WithToolOutputSink` and
+  `ToolOutputEnabled` beside `WithoutToolOutput` for the worker and the adapter.
+- **A cancelled code is cancellation only when the server's own context has ended.** Connect sends a
+  request's deadline to the worker, which can answer `canceled` first; otherwise that's a tool error.
+
+### The worker token isn't secret from the agent
+
+The worker requires a bearer token. The agent can read it from the worker's environment, because
+`bash` runs as the same user: the sandbox has no capabilities and no-new-privileges, so `sudo`,
+`setpriv`, setuid binaries, `su`, `hidepid` and user namespaces all fail. A filesystem policy that
+hides `/proc` blocks the read, but also breaks `ps` and anything else that reads `/proc`, so it
+isn't the default.
+
+That's acceptable: the agent can already run the tools, the token only opens the worker, and the
+sandbox has no route to the server. The server stores the token in the session directory, mode
+`0600`, so a server restart can reach the session's sandbox again.
 
 ### Results don't survive a worker restart
 
@@ -133,52 +158,149 @@ Persisting results would add a store the agent can write to, for a case the harn
 
 ### One sandbox per session
 
-- **Create** with the session, from a pinned image.
+- **Create** with the session, from a pinned image, then clone the session's repo if it has one.
 - **Stop** when the server closes an idle session, which parks the sandbox through approval waits
-  and keeps its workspace. **Start** when the session opens again.
-- **Connect** when the session opens and after each `sandbox start`, and reconnect when a call finds
-  the connection gone. With a port forward, the port is a free loopback port chosen at open.
-- **Pin** the sandbox name and image digest in the session directory, next to `provider.json`.
+  and keeps its workspace. **Start** when the session opens again. Nothing deletes a sandbox
+  automatically; deleting a session deletes it.
+- **Connect** with a new dial on each open; there's no forward to recreate.
+- **Pin** the sandbox name, image digest and worker token in `sandbox.json` in the session
+  directory, next to `provider.json`.
+- **Fail clearly, without leaking detail.** The server logs the cause and returns a fixed message,
+  as it does for a misconfigured provider, because gateway errors can name providers or `op://`
+  references. A gateway that can't be reached or can't provision in time returns `UNAVAILABLE`,
+  which clients retry. A configuration problem, such as a missing image, provider or profile, returns
+  `FAILED_PRECONDITION`, which they don't. Neither is an internal error.
+
+### A sandboxed session's workspace is empty or a repo
+
+With tools in a sandbox, the host directory isn't where the agent works. A server started with
+`--sandbox-image` creates sessions with one of two workspaces. A server without the flag keeps
+directory sessions exactly as today, and so does `durable chat`. Uploading a local directory isn't
+offered.
+
+| | Empty (scratch) | Repo |
+|---|---|---|
+| Workspace | An empty `/sandbox` | A clone of a repo URL and branch, made at create |
+| Work comes back through | Tool results only | `git push` |
+| Needs a git host | No | Yes, through its [integration](#git-hosts-are-pluggable) |
+| Session key | The name and a random ID chosen at create | A hash of the canonical repo URL, the branch and the name |
+| `session.json` | `workspace: "empty"` | `workspace: "repo"`, `repo`, `branch` |
+| `ListSessions` shows | The name | `repo@branch` |
+
+- **Idempotent create.** A repo session's key comes from what names it, so the same repo, branch and
+  name return the same session. An empty session has nothing to name it by, so a retried create
+  makes a second session; the client sends a `request_id`, and the server returns the session it
+  already made for that ID.
+- **Both kinds persist.** Either workspace survives stop and start, and is lost only when the
+  session is deleted.
+- **UI:** when the server runs sandboxed, the new-session form offers an empty workspace or a repo;
+  otherwise it shows the directory field. `ListSessions` or a server-info call tells the UI which.
+
+### Git hosts are pluggable
+
+GitHub is the first git host integration, not a special case. Each integration implements one
+interface, which runs only on the server and produces data for the launcher:
+
+| Responsibility | GitHub |
+|---|---|
+| Parse and canonicalise a repo URL, including a self-hosted host | `github.com/<owner>/<name>` |
+| Check a token at startup, and report its type and scope | `GET /user`, and the `X-OAuth-Scopes` header |
+| The OpenShell profile, with request rules scoped to one repo | git smart-HTTP paths for that repo |
+| Egress policy entries, per binary | `github.com:443` for `git` |
+| Git configuration inside the sandbox | A credential helper with user `x-access-token` |
+
+GitLab, Bitbucket, Gitea or Forgejo, and self-hosted GitHub Enterprise or GitLab each add one
+implementation. Whatever the host, the sandbox only sees placeholders.
+
+- **Configuration:** a repeatable `serve --git-host-token <host>=<source>`, where the source is a
+  1Password reference (`op://<vault>/<item>/<field>`) or a host's own CLI (`gh` for GitHub), or one
+  environment variable per host, such as `DURABLE_GITHUB_TOKEN`. A self-hosted instance also names its
+  address, for example `--git-host github-enterprise=ghe.example.com`. There's no plain token flag,
+  which would put the token in the process list, and a dedicated variable keeps the server from
+  picking up a broad `GITHUB_TOKEN` or `GH_TOKEN` from the shell. `internal/creds` names the
+  `--api-token` flags in its errors and reads no environment variable, so it's generalised to take the
+  flag and variable names first.
+- **Optional:** with no token for a host, repo sessions there can clone public repos but not push.
+  Empty sessions need no git host at all.
+- **One provider per host, a profile per session.** The server keeps a single OpenShell provider for
+  each host's token, so the gateway holds one copy. Each repo session gets its own profile and policy,
+  named from the session ID, that narrow the provider to the session's repo, for `git` only.
+- **Two layers of scope.** The token is the ceiling: its repos and permissions, chosen when it's
+  created. No session's policy can exceed it.
+- **Rotation:** the server reads each token from its source at startup and again on each sandbox
+  create or start, and updates the provider's credential in place whenever the value changes, so a
+  rotated token takes effect without a restart. Whether a running sandbox picks up the update before its next start is
+  untested. After a token expires, pushes fail until it's rotated.
+- **Cleanup:** deleting a session deletes its sandbox, then its profile. The gateway refuses to
+  delete a profile while its sandbox still exists, so the server waits for the sandbox to go first.
+
+#### GitHub
+
+- **Any token kind.** The integration accepts fine-grained (`github_pat_`), classic (`ghp_`) and
+  OAuth (`gho_`) tokens. At startup it checks the token with GitHub, so a misconfigured server fails
+  before a session does, and logs the token's type and granted scopes.
+- **From the `gh` CLI:** `--git-host-token github=gh` runs `gh auth token`, with `--hostname` for
+  GitHub Enterprise, and never logs the value. It's the quickest start, and `gh` keeps the token
+  fresh.
+- **Recommended: a fine-grained token** with contents read and write, and pull requests if wanted, on
+  the repos durable should reach. A `gh` or classic token usually reaches every repo you can, so a
+  missing or wrong per-session policy, or a leak from the server or gateway, exposes all of them. The
+  per-session policy still limits each sandbox to its repo whichever kind you use. Fine-grained
+  tokens expire, a year at most.
+- **Later:** a GitHub App with short-lived installation tokens per repo, when durable is hosted.
+
+#### What each integration needs from OpenShell
+
+The gateway has no built-in profiles, so durable ships a profile template for each git host and
+imports it per session. Two gaps make that harder than it should be, and are worth raising with
+OpenShell:
+
+- **Profile import with request (L7) rules isn't in the Go SDK,** so the server shells out to
+  `openshell profile import` for it.
+- **`gateway.NewClient` rejects mTLS gateways,** which is the local default, so the launcher works
+  around it.
 
 ### Instructions and skills come from the workspace
 
-The project `AGENTS.md` and project skills live in the workspace, so the worker reads them once when
-the session is created, and the server pins them as it does today. `~/.durable/AGENTS.md` and user
-skills stay on the server. Reading through the worker keeps the existing rules: symlinks that leave
-the repository are refused, and the content is untrusted.
+The project `AGENTS.md` and project skills live in the cloned repo, so the worker reads them once
+when the session is created, and the server pins them as it does today. An empty workspace has
+none. `~/.durable/AGENTS.md` and user skills stay on the server. Reading through the worker keeps
+the existing rules: symlinks that leave the repository are refused, and the content is untrusted.
+The spikes still read them from the host.
 
 ### MCP servers run in the sandbox
 
 stdio MCP servers start inside the sandbox, beside the worker, and their credentials come from
-OpenShell providers. The tool list stays pinned per session. This follows the second spike.
+OpenShell providers. The tool list stays pinned per session. Not yet spiked.
 
-## The second spike
+## Slices
 
-These need evidence before the slices are planned. The spike extends `spike/openshell-worker`.
+Each slice is one PR. The spike branches are reference, not a base.
 
-1. **The workspace end to end.** `git clone` inside the sandbox, with egress allowed to GitHub only
-   and the token from an OpenShell GitHub provider, so the agent sees a placeholder. Edits come back
-   through `git push`. This also decides what the UI's directory picker becomes: a repo, not a path.
-2. **Tools as a different user.** The agent has no Linux capabilities, so the worker can't switch
-   user itself. Find out whether OpenShell or the image can run `bash` as another user, so the agent
-   can't read the worker's environment. If not, record that the token isn't secret from the agent.
-3. **A gateway restart.** What happens to running sandboxes, forwards and workers.
-4. **End to end in the server.** `durable-server` with a spike flag that uses the remote tools,
-   driven from the browser against a real model: create a session, approve a `bash` call and watch
-   its output stream from the sandbox.
-5. **Streaming and cancel.** `Execute` as a server stream with output deltas, and `Cancel` stopping
-   a running `bash`, both over the launcher's connection.
-6. **The SDK launcher.** Read `ai-openshell/sdk-go` and confirm what it covers: create, delete,
-   upload, status, exec with streaming stdin, and port forwarding. Build the launcher on it, with a
-   port forward if the SDK has one and the exec relay otherwise. Compare it with the first spike's
-   CLI forward on latency, stdin limits (the CLI documents 4 MiB for piped input), recovery after a
-   dropped connection, and the dependencies it adds. Record anything that still needs the CLI.
+| Slice | Scope | Depends on |
+|---|---|---|
+| **W. Worker** | `worker.proto`, `internal/worker`, `cmd/durable-worker`, the remote `Tool` adapter with the fixed table, and the local subprocess launcher. The exported delta helpers. Tests run without OpenShell: deltas, cancel, recovery, and a worker that lies about metadata | |
+| **L. OpenShell launcher** | The SDK client with the mTLS workaround, the lifecycle, the TCP dial, and the worker image build. Tests against a gateway are skipped without one | W |
+| **S. Server wiring** | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the `UNAVAILABLE` and `FAILED_PRECONDITION` errors, `durable-server sandbox-delete`, and the hooks note. Real-binary tests for the flag: approval, a call in the sandbox, stop on idle and start on reopen | L |
+| **E. Empty sessions** | Sandboxed sessions with an empty workspace: their key, `session.json` fields, create by `request_id`, and the UI's choice of workspace. The first sandboxed agent you can use, with no git host. Real-binary tests: a retried create returns the same session, and directory sessions unchanged | S |
+| **G. Git hosts and GitHub** | The git host interface, the token flags and environment variables, one provider per host, per-session profile and policy, cleanup, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
+| **R. Repo sessions** | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
+| **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation and profile template | G |
+| **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
+| **M. MCP** | stdio MCP servers inside the sandbox | S |
 
 ## Open questions
 
-- **Before the slices:** how does a session name its workspace: a repo URL and branch, or an upload
-  of a local directory?
-- **Before the slices:** who builds the worker image, and how does a session choose one: a single
-  image, or one per repository with its toolchain?
+- **Before G:** should `git push` go through durable's approval flow? Today the policy allows it
+  without a prompt.
+- **Before G:** will OpenShell add profile import with request rules to the Go SDK, and mTLS support
+  to `gateway.NewClient`? Until then the server needs the `openshell` binary for profiles.
+- **Before L:** who builds the worker image, and how is it pinned and published: one image, or one
+  per repository with its toolchain? [Issue #9](https://github.com/wolfeidau/durable/issues/9)
+  rejected containers for local use because an image has to match the project's toolchain, and that
+  cost now applies here.
+- **Before S:** what does a gateway restart do to running sandboxes and their workers? The spikes
+  didn't test it.
 - **Later:** one sandbox per session, or one per repository shared across sessions?
-- **Later:** a per-session egress policy, and how a person approves a new rule.
+- **Later:** a per-session egress policy beyond GitHub, and how a person approves a new rule.
+- **Later:** a cancelled call's result takes about 2 s to be stored. Find out why before it matters.
