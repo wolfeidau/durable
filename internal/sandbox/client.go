@@ -22,6 +22,8 @@ const (
 	cancelTimeout = 3 * time.Second
 	recoverWait   = 5 * time.Second
 	recoverEvery  = 100 * time.Millisecond
+	// maxMessageBytes bounds one message from the worker, which is untrusted; results and deltas are far smaller.
+	maxMessageBytes = 4 << 20
 )
 
 // Client talks to one worker.
@@ -66,7 +68,7 @@ func NewClient(baseURL, token string, hc *http.Client) *Client {
 		hc = h2cClient(nil)
 	}
 	return &Client{
-		rpc:          workerv1connect.NewToolServiceClient(hc, baseURL, connect.WithInterceptors(tokenAuth{token})),
+		rpc:          workerv1connect.NewToolServiceClient(hc, baseURL, connect.WithInterceptors(tokenAuth{token}), connect.WithReadMaxBytes(maxMessageBytes)),
 		http:         hc,
 		recoverWait:  recoverWait,
 		recoverEvery: recoverEvery,

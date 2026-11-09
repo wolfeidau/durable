@@ -19,11 +19,17 @@ import (
 // MaxOutputBytes is the cap on a tool result, shared with remote tools so local and remote output match.
 const MaxOutputBytes = 30 * 1024
 
+// MaxLiveOutputBytes caps a call's live output, shared with remote tools so a worker can't stream without limit.
+const MaxLiveOutputBytes = 1 << 20
+
+// LiveCapMarker is emitted once when live output reaches MaxLiveOutputBytes.
+const LiveCapMarker = "\n... [live output stopped; the final result is complete] ...\n"
+
 const (
 	defaultTimeoutSeconds = 120
 	maxTimeoutSeconds     = 600
 	maxOutputBytes        = MaxOutputBytes
-	maxLiveOutputBytes    = 1 << 20
+	maxLiveOutputBytes    = MaxLiveOutputBytes
 	waitDelay             = 2 * time.Second
 )
 
@@ -181,7 +187,7 @@ func (w *boundedWriter) String() string {
 	return fmt.Sprintf("%s\n... [%d bytes omitted] ...\n%s", w.head, omitted, tail)
 }
 
-const liveCapMarker = "\n... [live output stopped; the final result is complete] ...\n"
+const liveCapMarker = LiveCapMarker
 
 // liveWriter forwards writes to dst unchanged and emits the same bytes as valid UTF-8 text.
 type liveWriter struct {

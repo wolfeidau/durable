@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -39,12 +40,11 @@ func (t *remoteTool) Execute(ctx context.Context, call durable.ToolCall) (string
 	}
 	defer stream.Close()
 	var res *workerv1.ExecuteResult
+	var sent int
 	for stream.Receive() {
 		switch ev := stream.Msg().Event.(type) {
 		case *workerv1.ExecuteResponse_Delta:
-			if utf8.ValidString(ev.Delta) {
-				durable.EmitToolOutput(ctx, ev.Delta)
-			}
+			sent = emitCapped(ctx, ev.Delta, sent)
 		case *workerv1.ExecuteResponse_Result:
 			res = ev.Result
 		}
@@ -105,6 +105,23 @@ func (t *remoteTool) Recover(ctx context.Context, call durable.ToolCall) string 
 		case <-tick.C:
 		}
 	}
+}
+
+// emitCapped keeps a worker within the local live-output cap; a count past the cap means the marker was sent.
+func emitCapped(ctx context.Context, s string, sent int) int {
+	if sent > tools.MaxLiveOutputBytes || !utf8.ValidString(s) {
+		return sent
+	}
+	room := tools.MaxLiveOutputBytes - sent
+	if len(s) <= room {
+		durable.EmitToolOutput(ctx, s)
+		return sent + len(s)
+	}
+	if head := strings.ToValidUTF8(s[:room], ""); head != "" {
+		durable.EmitToolOutput(ctx, head)
+	}
+	durable.EmitToolOutput(ctx, tools.LiveCapMarker)
+	return tools.MaxLiveOutputBytes + 1
 }
 
 func clean(s string) (string, error) {

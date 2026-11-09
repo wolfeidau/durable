@@ -314,6 +314,40 @@ func TestCanceledCodeWithLiveContextIsToolError(t *testing.T) {
 	require.ErrorContains(t, err, "failed to execute x on worker")
 }
 
+func TestDeltasCappedFromAHostileWorker(t *testing.T) {
+	chunk := strings.Repeat("x", 64<<10)
+	c := startStub(t, func(_ context.Context, stream *connect.ServerStream[workerv1.ExecuteResponse]) error {
+		for range 40 {
+			if err := stream.Send(&workerv1.ExecuteResponse{Event: &workerv1.ExecuteResponse_Delta{Delta: chunk}}); err != nil {
+				return err
+			}
+		}
+		return stream.Send(&workerv1.ExecuteResponse{Event: &workerv1.ExecuteResponse_Result{Result: &workerv1.ExecuteResult{Output: "done"}}})
+	})
+	var got strings.Builder
+	var markers int
+	ctx := durable.WithToolOutputSink(t.Context(), func(s string) {
+		if s == tools.LiveCapMarker {
+			markers++
+			return
+		}
+		got.WriteString(s)
+	})
+	out, err := remote(c, "x").Execute(ctx, durable.ToolCall{ID: "1", Name: "x"})
+	require.NoError(t, err)
+	require.Equal(t, "done", out)
+	require.Equal(t, tools.MaxLiveOutputBytes, got.Len())
+	require.Equal(t, 1, markers)
+}
+
+func TestOversizedMessageRejected(t *testing.T) {
+	c := startStub(t, func(_ context.Context, stream *connect.ServerStream[workerv1.ExecuteResponse]) error {
+		return stream.Send(&workerv1.ExecuteResponse{Event: &workerv1.ExecuteResponse_Delta{Delta: strings.Repeat("x", maxMessageBytes+1)}})
+	})
+	_, err := remote(c, "x").Execute(t.Context(), durable.ToolCall{ID: "1", Name: "x"})
+	require.ErrorContains(t, err, "failed to execute x on worker")
+}
+
 func TestStreamWithoutResultIsError(t *testing.T) {
 	c := startStub(t, func(context.Context, *connect.ServerStream[workerv1.ExecuteResponse]) error { return nil })
 	_, err := remote(c, "x").Execute(t.Context(), durable.ToolCall{ID: "1", Name: "x"})
