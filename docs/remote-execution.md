@@ -204,7 +204,7 @@ interface, which runs only on the server and produces data for the launcher:
 | Responsibility | GitHub |
 |---|---|
 | Parse and canonicalise a repo URL, including a self-hosted host | `github.com/<owner>/<name>` |
-| Accept and check a token: which kinds are allowed, and a startup check | `github_pat_` only; `GET /user` |
+| Check a token at startup, and report its type and scope | `GET /user`, and the `X-OAuth-Scopes` header |
 | The OpenShell profile, with request rules scoped to one repo | git smart-HTTP paths for that repo |
 | Egress policy entries, per binary | `github.com:443` for `git` |
 | Git configuration inside the sandbox | A credential helper with user `x-access-token` |
@@ -212,7 +212,8 @@ interface, which runs only on the server and produces data for the launcher:
 GitLab, Bitbucket, Gitea or Forgejo, and self-hosted GitHub Enterprise or GitLab each add one
 implementation. Whatever the host, the sandbox only sees placeholders.
 
-- **Configuration:** a repeatable `serve --git-host-token <host>=op://<vault>/<item>/<field>`, or one
+- **Configuration:** a repeatable `serve --git-host-token <host>=<source>`, where the source is a
+  1Password reference (`op://<vault>/<item>/<field>`) or a host's own CLI (`gh` for GitHub), or one
   environment variable per host, such as `DURABLE_GITHUB_TOKEN`. A self-hosted instance also names its
   address, for example `--git-host github-enterprise=ghe.example.com`. There's no plain token flag,
   which would put the token in the process list, and a dedicated variable keeps the server from
@@ -226,20 +227,26 @@ implementation. Whatever the host, the sandbox only sees placeholders.
   named from the session ID, that narrow the provider to the session's repo, for `git` only.
 - **Two layers of scope.** The token is the ceiling: its repos and permissions, chosen when it's
   created. No session's policy can exceed it.
-- **Rotation:** the server reads each token at startup and again on each sandbox create or start, and
-  updates the provider's credential in place whenever the value changes, so a rotated token takes
-  effect without a restart. Whether a running sandbox picks up the update before its next start is
+- **Rotation:** the server reads each token from its source at startup and again on each sandbox
+  create or start, and updates the provider's credential in place whenever the value changes, so a
+  rotated token takes effect without a restart. Whether a running sandbox picks up the update before its next start is
   untested. After a token expires, pushes fail until it's rotated.
 - **Cleanup:** deleting a session deletes its sandbox, then its profile. The gateway refuses to
   delete a profile while its sandbox still exists, so the server waits for the sandbox to go first.
 
 #### GitHub
 
-- **Fine-grained tokens only.** The integration accepts only a `github_pat_` token and refuses every
-  other kind, including classic (`ghp_`) and OAuth (`gho_`, which `gh auth token` returns) tokens.
-  At startup it checks the token with GitHub, so a misconfigured server fails before a session does.
-- **Scope:** contents read and write, and pull requests if wanted, on the repos the token names.
-  Fine-grained tokens expire, a year at most.
+- **Any token kind.** The integration accepts fine-grained (`github_pat_`), classic (`ghp_`) and
+  OAuth (`gho_`) tokens. At startup it checks the token with GitHub, so a misconfigured server fails
+  before a session does, and logs the token's type and granted scopes.
+- **From the `gh` CLI:** `--git-host-token github=gh` runs `gh auth token`, with `--hostname` for
+  GitHub Enterprise, and never logs the value. It's the quickest start, and `gh` keeps the token
+  fresh.
+- **Recommended: a fine-grained token** with contents read and write, and pull requests if wanted, on
+  the repos durable should reach. A `gh` or classic token usually reaches every repo you can, so a
+  missing or wrong per-session policy, or a leak from the server or gateway, exposes all of them. The
+  per-session policy still limits each sandbox to its repo whichever kind you use. Fine-grained
+  tokens expire, a year at most.
 - **Later:** a GitHub App with short-lived installation tokens per repo, when durable is hosted.
 
 #### What each integration needs from OpenShell
@@ -276,7 +283,7 @@ Each slice is one PR. The spike branches are reference, not a base.
 | **L. OpenShell launcher** | The SDK client with the mTLS workaround, the lifecycle, the TCP dial, and the worker image build. Tests against a gateway are skipped without one | W |
 | **S. Server wiring** | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the `UNAVAILABLE` and `FAILED_PRECONDITION` errors, `durable-server sandbox-delete`, and the hooks note. Real-binary tests for the flag: approval, a call in the sandbox, stop on idle and start on reopen | L |
 | **E. Empty sessions** | Sandboxed sessions with an empty workspace: their key, `session.json` fields, create by `request_id`, and the UI's choice of workspace. The first sandboxed agent you can use, with no git host. Real-binary tests: a retried create returns the same session, and directory sessions unchanged | S |
-| **G. Git hosts and GitHub** | The git host interface, the token flags and environment variables, one provider per host, per-session profile and policy, cleanup, and GitHub as the first integration. Real-binary tests for both token sources, and that classic and OAuth GitHub tokens are refused | S |
+| **G. Git hosts and GitHub** | The git host interface, the token flags and environment variables, one provider per host, per-session profile and policy, cleanup, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
 | **R. Repo sessions** | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
 | **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation and profile template | G |
 | **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
