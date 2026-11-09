@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package durable.worker.v1;
+
+option go_package = "github.com/wolfeidau/durable/api/durable/worker/v1;workerv1";
+
+// ToolService runs tools inside a sandbox. The server connects in; the sandbox never dials out.
+service ToolService {
+  rpc Info(InfoRequest) returns (InfoResponse);
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+  // Execute is idempotent per call_id: a known id returns the stored result.
+  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  rpc Result(ResultRequest) returns (ResultResponse);
+}
+
+message InfoRequest {}
+
+message InfoResponse {
+  string hostname = 1;
+  int64 uid = 2;
+  string cwd = 3;
+  string root = 4;
+  map<string, string> env = 5;
+}
+
+message ListToolsRequest {}
+
+message ToolInfo {
+  string name = 1;
+  string description = 2;
+  bytes input_schema = 3;
+  // read_only and replay are the worker's claims and are informational only.
+  bool read_only = 4;
+  string replay = 5;
+}
+
+message ListToolsResponse {
+  repeated ToolInfo tools = 1;
+}
+
+message ExecuteRequest {
+  string call_id = 1;
+  string name = 2;
+  bytes input = 3;
+}
+
+message ExecuteResponse {
+  string output = 1;
+  bool is_error = 2;
+}
+
+message ResultRequest {
+  string call_id = 1;
+}
+
+message ResultResponse {
+  bool found = 1;
+  string output = 2;
+  bool is_error = 3;
+}
