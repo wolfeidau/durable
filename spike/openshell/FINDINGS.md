@@ -192,3 +192,50 @@ the CLI only to confirm. Gitignore-aware upload is CLI-only.
 5. Gateway-relayed streams share the gateway's availability: a gateway restart drops every session's connection.
    Untested.
 6. Deltas are dropped when the worker's 1024-entry buffer fills (best-effort by design).
+
+## Spike 2a: workspace through git
+
+**Status: partial.** `go run ./spike/openshell/workspace` and `-users` are written, but the container runtime
+(OrbStack) stopped answering `docker` calls partway through, so the clone, push, placeholder evidence and
+tool-user probes never completed. Sandbox creation also began failing ("is in error state") around the same time.
+Re-run both modes once the runtime is healthy. Nothing below is claimed beyond what was observed.
+
+### Observed
+
+- **Provider mechanism.** The SDK creates the provider from a value: `Providers().Create` with
+  `Spec.Credentials{"GITHUB_TOKEN": <value>}`. The CLI equivalent is `--credential GITHUB_TOKEN` (reads the env
+  var) or `--from-existing`. The runner reads `gh auth token` into memory and sends it only to the gateway.
+- **Profile needs the CLI.** The gateway has no built-in profiles; a provider's `--type` must name an imported
+  profile. The SDK's `ProviderProfile` endpoints have only host, port and protocol, so they can't carry L7 rules,
+  and the gateway rejects both an L7 endpoint without rules and an L4 credentialed endpoint
+  (`credentialed endpoint 'github.com:443' uses L4-only`). The runner therefore imports a profile file with
+  `openshell profile import -f` (workspace scope), with `github.com:443` rules limited to the scratch repo's
+  `info/refs`, `git-upload-pack` and `git-receive-pack`, and binaries `/usr/bin/git` and
+  `/usr/lib/git-core/git-remote-https`.
+- **Attach and policy at create.** `SandboxSpec.Providers` and `SandboxSpec.Policy` work. The runner also passes
+  the tutorial's repository-scoped `network_policies` entry. The agent's environment held only
+  `GITHUB_TOKEN=openshell:resolve:env:<handle>_GITHUB_TOKEN`; `GH_TOKEN` was not set. Proxy-related CA
+  variables (`GIT_SSL_CAINFO`, `SSL_CERT_FILE`) point at the supervisor CA, and github.com resolves to a
+  proxy-local address with a certificate issued by "OpenShell Sandbox CA".
+- **Policy decisions.** `git clone` was allowed at L4 and L7
+  (`ALLOWED GET https://github.com/<repo>.git/info/refs [policy:_provider_<name> engine:l7]`).
+- **Auth form.** Sending `Authorization: Bearer $GITHUB_TOKEN` through `http.extraHeader` got a `401` from GitHub
+  (git smart HTTP wants Basic). The docs say the proxy decodes and re-encodes Basic auth, so the runner uses a
+  credential helper with username `x-access-token` and password `$GITHUB_TOKEN`. Not yet confirmed to work.
+- **Cleanup ordering.** Sandbox deletion is asynchronous, so deleting the provider right after fails with
+  `Conflict: provider ... is attached to sandbox(es)`, and the profile with `... in use by providers`. The runner
+  retries both.
+
+### Not yet verified
+
+Clone and push result and SHAs, the host check, env placeholder evidence (the runner compares by sha256 and never
+prints the token), the `example.com` and `api.github.com` denials, and the tool-user probes (`sudo`, `setpriv`,
+a setuid copy of `env`, `su`, `hidepid` remount, user namespaces, and a Landlock policy that omits `/proc`, using
+`spike/openshell/Dockerfile.users`).
+
+### Open questions
+
+1. How a session names its repo and branch, and who writes the per-session policy and profile.
+2. Token scope: a fine-grained PAT per repository, or a GitHub App installation token, and rotation.
+3. Pushes are allowed by policy without an approval. Should `git-receive-pack` be gated by the approval flow?
+4. Profile import needs the CLI today; is the SDK gap (no L7 rules on profile endpoints) intended?

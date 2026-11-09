@@ -47,7 +47,12 @@ func run(ctx context.Context, env []string, name string, args ...string) (string
 
 // BuildImage builds the worker image from the repository root.
 func BuildImage(ctx context.Context) error {
-	_, err := run(ctx, nil, "docker", "build", "-t", Image, "-f", "spike/openshell/Dockerfile", ".")
+	return BuildImageFile(ctx, Image, "spike/openshell/Dockerfile")
+}
+
+// BuildImageFile builds dockerfile from the repository root as tag.
+func BuildImageFile(ctx context.Context, tag, dockerfile string) error {
+	_, err := run(ctx, nil, "docker", "build", "-t", tag, "-f", dockerfile, ".")
 	return err
 }
 
@@ -144,4 +149,11 @@ func (c *Client) WaitReady(ctx context.Context, timeout time.Duration) error {
 		}
 	}
 	return errors.Join(errors.New("worker not ready before deadline"), last)
+}
+
+// ImportProfile registers a provider profile file in the workspace through the CLI, because the SDK's profile
+// endpoints can't carry L7 rules and the gateway rejects a credentialed endpoint without them.
+func ImportProfile(ctx context.Context, file string) error {
+	_, err := run(ctx, nil, "openshell", "profile", "import", "-f", file)
+	return err
 }

@@ -1,0 +1,24 @@
+FROM golang:1.27.3-trixie AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=1 go build -o /out/durable-worker ./cmd/durable-worker
+
+# The main image plus the tools a different tool uid would need: sudo, a setuid copy of env, and a second user.
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y --no-install-recommends bash git ca-certificates curl sudo util-linux \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/durable-worker /usr/local/bin/durable-worker
+
+RUN groupadd --gid 1500 app \
+    && useradd --uid 1500 --gid app --create-home app \
+    && useradd --uid 1501 --user-group tool \
+    && install -d -o app -g app /sandbox \
+    && echo 'app ALL=(tool) NOPASSWD: ALL' > /etc/sudoers.d/app \
+    && cp /usr/bin/env /usr/local/bin/suid-env \
+    && chown root:root /usr/local/bin/suid-env \
+    && chmod 4755 /usr/local/bin/suid-env
+WORKDIR /sandbox
+USER app
+CMD ["/usr/local/bin/durable-worker"]

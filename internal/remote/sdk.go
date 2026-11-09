@@ -81,20 +81,62 @@ func (l *SDKLauncher) Sandboxes(ctx context.Context) ([]string, error) {
 	return names, nil
 }
 
+// CreateOptions are the optional sandbox settings beyond the worker itself.
+type CreateOptions struct {
+	Providers []string
+	Policy    *types.SandboxPolicy
+}
+
 // Create starts a sandbox running the worker and waits until the sandbox is ready. The token is passed in the
 // sandbox environment only.
 func (l *SDKLauncher) Create(ctx context.Context, name, image, token string, workerArgs []string) error {
+	return l.CreateWith(ctx, name, image, token, workerArgs, CreateOptions{})
+}
+
+// CreateWith is Create with providers and a policy attached.
+func (l *SDKLauncher) CreateWith(ctx context.Context, name, image, token string, workerArgs []string, opts CreateOptions) error {
 	cmd := append([]string{WorkerBinary, "--addr", "127.0.0.1:" + strconv.Itoa(WorkerPort), "--root", SandboxRoot}, workerArgs...)
 	spec := &v1.SandboxSpec{
 		Environment: map[string]string{"DURABLE_WORKER_TOKEN": token},
 		Template:    &v1.SandboxTemplate{Image: image},
 		Command:     cmd,
+		Providers:   opts.Providers,
+		Policy:      opts.Policy,
 	}
 	if _, err := l.c.Sandboxes().Create(ctx, Workspace, name, spec); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
 	if _, err := l.c.Sandboxes().WaitReady(ctx, Workspace, name); err != nil {
 		return fmt.Errorf("failed to wait for sandbox: %w", err)
+	}
+	return nil
+}
+
+// DeleteProfile removes a workspace profile; a missing profile is not an error.
+func (l *SDKLauncher) DeleteProfile(ctx context.Context, id string) error {
+	if _, err := l.c.Providers().Profiles().Delete(ctx, Workspace, id, v1.DeleteOptions{AllowMissing: true}); err != nil {
+		return fmt.Errorf("failed to delete profile: %w", err)
+	}
+	return nil
+}
+
+// CreateProvider registers a provider whose credential values stay in the gateway. A leftover provider with the
+// same name is replaced.
+func (l *SDKLauncher) CreateProvider(ctx context.Context, name, typ string, creds map[string]string) error {
+	if err := l.DeleteProvider(ctx, name); err != nil {
+		return err
+	}
+	p := &v1.Provider{Name: name, Type: typ, Spec: types.ProviderSpec{Credentials: creds, ProfileWorkspace: Workspace}}
+	if _, err := l.c.Providers().Create(ctx, Workspace, p); err != nil {
+		return fmt.Errorf("failed to create provider: %w", err)
+	}
+	return nil
+}
+
+// DeleteProvider removes a provider; a missing provider is not an error.
+func (l *SDKLauncher) DeleteProvider(ctx context.Context, name string) error {
+	if _, err := l.c.Providers().Delete(ctx, Workspace, name, v1.DeleteOptions{AllowMissing: true}); err != nil {
+		return fmt.Errorf("failed to delete provider: %w", err)
 	}
 	return nil
 }
