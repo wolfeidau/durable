@@ -195,10 +195,9 @@ the CLI only to confirm. Gitignore-aware upload is CLI-only.
 
 ## Spike 2a: workspace through git
 
-**Status: partial.** `go run ./spike/openshell/workspace` and `-users` are written, but the container runtime
-(OrbStack) stopped answering `docker` calls partway through, so the clone, push, placeholder evidence and
-tool-user probes never completed. Sandbox creation also began failing ("is in error state") around the same time.
-Re-run both modes once the runtime is healthy. Nothing below is claimed beyond what was observed.
+`go run ./spike/openshell/workspace` passes end to end, and `-users` runs the tool-user probes. Both clean up
+their sandboxes, and the first also removes the provider and profile. An earlier attempt was blocked by a wedged
+container runtime.
 
 ### Observed
 
@@ -221,17 +220,59 @@ Re-run both modes once the runtime is healthy. Nothing below is claimed beyond w
   (`ALLOWED GET https://github.com/<repo>.git/info/refs [policy:_provider_<name> engine:l7]`).
 - **Auth form.** Sending `Authorization: Bearer $GITHUB_TOKEN` through `http.extraHeader` got a `401` from GitHub
   (git smart HTTP wants Basic). The docs say the proxy decodes and re-encodes Basic auth, so the runner uses a
-  credential helper with username `x-access-token` and password `$GITHUB_TOKEN`. Not yet confirmed to work.
+  credential helper with username `x-access-token` and password `$GITHUB_TOKEN`. That works for clone and push.
 - **Cleanup ordering.** Sandbox deletion is asynchronous, so deleting the provider right after fails with
   `Conflict: provider ... is attached to sandbox(es)`, and the profile with `... in use by providers`. The runner
   retries both.
 
-### Not yet verified
+### Policy used
 
-Clone and push result and SHAs, the host check, env placeholder evidence (the runner compares by sha256 and never
-prints the token), the `example.com` and `api.github.com` denials, and the tool-user probes (`sudo`, `setpriv`,
-a setuid copy of `env`, `su`, `hidepid` remount, user namespaces, and a Landlock policy that omits `/proc`, using
-`spike/openshell/Dockerfile.users`).
+The profile (imported with the CLI) has the single endpoint `github.com:443`, protocol `rest`, enforce, with
+allow rules `GET /wolfeidau/durable-sandbox-scratch.git/info/refs*`, `POST .../git-upload-pack` and
+`POST .../git-receive-pack`, and binaries `/usr/bin/git` and `/usr/lib/git-core/git-remote-https`. The sandbox
+policy passed at create repeats the same endpoint and rules as `network_policies.github_repository_push`, with the
+same two binaries, and sets no filesystem, Landlock or process section (the defaults apply). The credential has
+`env_vars: [GITHUB_TOKEN, GH_TOKEN]`, `auth_style: bearer`, `header_name: authorization`.
+
+### Result: clone, edit, push
+
+Through the remote tools only: `git config`, `git clone` (private repo), `read_file`, `edit_file` (appends a
+timestamped line to `README.md`), `git commit` and `git push origin HEAD:spike/sandbox-push`. The sandbox's
+`git rev-parse HEAD` was `55004239c7a4b0c63b7a8e838368c6bc9d889c55`, and
+`gh api repos/wolfeidau/durable-sandbox-scratch/branches/spike/sandbox-push --jq .commit.sha` on the host returned
+the same SHA. The proxy log shows `ALLOWED GET .../info/refs`, `POST .../git-upload-pack` and
+`POST .../git-receive-pack` under `policy:_provider_durable_gh_spike engine:l7`.
+
+### Placeholder evidence and egress
+
+- `env | grep -i -E 'gh|github|token'` in the agent printed `GITHUB_TOKEN` (an `openshell:resolve:env:...`
+  placeholder, not equal to the real token by sha256 comparison) and `DURABLE_WORKER_TOKEN` (the random worker
+  token). The real token appeared nowhere in the output.
+- `curl https://example.com` and `curl https://api.github.com/user` both fail with exit 7 in about 1 ms. The log
+  shows `DENIED example.com [reason:policy_dns_ineligible]` and
+  `DENIED /usr/bin/curl -> api.github.com:443 [reason:transparent_tcp_policy_denied]`.
+- `git ls-remote` on a different repo (`wolfeidau/durable`) returned a 403 from the proxy: the rules cover one repo.
+
+### Tool users (`-users`, `Dockerfile.users`)
+
+The agent is uid 1500 with `CapEff=0`, `CapBnd=0`, `NoNewPrivs=1` and `Seccomp=2`.
+
+| Attempt | Result |
+|---|---|
+| Read `/proc/$PPID/environ` (worker) | Works: `DURABLE_WORKER_TOKEN` present |
+| `sudo -n -u tool id` | `sudo: The "no new privileges" flag is set, which prevents sudo from running as root.` |
+| `setpriv --reuid=1501 ...` | `setpriv: activate capabilities: Operation not permitted` |
+| setuid-root copy of `env` | Runs as uid 1500: the setuid bit is ignored under no-new-privs |
+| `su tool -c id` | `su: System error` |
+| `mount -o remount,hidepid=2 /proc` | `mount: /proc: must be superuser to use mount.` (`/proc` is `rw,nosuid,nodev,noexec`) |
+| `unshare -U -r id` | `Operation not permitted` |
+| Policy `filesystem` without `/proc` (Landlock) | **Works.** `ls /proc` and `cat /proc/$PPID/environ` give `Permission denied`, and the worker and the tools still run |
+
+So a different uid isn't possible inside the sandbox (no capabilities, no-new-privs). A policy filesystem section
+that omits `/proc` stops the agent reading the worker's environment, but also stops it reading `/proc/self`
+(no `ps`, no `/dev/fd` process substitution). It isn't a different identity, and the worker could be reached
+by other means (same uid). The probe policy used read-only `/usr /lib /etc /bin /sbin /run/openshell-supervisor-ca`
+and read-write `/sandbox /tmp /dev`; Landlock `best_effort`.
 
 ### Open questions
 
