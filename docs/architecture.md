@@ -1,8 +1,10 @@
 # Server architecture
 
-**Status: phase 3 in progress.** Durable approvals, phase 1 and every phase 2 slice are built. In
-phase 3 the stable token (#69), the streaming hook (#70), the API slice (#78, #79) and the session
-view (#80) are built. The browser tests (slice K) are deferred while the UI is in use.
+**Status: phase 3's first cut is built, and this document is closed for UI work.** Durable approvals,
+phase 1, every phase 2 slice, and phase 3's stable token (#69), streaming hook (#70), API slice (#78,
+#79) and session view (#80) are built. What's left of phase 3, slice K and release binaries, moves
+to the [web UI](web-ui.md) spec, which tracks the UI from here. This document stays the reference
+for the server's design and for phases 4 and 5.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -250,8 +252,8 @@ there's a hosting target. It brings:
 
 ### CGO stays for now
 
-Releases are source only. Binaries wait for phase 3, when the Bun build needs a release pipeline
-anyway. Moving to `modernc.org/sqlite` would change the driver under the durability guarantees, so it
+Releases are source only. Binaries come with the [web UI](web-ui.md), when the Bun build needs a
+release pipeline anyway. Moving to `modernc.org/sqlite` would change the driver under the durability guarantees, so it
 needs its own `kill -9`, lease and power-loss evaluation.
 
 ## Security
@@ -323,7 +325,8 @@ HTTP-aware proxy can produce on a timeout. It needs a real proxy, so it waits fo
 
 A minimal test page uses connect-web's `WatchEvents` on loopback. It checks that streaming over
 `fetch` works on HTTP/1.1, then restarts the server and checks that the page resumes. If this fails,
-fall back to SSE for the browser. Phase 3 automates it with Playwright, run from its Docker image.
+fall back to SSE for the browser. Phase 3 automates it with Playwright, run from its Docker image,
+in [#83](https://github.com/wolfeidau/durable/issues/83).
 
 **Spike result: passed.** The page lives on the unmerged
 [`spike/browser-watch`](https://github.com/wolfeidau/durable/tree/spike/browser-watch) branch. It was
@@ -384,17 +387,26 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
    - **Open resumes work.** Opening a session kicks its run driver, so watching a session resumes its
      queued work. That includes a copy made by `durable.Restore`, which conflicts with "a restored
      session must not auto-resume" below.
-   - **Approval status on request.** An `approval_requested` event carries no status, so it reaches
-     the wire as `APPROVAL_STATUS_UNSPECIFIED`. Clients treat the kind as pending. The API slice in
-     phase 3 sets `APPROVAL_STATUS_PENDING`.
-3. **Web UI.** A browser UI that works end to end without the CLI: create a session, submit, watch the
-   reply stream, approve tool calls and cancel. Tests in the browser wait until that works.
+   - **Approval status on request. Fixed in #78.** An `approval_requested` event reached the wire as
+     `APPROVAL_STATUS_UNSPECIFIED`. It now carries `APPROVAL_STATUS_PENDING`.
+3. **Web UI. First cut built; continues in the [web UI](web-ui.md) spec.** A browser UI that works
+   end to end without the CLI: create a session, submit, watch the reply stream, approve tool calls
+   and cancel. All of that works as of #80.
+
+   Not done, and moved to the web UI spec:
+
+   - **Slice K.** Playwright browser tests ([#83](https://github.com/wolfeidau/durable/issues/83)) and
+     transcript rendering that doesn't redraw every row.
+   - **Release binaries.** `.goreleaser.yaml` builds only `cmd/durable`; `durable-server` and the Bun
+     build aren't released. See [CGO stays for now](#cgo-stays-for-now).
+   - **Known gaps from the view.** Turns queued before #78 have no Cancel, and anthropic sessions
+     don't pin their model.
 
    | Slice | Scope | Status |
    |---|---|---|
    | **Access.** | The [server access](server-access.md#first-cut-a-stable-token) first cut: a stable token, `url` and `rotate-token`. The spike page kept streaming across a restart without a new URL | #69 |
    | **J.** | The `web/` scaffold, `WatchEngine`, `useWatchEvents`, a minimal page, and `bun test` coverage of the hook's rules | #70 |
-   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Deferred while the UI is in use |
+   | **K.** | Layer 4 in Playwright, including that a watch shows live before its first item, which connect's in-memory transport can't show. Transcript rendering that doesn't redraw every row, before sessions grow to thousands of events | Not done; moved to the [web UI](web-ui.md) spec. Playwright is [#83](https://github.com/wolfeidau/durable/issues/83) |
    | **API.** | What the browser needs to work without the CLI: `CreateSession`, a status per session in `ListSessions`, `APPROVAL_STATUS_PENDING` on `approval_requested`, and `request_id` on submission events. Details below | #78, #79 |
    | **View.** | A session list showing each session's status, with a new-session form. The live transcript, rendered as text only, with tool calls and their results, submission errors and compaction events. The approval prompt, submit and cancel, and a status line that also reports a session taken over by another process. Cancel needs the `request_id` from the queued event, so turns queued before the API slice have no Cancel in the UI. A session that doesn't exist stops the watch and says so | #80 |
    The API slice in detail:
