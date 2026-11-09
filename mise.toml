@@ -45,7 +45,7 @@ dir = "{{config_root}}/web"
 # protoc-gen-es has a node shebang, so run buf under bun.
 run = """
 bun install --frozen-lockfile
-bun run --bun buf generate ../api
+bun run --bun buf generate ../api --path ../api/durable/v1
 """
 
 [tasks."web:build"]
@@ -63,7 +63,7 @@ dir = "{{config_root}}/web"
 run = """
 set -e
 bun install --frozen-lockfile
-bun run --bun buf generate ../api
+bun run --bun buf generate ../api --path ../api/durable/v1
 # The status check also catches untracked files, which a diff ignores.
 test -z "$(git status --porcelain src/gen)" || { git status --porcelain src/gen; exit 1; }
 bunx tsc --noEmit
