@@ -142,11 +142,12 @@ func TestRecoverReturnsStoredResult(t *testing.T) {
 	tl := got[0]
 	call := durable.ToolCall{ID: "r1", Name: "bash", Input: json.RawMessage(`{}`)}
 
-	// Cancelling the request must not stop the worker's call.
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	// Cancel, as the harness does: a deadline is sent to the worker, which can answer before ctx ends.
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	time.AfterFunc(100*time.Millisecond, cancel)
 	_, err = tl.Execute(ctx, call)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, context.Canceled)
 
 	require.Contains(t, tl.(durable.Recoverer).Recover(t.Context(), call), "no result")
 	close(release)

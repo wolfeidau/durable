@@ -88,3 +88,8 @@ supervising, and results are lost when the worker restarts.
 8. A dropped request deliberately doesn't stop the worker's call, so user cancel and lease loss
    need a `Cancel(call_id)` RPC.
 9. One sandbox per session means allocating a port per forward.
+10. Connect sends a request's deadline to the worker, which can answer `canceled` before the
+    client's own context ends, so the adapter records a tool error instead of stopping. The harness
+    cancels rather than setting deadlines, but the adapter should treat a `canceled` or
+    `deadline_exceeded` code as cancellation only when its own context has ended, and the worker
+    API should say whether deadlines are used at all.
