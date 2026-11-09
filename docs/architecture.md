@@ -438,8 +438,8 @@ a `ReplayNever` call records an unknown outcome and doesn't run again. See
      session that idled out with an approval pending.
 
 4. **Remote execution. Designed; see [remote execution](remote-execution.md).** Tools run in an
-   OpenShell sandbox that the server connects in to. The workspace is a clone of the session's repo,
-   and work comes back through `git push`.
+   OpenShell sandbox that the server connects in to. The workspace is empty, or a clone of the
+   session's repo whose work comes back through `git push`. Git hosts are pluggable, GitHub first.
 5. **Scale.** Queues, multiple workers and microVMs.
 
 ## Open questions
