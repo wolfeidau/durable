@@ -3,8 +3,8 @@
 **Status: phase 3's first cut is built, and this document is closed for UI work.** Durable approvals,
 phase 1, every phase 2 slice, and phase 3's stable token (#69), streaming hook (#70), API slice (#78,
 #79) and session view (#80) are built. What's left of phase 3, slice K and release binaries, moves
-to the [web UI](web-ui.md) spec, which tracks the UI from here. This document stays the reference
-for the server's design and for phases 4 and 5.
+to the [web UI](web-ui.md) spec, which tracks the UI from here. Phase 4 is designed in
+[remote execution](remote-execution.md). This document stays the reference for the server's design.
 
 durable is a harness and a CLI today. This document sets the direction for running it as a service,
 modeled on a CI system or distributed worker: the agent's commands run in a sandbox, and the UI and
@@ -33,20 +33,19 @@ Not goals for now: multi-tenant hosting, team features and an ACP or editor inte
 
 ```text
  Browser / TUI                 Control plane                       Sandbox
-+--------------+   Connect   +-----------------------+  outbound  +------------------+
-| Web UI       | ----------> | durable-server        | <--------- | Worker           |
-| (unary and   | <---------- |  - owns the harness   |  work and  |  - runs bash and |
-|  stream)     |   events    |  - session.sqlite     |  results   |    file tools    |
-+--------------+   deltas    |  - model key, hooks,  |            |  - workspace     |
-                             |    MCP servers        |            |  - no credentials|
-                             +-----------------------+            +------------------+
-                                        |
-                                        v
-                                  Model provider
++--------------+   Connect   +-----------------------+  connects  +------------------+
+| Web UI       | ----------> | durable-server        | ---------> | Worker           |
+| (unary and   | <---------- |  - owns the harness   |  in        |  - runs bash and |
+|  stream)     |   events    |  - session.sqlite     |            |    file tools    |
++--------------+   deltas    |  - model key, hooks   |            |  - MCP servers   |
+                             +-----------------------+            |  - workspace     |
+                                        |                         |  - placeholder   |
+                                        v                         |    credentials   |
+                                  Model provider                  +------------------+
 ```
 
 The server process holds the session lease, so it's the only path to a live session. Clients never
-open the SQLite file. The sandbox holds the workspace and nothing else.
+open the SQLite file. The sandbox holds the workspace and the tools, and never a real credential.
 
 ## Decisions
 
@@ -71,12 +70,14 @@ also crosses a network.
 
 ### Workers dial out
 
-A worker connects out to the server and asks for work, following
-[Buildkite's agent model](https://buildkite.com/docs/agent/v3). No inbound ports are needed, so a
-worker can run anywhere, including on your own machine.
+**Superseded by [the server connects in](remote-execution.md#the-server-connects-in).** The first
+plan had a worker connect out to the server and ask for work, following
+[Buildkite's agent model](https://buildkite.com/docs/agent/v3). That needs a route from the sandbox
+to the server's API, which can approve shell commands. Instead the server creates the sandbox and
+connects in through the sandbox's gateway, so the sandbox has no route to the server.
 
-A session differs from a CI job: it's long-lived and waits on people. The sandbox should be released
-or parked during those waits.
+A session differs from a CI job: it's long-lived and waits on people, so the sandbox is stopped while
+the session is idle.
 
 ### Connect for the API
 
@@ -353,9 +354,11 @@ What phase 3 needs from it:
 
 ### 5. Remote workers (phase 4)
 
-A worker takes assignments over a server stream and reports through an idempotent unary
-`Complete(call_id, result)`. If the worker crashes after running a call but before `Complete`, the call
-takes the `ReplayNever` unknown-outcome path and doesn't run again.
+The server calls the worker's `Execute(call_id, ...)`, which is idempotent by call ID. A dropped
+connection doesn't stop a call, and the server recovers its result with `Result(call_id)`. If the
+worker itself restarts mid-call, the result is gone, and the call takes the existing recovery path:
+a `ReplayNever` call records an unknown outcome and doesn't run again. See
+[remote execution](remote-execution.md#worker-api).
 
 ## Phases
 
@@ -433,7 +436,9 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
      misconfigured for its provider. Cancel by `request_id` from a second client. The status of a
      session that idled out with an approval pending.
 
-4. **Remote execution.** An outbound worker, a remote `Tool`, Docker, and workspace snapshots.
+4. **Remote execution. Designed; see [remote execution](remote-execution.md).** Tools run in an
+   OpenShell sandbox that the server connects in to. The workspace is a clone of the session's repo,
+   and work comes back through `git push`.
 5. **Scale.** Queues, multiple workers and microVMs.
 
 ## Open questions
@@ -445,9 +450,8 @@ takes the `ReplayNever` unknown-outcome path and doesn't run again.
   server runs it? See the known gap "Open resumes work" in phase 2.
 - **Before hosting:** where does it run, and which proxy sits in front? That decides the proxy tests
   and whether the SSE fallback is needed.
-- **Before phase 4:** are containers acceptable? [Issue #9](https://github.com/wolfeidau/durable/issues/9)
-  rejected them for local use because the agent needs your real toolchain. Remote workers reverse that
-  with per-repo images. Native OS sandboxing stays deferred.
-- **Before phase 4:** where do `AGENTS.md` and skills load from, given they live in the remote workspace?
-- **Before phase 4:** how do git credentials reach the sandbox without the agent holding them?
+- **Answered for phase 4:** containers are acceptable for the server, through OpenShell, while
+  `durable chat` keeps the real toolchain on your machine, as [issue #9](https://github.com/wolfeidau/durable/issues/9)
+  wanted. `AGENTS.md` and skills load from the cloned repo through the worker. Git credentials stay
+  on the server, and the sandbox sees only a placeholder. See [remote execution](remote-execution.md).
 - **Before phase 5:** Firecracker or [gVisor](https://fly.io/learn/firecracker-vs-gvisor/)?
