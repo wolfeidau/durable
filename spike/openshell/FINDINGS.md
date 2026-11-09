@@ -93,3 +93,102 @@ supervising, and results are lost when the worker restarts.
     cancels rather than setting deadlines, but the adapter should treat a `canceled` or
     `deadline_exceeded` code as cancellation only when its own context has ended, and the worker
     API should say whether deadlines are used at all.
+
+## Spike 2: SDK launcher
+
+`go run ./spike/openshell -launcher=sdk` (default) and `-launcher=cli` both pass every step on the local
+gateway (OpenShell 0.1.7) and leave `sandbox list` and `forward list` empty. The SDK is
+`github.com/ai-openshell/sdk-go` v0.1.7, imported only from `internal/remote` and the spike runner.
+
+### mTLS client workaround
+
+`gateway.NewClient("")` returns `ErrUnsupportedAuthMode` for `auth_mode: "mtls"` only when no auth is
+supplied. This works: `gateway.LoadConfig("")` for the gateway name and directory, then
+`gateway.NewClient(cfg.Name, gateway.WithAuth(v1.NoAuth()), gateway.WithTLS(&types.TLSConfig{CertFile, KeyFile, CAFile}))`
+pointing at `<dir>/mtls/{tls.crt,tls.key,ca.crt}`. No fallback to `v1.NewClient` was needed. The workspace
+is `default` (confirmed through `Workspaces().ListAll`).
+
+### Forward as a dial
+
+`TCP().Forward(ctx, ws, sandbox, port)` returns an `io.ReadWriteCloser` that wraps into a `net.Conn` (no
+deadlines) and serves as `http.Transport.DialContext`. HTTP/2 cleartext works over it, with no HTTP/1.1
+fallback. Two details: the stream's context must be detached from the dial context (the request's context
+ends the stream otherwise), and each connection is one gRPC stream through the gateway, so there's no local
+port, no `ssh` child and no forward to supervise. A lost connection is replaced by the transport's next dial.
+
+### Upload
+
+`Files()` is unusable, so upload is `Exec().Interactive` running `tar -x`. Findings:
+
+- Interactive allocates a PTY. `tar` refuses a terminal on stdin even with `-f -`, and cooked mode mangles
+  binary data. The command is `stty raw -echo && echo READY && head -c N | tar -xf - -C dest`; the client
+  waits for `READY` before writing (data sent earlier was mangled and killed the shell).
+- The PTY never signals EOF (`CloseInteractiveInput` is not enough), so the archive length is known up front
+  and `head -c` reads exactly that many bytes. The archive is built in memory.
+- The gateway rejects stdin messages over 1 MiB (`decoded message length too large`), and each `Write` is
+  one message, so writes are chunked at 256 KiB.
+- Result: a 10 MiB random file arrives with matching size and sha256 (verified by the `bash` tool inside the
+  sandbox), in about 0.1 s for the transfer. The CLI's `--no-git-ignore`/gitignore behaviour has no
+  equivalent; the tar copies everything, including `.git` and ignored files.
+
+### Streaming and cancel
+
+- `for i in 1..5; do echo $i; sleep 0.3; done`: deltas arrive at +1 ms, +309, +616, +922 and +1.23 s, and the
+  result at +1.54 s, so output is live, not batched. The CLI forward gives the same timing.
+- Cancel: `sleep 30; echo late`, context cancelled at 1 s. `Execute` returns `context.Canceled` 5 ms later.
+  The worker stores the result `context canceled` (it appears about 2 s after, while the bash tool's process
+  group shuts down), which doesn't contain `late`; a repeat `Execute` with the same id returns that stored
+  result without re-running.
+
+### Connection loss, stop and start
+
+- Closing every forward stream mid-call fails the in-flight `Execute` (`unavailable: Cancelled`). The worker
+  finishes the call, and `Recover` on a fresh dial returns `done`, as with the CLI forward. The adapter
+  didn't cancel the call because its own context was still live.
+- `Stop` + `WaitStopped` took about 0.16 s (CLI 0.4 s); `Info` while stopped returns `Conflict: sandbox is
+  not ready`. `Start` + `WaitReady` took about 1.5 s (CLI 0.6 s). The next call needed only a new dial: no
+  forward to restart. The workspace survives; worker results don't.
+
+### Latency (50 x bash `true`)
+
+| Launcher | min | p50 | p95 | max |
+|---|---|---|---|---|
+| sdk | 0.81 ms | 1.29 ms | 1.84 ms | 2.05 ms |
+| cli | 0.72 ms | 0.95 ms | 1.34 ms | 4.16 ms |
+
+A second run gave sdk p50 1.50 ms / p95 1.88 ms / max 3.42 ms and cli p50 1.38 ms / p95 4.07 ms / max 4.81 ms, so the two are within noise: both are about 1 to 1.5 ms per call.
+
+### Dependencies
+
+`go.mod` gains `github.com/ai-openshell/sdk-go v0.1.7` and 5 indirect modules (`cespare/xxhash/v2`,
+`google.golang.org/grpc`, `genproto/googleapis/rpc`, `golang.org/x/net`, `golang.org/x/text`), and bumps
+`go-logr/logr`, the `otel` modules, `auto/sdk`, `x/oauth2` and `x/sync`. `go mod graph` lists 105 distinct
+modules in total. The `durable-worker` binary doesn't link the SDK or gRPC.
+
+### API changes
+
+- Worker API v2: `Execute` is a server stream of `delta` then one `result`, with `stream_output` in the
+  request; `Cancel(call_id)` is new. Auth is an interceptor on both unary and streaming handlers (a unary-only
+  interceptor would leave streaming open).
+- Root package, needed by the real slices: `durable.WithToolOutputSink(ctx, fn)` and
+  `durable.ToolOutputEnabled(ctx)` in `delta.go`. The adapter sets `stream_output` from the latter and the
+  worker captures tool output with the former.
+- The adapter treats `canceled`/`deadline_exceeded` as cancellation only when its own context has ended, and
+  sends `Cancel` on a detached 3 s context at that point.
+
+### Still needs the CLI
+
+Nothing in the runner. The image build uses `docker`, and the final `sandbox list`/`forward list` check uses
+the CLI only to confirm. Gitignore-aware upload is CLI-only.
+
+### New open questions
+
+1. The PTY-based upload needs the length up front and an in-memory archive. Is there a non-PTY exec path, or
+   should the worker offer an `Upload` RPC instead?
+2. Worker results are still lost on `Start`; `Cancel` after a restart is a no-op.
+3. The cancel result takes about 2 s to be stored after the bash tool is cancelled; the harness must accept
+   `Recover` returning "no result" for that window.
+4. mTLS needs the `NoAuth` plus `WithTLS` workaround; confirm it's supported rather than accidental.
+5. Gateway-relayed streams share the gateway's availability: a gateway restart drops every session's connection.
+   Untested.
+6. Deltas are dropped when the worker's 1024-entry buffer fills (best-effort by design).
