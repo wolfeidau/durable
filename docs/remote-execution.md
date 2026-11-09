@@ -5,7 +5,8 @@ model loop, the session and every control stay outside it.
 
 **Status: designed, not built.** Two spikes passed against a local OpenShell gateway. Their code and
 `FINDINGS.md` are on the unmerged branches `spike/openshell-worker`, `spike/openshell-workspace` and
-`spike/openshell-server`. The [slices](#slices) below build it properly.
+`spike/openshell-server`, kept until the slices land; the results this design depends on are copied
+below. The [slices](#slices) build it properly.
 
 ## Shape
 
@@ -92,8 +93,9 @@ worker binary links none of it.
 ### OpenShell is the first sandbox
 
 It gives default-deny egress with rules per binary, credentials the agent only sees as placeholders,
-stop and start that keep the workspace, and a Go SDK. It's Apache-2.0 and alpha, and its telemetry
-is on by default: the server turns it off with `OPENSHELL_TELEMETRY_ENABLED=false`.
+stop and start that keep the workspace, and a Go SDK. It's Apache-2.0 and alpha. Its anonymous
+telemetry is on by default and is a gateway setting, not something `durable-server` controls as a
+client: the setup docs tell you to set `OPENSHELL_TELEMETRY_ENABLED=false` on the gateway.
 
 Nothing in the worker API depends on OpenShell, so another sandbox only needs a launcher.
 
@@ -163,14 +165,26 @@ Persisting results would add a store the agent can write to, for a case the harn
 - **Connect** with a new dial on each open; there's no forward to recreate.
 - **Pin** the sandbox name, image digest and worker token in `sandbox.json` in the session
   directory, next to `provider.json`.
-- **Fail clearly.** A gateway that can't provision returns `UNAVAILABLE` with the cause, not an
-  internal error, so the UI can say what's wrong.
+- **Fail clearly, without leaking detail.** The server logs the cause and returns a fixed message,
+  as it does for a misconfigured provider, because gateway errors can name providers or `op://`
+  references. A gateway that can't be reached or can't provision in time returns `UNAVAILABLE`,
+  which clients retry. A configuration problem, such as a missing image, provider or profile, returns
+  `FAILED_PRECONDITION`, which they don't. Neither is an internal error.
 
-### A session names a repo, not a directory
+### A sandboxed session names a repo, not a directory
 
-With tools in a sandbox, the host directory isn't where the agent works. `CreateSession` takes a
-repo URL and a branch; the sandbox clones it at create, and the work comes back through `git push`.
-The UI's working directory field becomes a repo picker. Uploading a local directory isn't offered.
+With tools in a sandbox, the host directory isn't where the agent works. A server started with
+`--sandbox-image` creates sessions from a repo URL and a branch; the sandbox clones it at create, and
+the work comes back through `git push`. Uploading a local directory isn't offered. A server without
+the flag keeps directory sessions exactly as today, and so does `durable chat`.
+
+- **Identity:** a directory session's path is a hash of its working directory and name. A repo
+  session's is a hash of the canonical repo URL, the branch and the name, so `CreateSession` stays
+  idempotent: the same repo, branch and name return the same session.
+- **Index:** `session.json` gains `repo` and `branch` and leaves `cwd` empty. `ListSessions` shows
+  `repo@branch` for those sessions.
+- **UI:** the new-session form shows a repo picker when the server runs sandboxed, and the directory
+  field otherwise. `ListSessions` or a server-info call tells the UI which.
 
 ### GitHub access uses a fine-grained token
 
@@ -179,14 +193,24 @@ The server holds one GitHub token and gives sandboxes only a placeholder for it.
 - **Flags:** `serve --github-token-from-1password op://<vault>/<item>/<field>`, or the
   `DURABLE_GITHUB_TOKEN` environment variable. There's no plain flag, which would put the token in
   the process list. A dedicated variable keeps the server from picking up a broad `GITHUB_TOKEN` or
-  `GH_TOKEN` from the shell. Reading it reuses `internal/creds`.
-- **Fine-grained only:** a classic token (`ghp_`) is refused. At startup the server checks the token
-  with GitHub, so a misconfigured server fails before a session does.
+  `GH_TOKEN` from the shell. `internal/creds` names the `--api-token` flags in its errors and reads no
+  environment variable, so it's generalised to take the flag and variable names first.
+- **Optional:** without a token, sandboxed sessions can clone public repos but not push.
+- **Fine-grained only:** the server accepts only a `github_pat_` token and refuses every other kind,
+  including classic (`ghp_`) and OAuth (`gho_`, which `gh auth token` returns) tokens. At startup it
+  checks the token with GitHub, so a misconfigured server fails before a session does.
+- **One provider, per-session profiles.** The server keeps a single OpenShell provider holding the
+  token, so the gateway holds one copy. Each session gets its own profile and policy, named from the
+  session ID, that narrow the provider to the session's repo, for `git` only.
 - **Two layers of scope.** The token is the ceiling: its repos and permissions, chosen when it's
-  created (contents read and write, and pull requests if wanted). Each session's provider profile and
-  policy then narrow it to the session's repo, for `git` only.
-- **Rotation:** the server reads the token from 1Password each time it creates or starts a sandbox,
-  so a rotated token takes effect without a restart. Fine-grained tokens expire, a year at most.
+  created (contents read and write, and pull requests if wanted). No session's policy can exceed it.
+- **Rotation:** the server reads the token at startup and again on each sandbox create or start, and
+  updates the provider's credential in place whenever the value changes, so a rotated token takes
+  effect without a restart. Whether a running sandbox picks up the update before its next start is
+  untested. Fine-grained tokens expire, a year at most; after expiry, pushes fail with a 401 until
+  the token is rotated.
+- **Cleanup:** deleting a session deletes its sandbox, then its profile. The gateway refuses to
+  delete a profile while its sandbox still exists, so the server waits for the sandbox to go first.
 - **Later:** a GitHub App with short-lived installation tokens per repo, when durable is hosted.
 
 ### Instructions and skills come from the workspace
@@ -208,11 +232,11 @@ Each slice is one PR. The spike branches are reference, not a base.
 
 | Slice | Scope | Depends on |
 |---|---|---|
-| **W. Worker** | `worker.proto`, `internal/worker`, `cmd/durable-worker`, the remote `Tool` adapter with the fixed table, and the local subprocess launcher. The exported delta helpers. Tests run without OpenShell | |
+| **W. Worker** | `worker.proto`, `internal/worker`, `cmd/durable-worker`, the remote `Tool` adapter with the fixed table, and the local subprocess launcher. The exported delta helpers. Tests run without OpenShell: deltas, cancel, recovery, and a worker that lies about metadata | |
 | **L. OpenShell launcher** | The SDK client with the mTLS workaround, the lifecycle, the TCP dial, and the worker image build. Tests against a gateway are skipped without one | W |
-| **S. Server wiring** | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the typed `UNAVAILABLE` error and `durable-server sandbox-delete` | L |
-| **G. GitHub** | The token flags and check, per-session provider, profile and policy, and the clone at create | S |
-| **R. Repo sessions** | `CreateSession(repo, branch)`, and the UI's repo picker in place of the directory field | G |
+| **S. Server wiring** | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the `UNAVAILABLE` and `FAILED_PRECONDITION` errors, `durable-server sandbox-delete`, and the hooks note. Real-binary tests for the flag: approval, a call in the sandbox, stop on idle and start on reopen | L |
+| **G. GitHub** | The token flags and check, the provider and per-session profile and policy, cleanup, and the clone at create. Real-binary tests for both token sources, and that classic and OAuth tokens are refused | S |
+| **R. Repo sessions** | `CreateSession(repo, branch)`, repo session identity and `session.json` fields, and the UI's repo picker when the server is sandboxed. Real-binary tests: an idempotent create, and directory sessions unchanged | G |
 | **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
 | **M. MCP** | stdio MCP servers inside the sandbox | S |
 
@@ -221,7 +245,9 @@ Each slice is one PR. The spike branches are reference, not a base.
 - **Before G:** should `git push` go through durable's approval flow? Today the policy allows it
   without a prompt.
 - **Before L:** who builds the worker image, and how is it pinned and published: one image, or one
-  per repository with its toolchain?
+  per repository with its toolchain? [Issue #9](https://github.com/wolfeidau/durable/issues/9)
+  rejected containers for local use because an image has to match the project's toolchain, and that
+  cost now applies here.
 - **Before S:** what does a gateway restart do to running sandboxes and their workers? The spikes
   didn't test it.
 - **Later:** one sandbox per session, or one per repository shared across sessions?

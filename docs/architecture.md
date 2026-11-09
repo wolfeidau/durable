@@ -45,7 +45,8 @@ Not goals for now: multi-tenant hosting, team features and an ACP or editor inte
 ```
 
 The server process holds the session lease, so it's the only path to a live session. Clients never
-open the SQLite file. The sandbox holds the workspace and the tools, and never a real credential.
+open the SQLite file. The sandbox holds the workspace and the tools, and no credential that works
+outside it: the agent sees placeholders, and the worker's own token only opens the worker.
 
 ## Decisions
 
@@ -450,8 +451,10 @@ a `ReplayNever` call records an unknown outcome and doesn't run again. See
   server runs it? See the known gap "Open resumes work" in phase 2.
 - **Before hosting:** where does it run, and which proxy sits in front? That decides the proxy tests
   and whether the SSE fallback is needed.
-- **Answered for phase 4:** containers are acceptable for the server, through OpenShell, while
-  `durable chat` keeps the real toolchain on your machine, as [issue #9](https://github.com/wolfeidau/durable/issues/9)
-  wanted. `AGENTS.md` and skills load from the cloned repo through the worker. Git credentials stay
-  on the server, and the sandbox sees only a placeholder. See [remote execution](remote-execution.md).
+- **Answered for phase 4:** containers are acceptable for the server, through OpenShell.
+  [Issue #9](https://github.com/wolfeidau/durable/issues/9) rejected them for local use because the
+  agent needs your real toolchain, and recommended native OS sandboxing for `durable chat`, which
+  stays deferred; the worker image now carries that toolchain cost. `AGENTS.md` and skills load from
+  the cloned repo through the worker. Git credentials stay on the server, and the sandbox sees only a
+  placeholder. See [remote execution](remote-execution.md).
 - **Before phase 5:** Firecracker or [gVisor](https://fly.io/learn/firecracker-vs-gvisor/)?
