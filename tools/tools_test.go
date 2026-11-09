@@ -60,6 +60,18 @@ func (e env) write(t *testing.T, rel, content string) string {
 	return p
 }
 
+func TestCatalogMatchesAll(t *testing.T) {
+	all, err := All(t.TempDir(), t.TempDir())
+	require.NoError(t, err)
+	cat := Catalog()
+	require.Len(t, cat, len(all))
+	for i, tl := range all {
+		require.Equal(t, tl.Spec(), cat[i].Spec)
+		require.Equal(t, tl.Replay(), cat[i].Replay)
+		require.Equal(t, tl.(durable.ReadOnlyTool).ReadOnly(), cat[i].ReadOnly)
+	}
+}
+
 func TestAllOrderAndSchemas(t *testing.T) {
 	root := t.TempDir()
 	all, err := All(root, t.TempDir())
