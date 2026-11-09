@@ -192,3 +192,62 @@ the CLI only to confirm. Gitignore-aware upload is CLI-only.
 5. Gateway-relayed streams share the gateway's availability: a gateway restart drops every session's connection.
    Untested.
 6. Deltas are dropped when the worker's 1024-entry buffer fills (best-effort by design).
+
+## Spike 2b: end to end in durable-server
+
+### Wiring points
+
+- `serve --sandbox-image <ref>` (empty keeps today's behaviour). `main.go` builds an `SDKLauncher` and
+  `remote.Sandboxes`, and passes `Sandboxes.Tools` as `RegistryConfig.Tools`.
+- `commands.AssembleConfig.Tools func(ctx, sessionID) ([]durable.Tool, func(), error)`: used only when non-nil, so
+  `durable chat` and the default path are untouched. `Assemble` still builds `tools.All` locally, checks the
+  remote tools against it (name, order, description, schema, strict flag), fails the open on any difference,
+  then overwrites the local five in place. MCP and skill tools are appended after, and hooks wrap the result as
+  before. The returned func runs from `Assembled.Close`, so it stops the sandbox when the registry closes an idle
+  session, on a failed open and on server shutdown. Nothing deletes a sandbox; `durable-server sandbox-delete
+  <session id>` does.
+- Sandbox name is `ds-<16 hex session id>` (19 chars, the OpenShell limit). `ensure` does Get, then NotFound ->
+  Create+WaitReady, Stopped -> Start+WaitReady, Ready -> reuse. The worker starts with `--root /sandbox`.
+- Calls dial through `SDKLauncher.Dial`, one forward stream per connection, so a stop/start needs no
+  reconnect logic: each open of the session dials fresh.
+- `Assemble` needed a `//nolint:gocognit`; split it in the real slice.
+
+### Lifecycle and approval evidence
+
+`TestSandboxRunsToolsInTheSandbox` passed in four runs against the local gateway before it stopped provisioning
+(see below). Scripted model: `list_files` (no approval), then `bash` `echo hello-from-sandbox; sleep 0.5; id -u`.
+- `list_files` committed a result with no approval. The bash call parked as exactly one pending approval and
+  ran once after `DecideApproval(allow)`.
+- The watch showed live tool-output deltas containing `hello-from-sandbox` before `call_done`, and the committed
+  result contained `hello-from-sandbox` and `1500`, the sandbox user, so it did not run on the host.
+- First run (Submit to done, including sandbox create and approval polling): about 0.63 s with the image cached.
+  With `--idle-timeout 3s` the sandbox reached Stopped about 4.0 s after the run. Reopen (Start + WaitReady +
+  dial + second bash, with approval polling): about 0.63 s.
+
+### What broke
+
+- After those passing runs the gateway stopped provisioning: new `ds-*` sandboxes sat in Provisioning, then went
+  to Error ("Sandbox provisioning deadline expired" in the gateway log). The last runs of the test FAILED at
+  Submit with `internal: internal error`, so the final verification run did not pass. I did not restart the
+  gateway and did not find the root cause. The same code passed four times, so I suspect the environment, but
+  that is unproven.
+- A provisioning failure reaches the API client as an opaque `internal: internal error`.
+- The test needs `XDG_CONFIG_HOME` pointed at the real config dir, because the SDK finds the gateway config
+  under `$HOME` and tests use a temporary HOME.
+- The launcher's `Close` must be a `t.Cleanup` registered first, not a `defer`, or the delete in the cleanup runs
+  on a closed client and leaks the sandbox (this happened once).
+- A watch from seq 0 replays the earlier `done`, so the test waits for the second one.
+
+### Open questions for the real slices
+
+1. Worker token: kept in server memory, so after a server restart an existing sandbox can't be reached. The
+   server refuses and points to `sandbox-delete`, which loses the workspace. Persist the token in the session
+   dir (0600) or rotate it when the sandbox starts.
+2. Pinning: the name derives from the session ID, but the image ref should be pinned per session (like
+   `provider.json`) so a reopen can't change it.
+3. AGENTS.md and skills still load from the host; the sandbox workspace never sees host files. They need to come
+   through the worker, or an upload.
+4. Gateway down or slow: `Assemble` blocks for the create plus up to 30 s of worker-ready retries, and the API
+   returns an opaque internal error. The UI needs a typed `unavailable` error with the cause.
+5. Stop on close uses a detached 60 s context, so shutdown can wait that long per session; stop in parallel.
+6. Two sessions opening at once serialise on the `Sandboxes` mutex for the whole create; narrow the lock.

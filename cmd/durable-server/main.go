@@ -19,7 +19,9 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/remote"
 	"github.com/wolfeidau/durable/internal/server"
 )
 
@@ -34,12 +36,27 @@ type serveCmd struct {
 	Model                 string        `help:"Model name for new sessions. Required for new openrouter sessions, which pin it. For anthropic, empty uses the built-in default."`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
+	SandboxImage          string        `name:"sandbox-image" help:"Spike: run each session's tools in an OpenShell sandbox from this worker image. Empty runs them on the host."`
 }
 
 type cli struct {
 	Serve       serveCmd       `cmd:"" default:"withargs" help:"Run the server."`
 	URL         urlCmd         `cmd:"" name:"url" help:"Print the browser link for the running server."`
 	RotateToken rotateTokenCmd `cmd:"" name:"rotate-token" help:"Replace the stored token. It takes effect when the server next starts."`
+	SandboxDel  sandboxDelCmd  `cmd:"" name:"sandbox-delete" help:"Spike: delete a session's OpenShell sandbox and its workspace."`
+}
+
+type sandboxDelCmd struct {
+	Session string `arg:"" help:"Session ID."`
+}
+
+func (c *sandboxDelCmd) Run(ctx context.Context, logger *slog.Logger) error {
+	l, err := remote.NewSDKLauncher(ctx)
+	if err != nil {
+		return err
+	}
+	defer l.Close()
+	return remote.NewSandboxes(l, "", logger).Delete(ctx, c.Session)
 }
 
 type urlCmd struct{}
@@ -95,6 +112,15 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	// Requests drain within the grace period, and streams end when the base context is cancelled.
 	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
+	var tools func(context.Context, string) ([]durable.Tool, func(), error)
+	if c.SandboxImage != "" {
+		l, err := remote.NewSDKLauncher(ctx)
+		if err != nil {
+			return err
+		}
+		defer l.Close()
+		tools = remote.NewSandboxes(l, c.SandboxImage, logger).Tools
+	}
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
 		Home:        home,
@@ -105,6 +131,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		Protocol:    c.Protocol,
 		Model:       c.Model,
 		Logger:      logger,
+		Tools:       tools,
 	})
 	defer registry.Close()
 	draining := make(chan struct{})

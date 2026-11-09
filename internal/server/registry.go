@@ -40,6 +40,8 @@ type RegistryConfig struct {
 	RetryBase time.Duration
 	RetryCap  time.Duration
 	Logger    *slog.Logger
+	// Tools replaces the local tools of every session (spike: sandboxes); nil keeps them.
+	Tools func(ctx context.Context, sessionID string) ([]durable.Tool, func(), error)
 
 	// assemble is a test seam.
 	assemble func(context.Context, commands.AssembleConfig) (*commands.Assembled, error)
@@ -246,6 +248,7 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		APIToken:    r.cfg.APIToken,
 		Interactive: false,
 		Observer:    s.observe,
+		Tools:       r.cfg.Tools,
 	}
 	if spec != nil {
 		ac.CWD, ac.Session = spec.cwd, spec.name

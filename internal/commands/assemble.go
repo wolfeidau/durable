@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +52,9 @@ type AssembleConfig struct {
 	ExistingOnly bool
 	// Observer runs after the compaction observer, so it doesn't replace the compaction notices.
 	Observer func(durable.Event)
+	// Tools replaces the local tools when set (spike: sandboxed tools); the returned func releases them on Close.
+	// They must match the local tools in name, order and schema.
+	Tools func(ctx context.Context, sessionID string) ([]durable.Tool, func(), error)
 }
 
 // Assembled is a session's options plus what the CLI reports about them.
@@ -74,7 +79,7 @@ type Assembled struct {
 }
 
 // Assemble resolves the session's pins and builds its durable.Options.
-func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
+func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) { //nolint:gocognit // the spike's tool hook tips it over; split it in the real slice
 	out := cfg.Out
 	if out == nil {
 		out = io.Discard
@@ -99,6 +104,8 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to build tools: %w", err)
 	}
+
+	nLocal := len(toolset)
 
 	// Pin after anything likely to fail, so a failed start doesn't freeze the text.
 	home := cfg.Home
@@ -158,6 +165,11 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 
 	sessionID := filepath.Base(dir)
+	releaseTools, err := useRemoteTools(ctx, cfg, sessionID, toolset[:nLocal])
+	if err != nil {
+		_ = pool.Close()
+		return nil, err
+	}
 	opts := durable.Options{
 		Model: protocolModels[rt.Protocol](rt, spec, modelArgs{
 			Key:       key,
@@ -188,7 +200,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	return &Assembled{
 		Path:             path,
 		Options:          opts,
-		Close:            func() { _ = pool.Close() },
+		Close:            func() { _ = pool.Close(); releaseTools() },
 		instructions:     pinned,
 		route:            rt,
 		mcpServers:       servers,
@@ -200,6 +212,42 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		toolset:          toolset,
 		CompactionNotice: notice,
 	}, nil
+}
+
+// useRemoteTools overwrites local in place with the sandboxed tools when cfg asks for them.
+func useRemoteTools(ctx context.Context, cfg AssembleConfig, sessionID string, local []durable.Tool) (func(), error) {
+	if cfg.Tools == nil {
+		return func() {}, nil
+	}
+	remote, release, err := cfg.Tools(ctx, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start remote tools: %w", err)
+	}
+	if err := sameTools(local, remote); err != nil {
+		release()
+		return nil, err
+	}
+	copy(local, remote)
+	return release, nil
+}
+
+// sameTools checks the replacement tools against the local ones, because the specs feed the prompt prefix.
+func sameTools(local, remote []durable.Tool) error {
+	if len(local) != len(remote) {
+		return fmt.Errorf("remote tools: got %d, want %d", len(remote), len(local))
+	}
+	for i := range local {
+		l, r := local[i].Spec(), remote[i].Spec()
+		if l.Name != r.Name || l.Description != r.Description || l.NonStrict != r.NonStrict || !jsonEqual(l.Schema, r.Schema) {
+			return fmt.Errorf("remote tool %q differs from the local tool", l.Name)
+		}
+	}
+	return nil
+}
+
+func jsonEqual(a, b json.RawMessage) bool {
+	var x, y any
+	return json.Unmarshal(a, &x) == nil && json.Unmarshal(b, &y) == nil && reflect.DeepEqual(x, y)
 }
 
 func chainObservers(first, second func(durable.Event)) func(durable.Event) {
