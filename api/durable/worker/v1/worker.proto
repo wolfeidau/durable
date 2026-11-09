@@ -8,8 +8,12 @@ option go_package = "github.com/wolfeidau/durable/api/durable/worker/v1;workerv1
 service ToolService {
   rpc Info(InfoRequest) returns (InfoResponse);
   rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
-  // Execute is idempotent per call_id: a known id returns the stored result.
-  rpc Execute(ExecuteRequest) returns (ExecuteResponse);
+  // Execute streams zero or more deltas, then exactly one result. It is idempotent per call_id:
+  // a known id streams nothing new and returns the stored result.
+  rpc Execute(ExecuteRequest) returns (stream ExecuteResponse);
+  // Cancel cancels a running call; the call then finishes with whatever the tool returns, which
+  // is stored as its result. An unknown or finished call_id is a no-op.
+  rpc Cancel(CancelRequest) returns (CancelResponse);
   rpc Result(ResultRequest) returns (ResultResponse);
 }
 
@@ -42,12 +46,27 @@ message ExecuteRequest {
   string call_id = 1;
   string name = 2;
   bytes input = 3;
+  // stream_output asks for live output as delta messages before the result.
+  bool stream_output = 4;
 }
 
 message ExecuteResponse {
+  oneof event {
+    string delta = 1;
+    ExecuteResult result = 2;
+  }
+}
+
+message ExecuteResult {
   string output = 1;
   bool is_error = 2;
 }
+
+message CancelRequest {
+  string call_id = 1;
+}
+
+message CancelResponse {}
 
 message ResultRequest {
   string call_id = 1;

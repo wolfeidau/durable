@@ -76,3 +76,18 @@ func emitReset(ctx context.Context) {
 		sk.fn(Delta{Kind: DeltaReset, Submission: sk.submission})
 	}
 }
+
+// WithToolOutputSink returns a context whose EmitToolOutput calls fn, for a remote tool host that forwards
+// live output. Spike API.
+func WithToolOutputSink(ctx context.Context, fn func(string)) context.Context {
+	if fn == nil {
+		return ctx
+	}
+	return withSink(ctx, func(d Delta) { fn(d.Text) }, 0, "")
+}
+
+// ToolOutputEnabled reports whether EmitToolOutput would reach a consumer on ctx.
+func ToolOutputEnabled(ctx context.Context) bool {
+	sk := sinkFrom(ctx)
+	return sk != nil && !sk.noOutput
+}

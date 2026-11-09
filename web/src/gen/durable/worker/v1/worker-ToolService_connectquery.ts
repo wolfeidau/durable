@@ -15,11 +15,12 @@ export const info = ToolService.method.info;
 export const listTools = ToolService.method.listTools;
 
 /**
- * Execute is idempotent per call_id: a known id returns the stored result.
+ * Cancel cancels a running call; the call then finishes with whatever the tool returns, which
+ * is stored as its result. An unknown or finished call_id is a no-op.
  *
- * @generated from rpc durable.worker.v1.ToolService.Execute
+ * @generated from rpc durable.worker.v1.ToolService.Cancel
  */
-export const execute = ToolService.method.execute;
+export const cancel = ToolService.method.cancel;
 
 /**
  * @generated from rpc durable.worker.v1.ToolService.Result

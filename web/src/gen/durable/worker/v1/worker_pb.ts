@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file durable/worker/v1/worker.proto.
  */
 export const file_durable_worker_v1_worker: GenFile = /*@__PURE__*/
-  fileDesc("Ch5kdXJhYmxlL3dvcmtlci92MS93b3JrZXIucHJvdG8SEWR1cmFibGUud29ya2VyLnYxIg0KC0luZm9SZXF1ZXN0IqsBCgxJbmZvUmVzcG9uc2USEAoIaG9zdG5hbWUYASABKAkSCwoDdWlkGAIgASgDEgsKA2N3ZBgDIAEoCRIMCgRyb290GAQgASgJEjUKA2VudhgFIAMoCzIoLmR1cmFibGUud29ya2VyLnYxLkluZm9SZXNwb25zZS5FbnZFbnRyeRoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIhIKEExpc3RUb29sc1JlcXVlc3QiZgoIVG9vbEluZm8SDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIUCgxpbnB1dF9zY2hlbWEYAyABKAwSEQoJcmVhZF9vbmx5GAQgASgIEg4KBnJlcGxheRgFIAEoCSI/ChFMaXN0VG9vbHNSZXNwb25zZRIqCgV0b29scxgBIAMoCzIbLmR1cmFibGUud29ya2VyLnYxLlRvb2xJbmZvIj4KDkV4ZWN1dGVSZXF1ZXN0Eg8KB2NhbGxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVpbnB1dBgDIAEoDCIzCg9FeGVjdXRlUmVzcG9uc2USDgoGb3V0cHV0GAEgASgJEhAKCGlzX2Vycm9yGAIgASgIIiAKDVJlc3VsdFJlcXVlc3QSDwoHY2FsbF9pZBgBIAEoCSJBCg5SZXN1bHRSZXNwb25zZRINCgVmb3VuZBgBIAEoCBIOCgZvdXRwdXQYAiABKAkSEAoIaXNfZXJyb3IYAyABKAgyzwIKC1Rvb2xTZXJ2aWNlEkcKBEluZm8SHi5kdXJhYmxlLndvcmtlci52MS5JbmZvUmVxdWVzdBofLmR1cmFibGUud29ya2VyLnYxLkluZm9SZXNwb25zZRJWCglMaXN0VG9vbHMSIy5kdXJhYmxlLndvcmtlci52MS5MaXN0VG9vbHNSZXF1ZXN0GiQuZHVyYWJsZS53b3JrZXIudjEuTGlzdFRvb2xzUmVzcG9uc2USUAoHRXhlY3V0ZRIhLmR1cmFibGUud29ya2VyLnYxLkV4ZWN1dGVSZXF1ZXN0GiIuZHVyYWJsZS53b3JrZXIudjEuRXhlY3V0ZVJlc3BvbnNlEk0KBlJlc3VsdBIgLmR1cmFibGUud29ya2VyLnYxLlJlc3VsdFJlcXVlc3QaIS5kdXJhYmxlLndvcmtlci52MS5SZXN1bHRSZXNwb25zZUI9WjtnaXRodWIuY29tL3dvbGZlaWRhdS9kdXJhYmxlL2FwaS9kdXJhYmxlL3dvcmtlci92MTt3b3JrZXJ2MWIGcHJvdG8z");
+  fileDesc("Ch5kdXJhYmxlL3dvcmtlci92MS93b3JrZXIucHJvdG8SEWR1cmFibGUud29ya2VyLnYxIg0KC0luZm9SZXF1ZXN0IqsBCgxJbmZvUmVzcG9uc2USEAoIaG9zdG5hbWUYASABKAkSCwoDdWlkGAIgASgDEgsKA2N3ZBgDIAEoCRIMCgRyb290GAQgASgJEjUKA2VudhgFIAMoCzIoLmR1cmFibGUud29ya2VyLnYxLkluZm9SZXNwb25zZS5FbnZFbnRyeRoqCghFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIhIKEExpc3RUb29sc1JlcXVlc3QiZgoIVG9vbEluZm8SDAoEbmFtZRgBIAEoCRITCgtkZXNjcmlwdGlvbhgCIAEoCRIUCgxpbnB1dF9zY2hlbWEYAyABKAwSEQoJcmVhZF9vbmx5GAQgASgIEg4KBnJlcGxheRgFIAEoCSI/ChFMaXN0VG9vbHNSZXNwb25zZRIqCgV0b29scxgBIAMoCzIbLmR1cmFibGUud29ya2VyLnYxLlRvb2xJbmZvIlUKDkV4ZWN1dGVSZXF1ZXN0Eg8KB2NhbGxfaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVpbnB1dBgDIAEoDBIVCg1zdHJlYW1fb3V0cHV0GAQgASgIIl8KD0V4ZWN1dGVSZXNwb25zZRIPCgVkZWx0YRgBIAEoCUgAEjIKBnJlc3VsdBgCIAEoCzIgLmR1cmFibGUud29ya2VyLnYxLkV4ZWN1dGVSZXN1bHRIAEIHCgVldmVudCIxCg1FeGVjdXRlUmVzdWx0Eg4KBm91dHB1dBgBIAEoCRIQCghpc19lcnJvchgCIAEoCCIgCg1DYW5jZWxSZXF1ZXN0Eg8KB2NhbGxfaWQYASABKAkiEAoOQ2FuY2VsUmVzcG9uc2UiIAoNUmVzdWx0UmVxdWVzdBIPCgdjYWxsX2lkGAEgASgJIkEKDlJlc3VsdFJlc3BvbnNlEg0KBWZvdW5kGAEgASgIEg4KBm91dHB1dBgCIAEoCRIQCghpc19lcnJvchgDIAEoCDKgAwoLVG9vbFNlcnZpY2USRwoESW5mbxIeLmR1cmFibGUud29ya2VyLnYxLkluZm9SZXF1ZXN0Gh8uZHVyYWJsZS53b3JrZXIudjEuSW5mb1Jlc3BvbnNlElYKCUxpc3RUb29scxIjLmR1cmFibGUud29ya2VyLnYxLkxpc3RUb29sc1JlcXVlc3QaJC5kdXJhYmxlLndvcmtlci52MS5MaXN0VG9vbHNSZXNwb25zZRJSCgdFeGVjdXRlEiEuZHVyYWJsZS53b3JrZXIudjEuRXhlY3V0ZVJlcXVlc3QaIi5kdXJhYmxlLndvcmtlci52MS5FeGVjdXRlUmVzcG9uc2UwARJNCgZDYW5jZWwSIC5kdXJhYmxlLndvcmtlci52MS5DYW5jZWxSZXF1ZXN0GiEuZHVyYWJsZS53b3JrZXIudjEuQ2FuY2VsUmVzcG9uc2USTQoGUmVzdWx0EiAuZHVyYWJsZS53b3JrZXIudjEuUmVzdWx0UmVxdWVzdBohLmR1cmFibGUud29ya2VyLnYxLlJlc3VsdFJlc3BvbnNlQj1aO2dpdGh1Yi5jb20vd29sZmVpZGF1L2R1cmFibGUvYXBpL2R1cmFibGUvd29ya2VyL3YxO3dvcmtlcnYxYgZwcm90bzM");
 
 /**
  * @generated from message durable.worker.v1.InfoRequest
@@ -149,6 +149,13 @@ export type ExecuteRequest = Message<"durable.worker.v1.ExecuteRequest"> & {
    * @generated from field: bytes input = 3;
    */
   input: Uint8Array;
+
+  /**
+   * stream_output asks for live output as delta messages before the result.
+   *
+   * @generated from field: bool stream_output = 4;
+   */
+  streamOutput: boolean;
 };
 
 /**
@@ -163,6 +170,35 @@ export const ExecuteRequestSchema: GenMessage<ExecuteRequest> = /*@__PURE__*/
  */
 export type ExecuteResponse = Message<"durable.worker.v1.ExecuteResponse"> & {
   /**
+   * @generated from oneof durable.worker.v1.ExecuteResponse.event
+   */
+  event: {
+    /**
+     * @generated from field: string delta = 1;
+     */
+    value: string;
+    case: "delta";
+  } | {
+    /**
+     * @generated from field: durable.worker.v1.ExecuteResult result = 2;
+     */
+    value: ExecuteResult;
+    case: "result";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message durable.worker.v1.ExecuteResponse.
+ * Use `create(ExecuteResponseSchema)` to create a new message.
+ */
+export const ExecuteResponseSchema: GenMessage<ExecuteResponse> = /*@__PURE__*/
+  messageDesc(file_durable_worker_v1_worker, 6);
+
+/**
+ * @generated from message durable.worker.v1.ExecuteResult
+ */
+export type ExecuteResult = Message<"durable.worker.v1.ExecuteResult"> & {
+  /**
    * @generated from field: string output = 1;
    */
   output: string;
@@ -174,11 +210,41 @@ export type ExecuteResponse = Message<"durable.worker.v1.ExecuteResponse"> & {
 };
 
 /**
- * Describes the message durable.worker.v1.ExecuteResponse.
- * Use `create(ExecuteResponseSchema)` to create a new message.
+ * Describes the message durable.worker.v1.ExecuteResult.
+ * Use `create(ExecuteResultSchema)` to create a new message.
  */
-export const ExecuteResponseSchema: GenMessage<ExecuteResponse> = /*@__PURE__*/
-  messageDesc(file_durable_worker_v1_worker, 6);
+export const ExecuteResultSchema: GenMessage<ExecuteResult> = /*@__PURE__*/
+  messageDesc(file_durable_worker_v1_worker, 7);
+
+/**
+ * @generated from message durable.worker.v1.CancelRequest
+ */
+export type CancelRequest = Message<"durable.worker.v1.CancelRequest"> & {
+  /**
+   * @generated from field: string call_id = 1;
+   */
+  callId: string;
+};
+
+/**
+ * Describes the message durable.worker.v1.CancelRequest.
+ * Use `create(CancelRequestSchema)` to create a new message.
+ */
+export const CancelRequestSchema: GenMessage<CancelRequest> = /*@__PURE__*/
+  messageDesc(file_durable_worker_v1_worker, 8);
+
+/**
+ * @generated from message durable.worker.v1.CancelResponse
+ */
+export type CancelResponse = Message<"durable.worker.v1.CancelResponse"> & {
+};
+
+/**
+ * Describes the message durable.worker.v1.CancelResponse.
+ * Use `create(CancelResponseSchema)` to create a new message.
+ */
+export const CancelResponseSchema: GenMessage<CancelResponse> = /*@__PURE__*/
+  messageDesc(file_durable_worker_v1_worker, 9);
 
 /**
  * @generated from message durable.worker.v1.ResultRequest
@@ -195,7 +261,7 @@ export type ResultRequest = Message<"durable.worker.v1.ResultRequest"> & {
  * Use `create(ResultRequestSchema)` to create a new message.
  */
 export const ResultRequestSchema: GenMessage<ResultRequest> = /*@__PURE__*/
-  messageDesc(file_durable_worker_v1_worker, 7);
+  messageDesc(file_durable_worker_v1_worker, 10);
 
 /**
  * @generated from message durable.worker.v1.ResultResponse
@@ -222,7 +288,7 @@ export type ResultResponse = Message<"durable.worker.v1.ResultResponse"> & {
  * Use `create(ResultResponseSchema)` to create a new message.
  */
 export const ResultResponseSchema: GenMessage<ResultResponse> = /*@__PURE__*/
-  messageDesc(file_durable_worker_v1_worker, 8);
+  messageDesc(file_durable_worker_v1_worker, 11);
 
 /**
  * ToolService runs tools inside a sandbox. The server connects in; the sandbox never dials out.
@@ -247,14 +313,26 @@ export const ToolService: GenService<{
     output: typeof ListToolsResponseSchema;
   },
   /**
-   * Execute is idempotent per call_id: a known id returns the stored result.
+   * Execute streams zero or more deltas, then exactly one result. It is idempotent per call_id:
+   * a known id streams nothing new and returns the stored result.
    *
    * @generated from rpc durable.worker.v1.ToolService.Execute
    */
   execute: {
-    methodKind: "unary";
+    methodKind: "server_streaming";
     input: typeof ExecuteRequestSchema;
     output: typeof ExecuteResponseSchema;
+  },
+  /**
+   * Cancel cancels a running call; the call then finishes with whatever the tool returns, which
+   * is stored as its result. An unknown or finished call_id is a no-op.
+   *
+   * @generated from rpc durable.worker.v1.ToolService.Cancel
+   */
+  cancel: {
+    methodKind: "unary";
+    input: typeof CancelRequestSchema;
+    output: typeof CancelResponseSchema;
   },
   /**
    * @generated from rpc durable.worker.v1.ToolService.Result

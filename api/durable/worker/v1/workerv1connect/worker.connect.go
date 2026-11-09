@@ -39,6 +39,8 @@ const (
 	ToolServiceListToolsProcedure = "/durable.worker.v1.ToolService/ListTools"
 	// ToolServiceExecuteProcedure is the fully-qualified name of the ToolService's Execute RPC.
 	ToolServiceExecuteProcedure = "/durable.worker.v1.ToolService/Execute"
+	// ToolServiceCancelProcedure is the fully-qualified name of the ToolService's Cancel RPC.
+	ToolServiceCancelProcedure = "/durable.worker.v1.ToolService/Cancel"
 	// ToolServiceResultProcedure is the fully-qualified name of the ToolService's Result RPC.
 	ToolServiceResultProcedure = "/durable.worker.v1.ToolService/Result"
 )
@@ -47,8 +49,12 @@ const (
 type ToolServiceClient interface {
 	Info(context.Context, *connect.Request[v1.InfoRequest]) (*connect.Response[v1.InfoResponse], error)
 	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
-	// Execute is idempotent per call_id: a known id returns the stored result.
-	Execute(context.Context, *connect.Request[v1.ExecuteRequest]) (*connect.Response[v1.ExecuteResponse], error)
+	// Execute streams zero or more deltas, then exactly one result. It is idempotent per call_id:
+	// a known id streams nothing new and returns the stored result.
+	Execute(context.Context, *connect.Request[v1.ExecuteRequest]) (*connect.ServerStreamForClient[v1.ExecuteResponse], error)
+	// Cancel cancels a running call; the call then finishes with whatever the tool returns, which
+	// is stored as its result. An unknown or finished call_id is a no-op.
+	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
 	Result(context.Context, *connect.Request[v1.ResultRequest]) (*connect.Response[v1.ResultResponse], error)
 }
 
@@ -81,6 +87,12 @@ func NewToolServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(toolServiceMethods.ByName("Execute")),
 			connect.WithClientOptions(opts...),
 		),
+		cancel: connect.NewClient[v1.CancelRequest, v1.CancelResponse](
+			httpClient,
+			baseURL+ToolServiceCancelProcedure,
+			connect.WithSchema(toolServiceMethods.ByName("Cancel")),
+			connect.WithClientOptions(opts...),
+		),
 		result: connect.NewClient[v1.ResultRequest, v1.ResultResponse](
 			httpClient,
 			baseURL+ToolServiceResultProcedure,
@@ -95,6 +107,7 @@ type toolServiceClient struct {
 	info      *connect.Client[v1.InfoRequest, v1.InfoResponse]
 	listTools *connect.Client[v1.ListToolsRequest, v1.ListToolsResponse]
 	execute   *connect.Client[v1.ExecuteRequest, v1.ExecuteResponse]
+	cancel    *connect.Client[v1.CancelRequest, v1.CancelResponse]
 	result    *connect.Client[v1.ResultRequest, v1.ResultResponse]
 }
 
@@ -109,8 +122,13 @@ func (c *toolServiceClient) ListTools(ctx context.Context, req *connect.Request[
 }
 
 // Execute calls durable.worker.v1.ToolService.Execute.
-func (c *toolServiceClient) Execute(ctx context.Context, req *connect.Request[v1.ExecuteRequest]) (*connect.Response[v1.ExecuteResponse], error) {
-	return c.execute.CallUnary(ctx, req)
+func (c *toolServiceClient) Execute(ctx context.Context, req *connect.Request[v1.ExecuteRequest]) (*connect.ServerStreamForClient[v1.ExecuteResponse], error) {
+	return c.execute.CallServerStream(ctx, req)
+}
+
+// Cancel calls durable.worker.v1.ToolService.Cancel.
+func (c *toolServiceClient) Cancel(ctx context.Context, req *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error) {
+	return c.cancel.CallUnary(ctx, req)
 }
 
 // Result calls durable.worker.v1.ToolService.Result.
@@ -122,8 +140,12 @@ func (c *toolServiceClient) Result(ctx context.Context, req *connect.Request[v1.
 type ToolServiceHandler interface {
 	Info(context.Context, *connect.Request[v1.InfoRequest]) (*connect.Response[v1.InfoResponse], error)
 	ListTools(context.Context, *connect.Request[v1.ListToolsRequest]) (*connect.Response[v1.ListToolsResponse], error)
-	// Execute is idempotent per call_id: a known id returns the stored result.
-	Execute(context.Context, *connect.Request[v1.ExecuteRequest]) (*connect.Response[v1.ExecuteResponse], error)
+	// Execute streams zero or more deltas, then exactly one result. It is idempotent per call_id:
+	// a known id streams nothing new and returns the stored result.
+	Execute(context.Context, *connect.Request[v1.ExecuteRequest], *connect.ServerStream[v1.ExecuteResponse]) error
+	// Cancel cancels a running call; the call then finishes with whatever the tool returns, which
+	// is stored as its result. An unknown or finished call_id is a no-op.
+	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
 	Result(context.Context, *connect.Request[v1.ResultRequest]) (*connect.Response[v1.ResultResponse], error)
 }
 
@@ -146,10 +168,16 @@ func NewToolServiceHandler(svc ToolServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(toolServiceMethods.ByName("ListTools")),
 		connect.WithHandlerOptions(opts...),
 	)
-	toolServiceExecuteHandler := connect.NewUnaryHandler(
+	toolServiceExecuteHandler := connect.NewServerStreamHandler(
 		ToolServiceExecuteProcedure,
 		svc.Execute,
 		connect.WithSchema(toolServiceMethods.ByName("Execute")),
+		connect.WithHandlerOptions(opts...),
+	)
+	toolServiceCancelHandler := connect.NewUnaryHandler(
+		ToolServiceCancelProcedure,
+		svc.Cancel,
+		connect.WithSchema(toolServiceMethods.ByName("Cancel")),
 		connect.WithHandlerOptions(opts...),
 	)
 	toolServiceResultHandler := connect.NewUnaryHandler(
@@ -166,6 +194,8 @@ func NewToolServiceHandler(svc ToolServiceHandler, opts ...connect.HandlerOption
 			toolServiceListToolsHandler.ServeHTTP(w, r)
 		case ToolServiceExecuteProcedure:
 			toolServiceExecuteHandler.ServeHTTP(w, r)
+		case ToolServiceCancelProcedure:
+			toolServiceCancelHandler.ServeHTTP(w, r)
 		case ToolServiceResultProcedure:
 			toolServiceResultHandler.ServeHTTP(w, r)
 		default:
@@ -185,8 +215,12 @@ func (UnimplementedToolServiceHandler) ListTools(context.Context, *connect.Reque
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.ListTools is not implemented"))
 }
 
-func (UnimplementedToolServiceHandler) Execute(context.Context, *connect.Request[v1.ExecuteRequest]) (*connect.Response[v1.ExecuteResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.Execute is not implemented"))
+func (UnimplementedToolServiceHandler) Execute(context.Context, *connect.Request[v1.ExecuteRequest], *connect.ServerStream[v1.ExecuteResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.Execute is not implemented"))
+}
+
+func (UnimplementedToolServiceHandler) Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.Cancel is not implemented"))
 }
 
 func (UnimplementedToolServiceHandler) Result(context.Context, *connect.Request[v1.ResultRequest]) (*connect.Response[v1.ResultResponse], error) {

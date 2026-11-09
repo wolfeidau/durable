@@ -291,10 +291,12 @@ func (x *ListToolsResponse) GetTools() []*ToolInfo {
 }
 
 type ExecuteRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	CallId        string                 `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Input         []byte                 `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	CallId string                 `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	Name   string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Input  []byte                 `protobuf:"bytes,3,opt,name=input,proto3" json:"input,omitempty"`
+	// stream_output asks for live output as delta messages before the result.
+	StreamOutput  bool `protobuf:"varint,4,opt,name=stream_output,json=streamOutput,proto3" json:"stream_output,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -350,10 +352,20 @@ func (x *ExecuteRequest) GetInput() []byte {
 	return nil
 }
 
+func (x *ExecuteRequest) GetStreamOutput() bool {
+	if x != nil {
+		return x.StreamOutput
+	}
+	return false
+}
+
 type ExecuteResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Output        string                 `protobuf:"bytes,1,opt,name=output,proto3" json:"output,omitempty"`
-	IsError       bool                   `protobuf:"varint,2,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Event:
+	//
+	//	*ExecuteResponse_Delta
+	//	*ExecuteResponse_Result
+	Event         isExecuteResponse_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -388,18 +400,177 @@ func (*ExecuteResponse) Descriptor() ([]byte, []int) {
 	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *ExecuteResponse) GetOutput() string {
+func (x *ExecuteResponse) GetEvent() isExecuteResponse_Event {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+func (x *ExecuteResponse) GetDelta() string {
+	if x != nil {
+		if x, ok := x.Event.(*ExecuteResponse_Delta); ok {
+			return x.Delta
+		}
+	}
+	return ""
+}
+
+func (x *ExecuteResponse) GetResult() *ExecuteResult {
+	if x != nil {
+		if x, ok := x.Event.(*ExecuteResponse_Result); ok {
+			return x.Result
+		}
+	}
+	return nil
+}
+
+type isExecuteResponse_Event interface {
+	isExecuteResponse_Event()
+}
+
+type ExecuteResponse_Delta struct {
+	Delta string `protobuf:"bytes,1,opt,name=delta,proto3,oneof"`
+}
+
+type ExecuteResponse_Result struct {
+	Result *ExecuteResult `protobuf:"bytes,2,opt,name=result,proto3,oneof"`
+}
+
+func (*ExecuteResponse_Delta) isExecuteResponse_Event() {}
+
+func (*ExecuteResponse_Result) isExecuteResponse_Event() {}
+
+type ExecuteResult struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Output        string                 `protobuf:"bytes,1,opt,name=output,proto3" json:"output,omitempty"`
+	IsError       bool                   `protobuf:"varint,2,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ExecuteResult) Reset() {
+	*x = ExecuteResult{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ExecuteResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ExecuteResult) ProtoMessage() {}
+
+func (x *ExecuteResult) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ExecuteResult.ProtoReflect.Descriptor instead.
+func (*ExecuteResult) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *ExecuteResult) GetOutput() string {
 	if x != nil {
 		return x.Output
 	}
 	return ""
 }
 
-func (x *ExecuteResponse) GetIsError() bool {
+func (x *ExecuteResult) GetIsError() bool {
 	if x != nil {
 		return x.IsError
 	}
 	return false
+}
+
+type CancelRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CallId        string                 `protobuf:"bytes,1,opt,name=call_id,json=callId,proto3" json:"call_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelRequest) Reset() {
+	*x = CancelRequest{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelRequest) ProtoMessage() {}
+
+func (x *CancelRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelRequest.ProtoReflect.Descriptor instead.
+func (*CancelRequest) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *CancelRequest) GetCallId() string {
+	if x != nil {
+		return x.CallId
+	}
+	return ""
+}
+
+type CancelResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CancelResponse) Reset() {
+	*x = CancelResponse{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CancelResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CancelResponse) ProtoMessage() {}
+
+func (x *CancelResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CancelResponse.ProtoReflect.Descriptor instead.
+func (*CancelResponse) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{9}
 }
 
 type ResultRequest struct {
@@ -411,7 +582,7 @@ type ResultRequest struct {
 
 func (x *ResultRequest) Reset() {
 	*x = ResultRequest{}
-	mi := &file_durable_worker_v1_worker_proto_msgTypes[7]
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -423,7 +594,7 @@ func (x *ResultRequest) String() string {
 func (*ResultRequest) ProtoMessage() {}
 
 func (x *ResultRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_worker_v1_worker_proto_msgTypes[7]
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -436,7 +607,7 @@ func (x *ResultRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultRequest.ProtoReflect.Descriptor instead.
 func (*ResultRequest) Descriptor() ([]byte, []int) {
-	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{7}
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ResultRequest) GetCallId() string {
@@ -457,7 +628,7 @@ type ResultResponse struct {
 
 func (x *ResultResponse) Reset() {
 	*x = ResultResponse{}
-	mi := &file_durable_worker_v1_worker_proto_msgTypes[8]
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -469,7 +640,7 @@ func (x *ResultResponse) String() string {
 func (*ResultResponse) ProtoMessage() {}
 
 func (x *ResultResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_worker_v1_worker_proto_msgTypes[8]
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -482,7 +653,7 @@ func (x *ResultResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResultResponse.ProtoReflect.Descriptor instead.
 func (*ResultResponse) Descriptor() ([]byte, []int) {
-	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{8}
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ResultResponse) GetFound() bool {
@@ -529,24 +700,33 @@ const file_durable_worker_v1_worker_proto_rawDesc = "" +
 	"\tread_only\x18\x04 \x01(\bR\breadOnly\x12\x16\n" +
 	"\x06replay\x18\x05 \x01(\tR\x06replay\"F\n" +
 	"\x11ListToolsResponse\x121\n" +
-	"\x05tools\x18\x01 \x03(\v2\x1b.durable.worker.v1.ToolInfoR\x05tools\"S\n" +
+	"\x05tools\x18\x01 \x03(\v2\x1b.durable.worker.v1.ToolInfoR\x05tools\"x\n" +
 	"\x0eExecuteRequest\x12\x17\n" +
 	"\acall_id\x18\x01 \x01(\tR\x06callId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
-	"\x05input\x18\x03 \x01(\fR\x05input\"D\n" +
+	"\x05input\x18\x03 \x01(\fR\x05input\x12#\n" +
+	"\rstream_output\x18\x04 \x01(\bR\fstreamOutput\"n\n" +
 	"\x0fExecuteResponse\x12\x16\n" +
+	"\x05delta\x18\x01 \x01(\tH\x00R\x05delta\x12:\n" +
+	"\x06result\x18\x02 \x01(\v2 .durable.worker.v1.ExecuteResultH\x00R\x06resultB\a\n" +
+	"\x05event\"B\n" +
+	"\rExecuteResult\x12\x16\n" +
 	"\x06output\x18\x01 \x01(\tR\x06output\x12\x19\n" +
 	"\bis_error\x18\x02 \x01(\bR\aisError\"(\n" +
+	"\rCancelRequest\x12\x17\n" +
+	"\acall_id\x18\x01 \x01(\tR\x06callId\"\x10\n" +
+	"\x0eCancelResponse\"(\n" +
 	"\rResultRequest\x12\x17\n" +
 	"\acall_id\x18\x01 \x01(\tR\x06callId\"Y\n" +
 	"\x0eResultResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x19\n" +
-	"\bis_error\x18\x03 \x01(\bR\aisError2\xcf\x02\n" +
+	"\bis_error\x18\x03 \x01(\bR\aisError2\xa0\x03\n" +
 	"\vToolService\x12G\n" +
 	"\x04Info\x12\x1e.durable.worker.v1.InfoRequest\x1a\x1f.durable.worker.v1.InfoResponse\x12V\n" +
-	"\tListTools\x12#.durable.worker.v1.ListToolsRequest\x1a$.durable.worker.v1.ListToolsResponse\x12P\n" +
-	"\aExecute\x12!.durable.worker.v1.ExecuteRequest\x1a\".durable.worker.v1.ExecuteResponse\x12M\n" +
+	"\tListTools\x12#.durable.worker.v1.ListToolsRequest\x1a$.durable.worker.v1.ListToolsResponse\x12R\n" +
+	"\aExecute\x12!.durable.worker.v1.ExecuteRequest\x1a\".durable.worker.v1.ExecuteResponse0\x01\x12M\n" +
+	"\x06Cancel\x12 .durable.worker.v1.CancelRequest\x1a!.durable.worker.v1.CancelResponse\x12M\n" +
 	"\x06Result\x12 .durable.worker.v1.ResultRequest\x1a!.durable.worker.v1.ResultResponseB=Z;github.com/wolfeidau/durable/api/durable/worker/v1;workerv1b\x06proto3"
 
 var (
@@ -561,7 +741,7 @@ func file_durable_worker_v1_worker_proto_rawDescGZIP() []byte {
 	return file_durable_worker_v1_worker_proto_rawDescData
 }
 
-var file_durable_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_durable_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_durable_worker_v1_worker_proto_goTypes = []any{
 	(*InfoRequest)(nil),       // 0: durable.worker.v1.InfoRequest
 	(*InfoResponse)(nil),      // 1: durable.worker.v1.InfoResponse
@@ -570,26 +750,32 @@ var file_durable_worker_v1_worker_proto_goTypes = []any{
 	(*ListToolsResponse)(nil), // 4: durable.worker.v1.ListToolsResponse
 	(*ExecuteRequest)(nil),    // 5: durable.worker.v1.ExecuteRequest
 	(*ExecuteResponse)(nil),   // 6: durable.worker.v1.ExecuteResponse
-	(*ResultRequest)(nil),     // 7: durable.worker.v1.ResultRequest
-	(*ResultResponse)(nil),    // 8: durable.worker.v1.ResultResponse
-	nil,                       // 9: durable.worker.v1.InfoResponse.EnvEntry
+	(*ExecuteResult)(nil),     // 7: durable.worker.v1.ExecuteResult
+	(*CancelRequest)(nil),     // 8: durable.worker.v1.CancelRequest
+	(*CancelResponse)(nil),    // 9: durable.worker.v1.CancelResponse
+	(*ResultRequest)(nil),     // 10: durable.worker.v1.ResultRequest
+	(*ResultResponse)(nil),    // 11: durable.worker.v1.ResultResponse
+	nil,                       // 12: durable.worker.v1.InfoResponse.EnvEntry
 }
 var file_durable_worker_v1_worker_proto_depIdxs = []int32{
-	9, // 0: durable.worker.v1.InfoResponse.env:type_name -> durable.worker.v1.InfoResponse.EnvEntry
-	3, // 1: durable.worker.v1.ListToolsResponse.tools:type_name -> durable.worker.v1.ToolInfo
-	0, // 2: durable.worker.v1.ToolService.Info:input_type -> durable.worker.v1.InfoRequest
-	2, // 3: durable.worker.v1.ToolService.ListTools:input_type -> durable.worker.v1.ListToolsRequest
-	5, // 4: durable.worker.v1.ToolService.Execute:input_type -> durable.worker.v1.ExecuteRequest
-	7, // 5: durable.worker.v1.ToolService.Result:input_type -> durable.worker.v1.ResultRequest
-	1, // 6: durable.worker.v1.ToolService.Info:output_type -> durable.worker.v1.InfoResponse
-	4, // 7: durable.worker.v1.ToolService.ListTools:output_type -> durable.worker.v1.ListToolsResponse
-	6, // 8: durable.worker.v1.ToolService.Execute:output_type -> durable.worker.v1.ExecuteResponse
-	8, // 9: durable.worker.v1.ToolService.Result:output_type -> durable.worker.v1.ResultResponse
-	6, // [6:10] is the sub-list for method output_type
-	2, // [2:6] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	12, // 0: durable.worker.v1.InfoResponse.env:type_name -> durable.worker.v1.InfoResponse.EnvEntry
+	3,  // 1: durable.worker.v1.ListToolsResponse.tools:type_name -> durable.worker.v1.ToolInfo
+	7,  // 2: durable.worker.v1.ExecuteResponse.result:type_name -> durable.worker.v1.ExecuteResult
+	0,  // 3: durable.worker.v1.ToolService.Info:input_type -> durable.worker.v1.InfoRequest
+	2,  // 4: durable.worker.v1.ToolService.ListTools:input_type -> durable.worker.v1.ListToolsRequest
+	5,  // 5: durable.worker.v1.ToolService.Execute:input_type -> durable.worker.v1.ExecuteRequest
+	8,  // 6: durable.worker.v1.ToolService.Cancel:input_type -> durable.worker.v1.CancelRequest
+	10, // 7: durable.worker.v1.ToolService.Result:input_type -> durable.worker.v1.ResultRequest
+	1,  // 8: durable.worker.v1.ToolService.Info:output_type -> durable.worker.v1.InfoResponse
+	4,  // 9: durable.worker.v1.ToolService.ListTools:output_type -> durable.worker.v1.ListToolsResponse
+	6,  // 10: durable.worker.v1.ToolService.Execute:output_type -> durable.worker.v1.ExecuteResponse
+	9,  // 11: durable.worker.v1.ToolService.Cancel:output_type -> durable.worker.v1.CancelResponse
+	11, // 12: durable.worker.v1.ToolService.Result:output_type -> durable.worker.v1.ResultResponse
+	8,  // [8:13] is the sub-list for method output_type
+	3,  // [3:8] is the sub-list for method input_type
+	3,  // [3:3] is the sub-list for extension type_name
+	3,  // [3:3] is the sub-list for extension extendee
+	0,  // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_durable_worker_v1_worker_proto_init() }
@@ -597,13 +783,17 @@ func file_durable_worker_v1_worker_proto_init() {
 	if File_durable_worker_v1_worker_proto != nil {
 		return
 	}
+	file_durable_worker_v1_worker_proto_msgTypes[6].OneofWrappers = []any{
+		(*ExecuteResponse_Delta)(nil),
+		(*ExecuteResponse_Result)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_worker_v1_worker_proto_rawDesc), len(file_durable_worker_v1_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

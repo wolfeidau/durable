@@ -316,3 +316,16 @@ func TestDeltasHandleNilAndEmptyInput(t *testing.T) {
 	require.Equal(t, StatusDone, sub.Status)
 	require.Empty(t, withoutResets(log.all()))
 }
+
+func TestToolOutputSinkCapturesEmits(t *testing.T) {
+	require.False(t, ToolOutputEnabled(t.Context()))
+	var seen []string
+	ctx := WithToolOutputSink(t.Context(), func(s string) { seen = append(seen, s) })
+	require.True(t, ToolOutputEnabled(ctx))
+	EmitToolOutput(ctx, "a")
+	EmitToolOutput(ctx, "")
+	EmitToolOutput(WithoutToolOutput(ctx), "hidden")
+	require.False(t, ToolOutputEnabled(WithoutToolOutput(ctx)))
+	require.Equal(t, []string{"a"}, seen)
+	require.Equal(t, t.Context(), WithToolOutputSink(t.Context(), nil))
+}

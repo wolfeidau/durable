@@ -3,8 +3,10 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	"github.com/wolfeidau/durable"
 	workerv1 "github.com/wolfeidau/durable/api/durable/worker/v1"
+	"github.com/wolfeidau/durable/api/durable/worker/v1/workerv1connect"
 	"github.com/wolfeidau/durable/internal/worker"
 	"github.com/wolfeidau/durable/tools"
 )
@@ -172,4 +175,159 @@ func TestWrongTokenRejected(t *testing.T) {
 func TestEmptyTokenRefused(t *testing.T) {
 	_, err := worker.Handler(worker.Config{})
 	require.Error(t, err)
+}
+
+func bashFor(t *testing.T, url string) durable.Tool {
+	t.Helper()
+	got, err := dial(t, url, testToken).Tools(t.Context())
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	return got[0]
+}
+
+func TestDeltasArriveInOrderBeforeResult(t *testing.T) {
+	release := make(chan struct{})
+	tool := fakeTool{name: "bash", run: func(ctx context.Context, _ durable.ToolCall) (string, error) {
+		durable.EmitToolOutput(ctx, "a")
+		durable.EmitToolOutput(ctx, "b")
+		<-release
+		durable.EmitToolOutput(ctx, "c")
+		return "done", nil
+	}}
+	srv := startWorker(t, worker.Config{Tools: []durable.Tool{tool}})
+	deltas := make(chan string, 8)
+	ctx := durable.WithToolOutputSink(t.Context(), func(s string) { deltas <- s })
+
+	type res struct {
+		out string
+		err error
+	}
+	resc := make(chan res, 1)
+	bash := bashFor(t, srv.URL)
+	go func() {
+		out, err := bash.Execute(ctx, durable.ToolCall{ID: "d1", Name: "bash", Input: json.RawMessage(`{}`)})
+		resc <- res{out, err}
+	}()
+
+	// Both early deltas arrive while the tool is still running.
+	require.Equal(t, "a", <-deltas)
+	require.Equal(t, "b", <-deltas)
+	select {
+	case <-resc:
+		t.Fatal("result arrived before the tool finished")
+	default:
+	}
+	close(release)
+	r := <-resc
+	require.NoError(t, r.err)
+	require.Equal(t, "done", r.out)
+	require.Equal(t, "c", <-deltas)
+}
+
+func TestNoDeltasWithoutStreamOutput(t *testing.T) {
+	var enabled atomic.Bool
+	tool := fakeTool{name: "bash", run: func(ctx context.Context, _ durable.ToolCall) (string, error) {
+		enabled.Store(durable.ToolOutputEnabled(ctx))
+		durable.EmitToolOutput(ctx, "x")
+		return "done", nil
+	}}
+	srv := startWorker(t, worker.Config{Tools: []durable.Tool{tool}})
+	bash := bashFor(t, srv.URL)
+
+	out, err := bash.Execute(t.Context(), durable.ToolCall{ID: "n1", Name: "bash", Input: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+	require.Equal(t, "done", out)
+	require.False(t, enabled.Load())
+
+	// WithoutToolOutput also turns streaming off.
+	var seen []string
+	ctx := durable.WithoutToolOutput(durable.WithToolOutputSink(t.Context(), func(s string) { seen = append(seen, s) }))
+	_, err = bash.Execute(ctx, durable.ToolCall{ID: "n2", Name: "bash", Input: json.RawMessage(`{}`)})
+	require.NoError(t, err)
+	require.Empty(t, seen)
+	require.False(t, enabled.Load())
+}
+
+func TestCancelStopsToolAndStoresResult(t *testing.T) {
+	started := make(chan struct{})
+	tool := fakeTool{name: "bash", run: func(ctx context.Context, _ durable.ToolCall) (string, error) {
+		close(started)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}}
+	srv := startWorker(t, worker.Config{Tools: []durable.Tool{tool}})
+	bash := bashFor(t, srv.URL)
+	call := durable.ToolCall{ID: "k1", Name: "bash", Input: json.RawMessage(`{}`)}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	errc := make(chan error, 1)
+	go func() {
+		_, err := bash.Execute(ctx, call)
+		errc <- err
+	}()
+	<-started
+	cancel()
+	require.ErrorIs(t, <-errc, context.Canceled)
+
+	require.Eventually(t, func() bool {
+		return bash.(durable.Recoverer).Recover(t.Context(), call) == "context canceled"
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// A repeat Execute returns the stored result without re-running.
+	_, err := bash.Execute(t.Context(), call)
+	require.ErrorContains(t, err, "context canceled")
+}
+
+func TestCancelUnknownOrFinishedCallIsNoOp(t *testing.T) {
+	srv := startWorker(t, worker.Config{Tools: []durable.Tool{fakeTool{name: "bash", run: func(context.Context, durable.ToolCall) (string, error) { return "ok", nil }}}})
+	c := dial(t, srv.URL, testToken)
+	_, err := c.rpc.Cancel(t.Context(), connect.NewRequest(&workerv1.CancelRequest{CallId: "nope"}))
+	require.NoError(t, err)
+
+	bash := bashFor(t, srv.URL)
+	call := durable.ToolCall{ID: "f1", Name: "bash", Input: json.RawMessage(`{}`)}
+	_, err = bash.Execute(t.Context(), call)
+	require.NoError(t, err)
+	_, err = c.rpc.Cancel(t.Context(), connect.NewRequest(&workerv1.CancelRequest{CallId: "f1"}))
+	require.NoError(t, err)
+	out, err := bash.Execute(t.Context(), call)
+	require.NoError(t, err)
+	require.Equal(t, "ok", out)
+}
+
+type cancelingWorker struct {
+	workerv1connect.UnimplementedToolServiceHandler
+	code connect.Code
+}
+
+func (cancelingWorker) ListTools(context.Context, *connect.Request[workerv1.ListToolsRequest]) (*connect.Response[workerv1.ListToolsResponse], error) {
+	return connect.NewResponse(&workerv1.ListToolsResponse{Tools: []*workerv1.ToolInfo{{Name: "bash", InputSchema: []byte(`{}`)}}}), nil
+}
+
+func (w cancelingWorker) Execute(context.Context, *connect.Request[workerv1.ExecuteRequest], *connect.ServerStream[workerv1.ExecuteResponse]) error {
+	return connect.NewError(w.code, errors.New("worker deadline"))
+}
+
+func TestCanceledCodeIsCancellationOnlyWhenContextEnded(t *testing.T) {
+	for _, code := range []connect.Code{connect.CodeCanceled, connect.CodeDeadlineExceeded} {
+		_, h := workerv1connect.NewToolServiceHandler(cancelingWorker{code: code})
+		srv := httptest.NewUnstartedServer(h)
+		srv.Config.Protocols = new(http.Protocols)
+		srv.Config.Protocols.SetUnencryptedHTTP2(true)
+		srv.Start()
+		t.Cleanup(srv.Close)
+		bash := bashFor(t, srv.URL)
+		call := durable.ToolCall{ID: "x", Name: "bash", Input: json.RawMessage(`{}`)}
+
+		_, err := bash.Execute(t.Context(), call)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, context.Canceled)
+		require.NotErrorIs(t, err, context.DeadlineExceeded)
+		require.Equal(t, code, connect.CodeOf(err))
+
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		_, err = bash.Execute(ctx, call)
+		require.ErrorIs(t, err, context.Canceled)
+	}
 }

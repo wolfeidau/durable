@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 	"unicode/utf8"
 
 	"connectrpc.com/connect"
@@ -35,20 +36,61 @@ var known = []struct {
 
 // Client talks to one worker.
 type Client struct {
-	rpc workerv1connect.ToolServiceClient
+	rpc  workerv1connect.ToolServiceClient
+	http *http.Client
+	// drop closes every open connection to the worker, for tests of connection loss.
+	drop func()
+}
+
+// tokenAuth adds the bearer token to unary and streaming calls.
+type tokenAuth struct{ token string }
+
+func (a tokenAuth) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		req.Header().Set("Authorization", "Bearer "+a.token)
+		return next(ctx, req)
+	}
+}
+
+func (a tokenAuth) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return func(ctx context.Context, spec connect.Spec) connect.StreamingClientConn {
+		conn := next(ctx, spec)
+		conn.RequestHeader().Set("Authorization", "Bearer "+a.token)
+		return conn
+	}
+}
+
+func (a tokenAuth) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return next
+}
+
+func newClient(hc *http.Client, baseURL, token string) *Client {
+	return &Client{
+		rpc:  workerv1connect.NewToolServiceClient(hc, baseURL, connect.WithInterceptors(tokenAuth{token})),
+		http: hc,
+	}
+}
+
+func h2cTransport() *http.Transport {
+	transport := &http.Transport{Protocols: new(http.Protocols)}
+	transport.Protocols.SetUnencryptedHTTP2(true)
+	return transport
 }
 
 // Dial returns a client for the worker at baseURL. It makes no request.
 func Dial(_ context.Context, baseURL, token string) (*Client, error) {
-	transport := &http.Transport{Protocols: new(http.Protocols)}
-	transport.Protocols.SetUnencryptedHTTP2(true)
-	auth := connect.UnaryInterceptorFunc(func(next connect.UnaryFunc) connect.UnaryFunc {
-		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
-			req.Header().Set("Authorization", "Bearer "+token)
-			return next(ctx, req)
-		}
-	})
-	return &Client{rpc: workerv1connect.NewToolServiceClient(&http.Client{Transport: transport}, baseURL, connect.WithInterceptors(auth))}, nil
+	return newClient(&http.Client{Transport: h2cTransport()}, baseURL, token), nil
+}
+
+// CloseIdle closes idle connections to the worker.
+func (c *Client) CloseIdle() { c.http.CloseIdleConnections() }
+
+// DropConnections closes every connection to the worker, including ones carrying a request. It does nothing
+// for clients made by Dial.
+func (c *Client) DropConnections() {
+	if c.drop != nil {
+		c.drop()
+	}
 }
 
 // Info returns the worker's view of its environment.
@@ -122,21 +164,50 @@ func (t *remoteTool) Replay() durable.Replay { return t.replay }
 func (t *remoteTool) ReadOnly() bool         { return t.readOnly }
 
 func (t *remoteTool) Execute(ctx context.Context, call durable.ToolCall) (string, error) {
-	res, err := t.c.rpc.Execute(ctx, connect.NewRequest(&workerv1.ExecuteRequest{CallId: call.ID, Name: call.Name, Input: call.Input}))
+	req := &workerv1.ExecuteRequest{CallId: call.ID, Name: call.Name, Input: call.Input, StreamOutput: durable.ToolOutputEnabled(ctx)}
+	stream, err := t.c.rpc.Execute(ctx, connect.NewRequest(req))
 	if err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		return "", fmt.Errorf("failed to execute %s on worker: %w", call.Name, err)
+		return "", t.failed(ctx, call, err)
 	}
-	out, err := clean(res.Msg.Output)
+	defer stream.Close()
+	var res *workerv1.ExecuteResult
+	for stream.Receive() {
+		switch ev := stream.Msg().Event.(type) {
+		case *workerv1.ExecuteResponse_Delta:
+			if utf8.ValidString(ev.Delta) {
+				durable.EmitToolOutput(ctx, ev.Delta)
+			}
+		case *workerv1.ExecuteResponse_Result:
+			res = ev.Result
+		}
+	}
+	if err := stream.Err(); err != nil {
+		return "", t.failed(ctx, call, err)
+	}
+	if res == nil {
+		return "", t.failed(ctx, call, errors.New("stream ended without a result"))
+	}
+	out, err := clean(res.Output)
 	if err != nil {
 		return "", err
 	}
-	if res.Msg.IsError {
+	if res.IsError {
 		return "", errors.New(out)
 	}
 	return out, nil
+}
+
+// failed maps an RPC failure. A canceled or deadline_exceeded code counts as cancellation only when ctx has
+// ended, because Connect also reports those codes for the worker's own deadlines.
+func (t *remoteTool) failed(ctx context.Context, call durable.ToolCall, err error) error {
+	if ctx.Err() != nil {
+		// The worker keeps the call running after a dropped request, so stop it explicitly.
+		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		defer cancel()
+		_, _ = t.c.rpc.Cancel(cctx, connect.NewRequest(&workerv1.CancelRequest{CallId: call.ID})) // best effort; the result is stored either way
+		return ctx.Err()
+	}
+	return fmt.Errorf("failed to execute %s on worker: %w", call.Name, err)
 }
 
 func (t *remoteTool) Recover(ctx context.Context, call durable.ToolCall) string {
