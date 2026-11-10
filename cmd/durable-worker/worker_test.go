@@ -160,3 +160,38 @@ func TestCancelledBashReturnsPromptly(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.Less(t, time.Since(start), 10*time.Second)
 }
+
+func TestBashDoesNotInheritToken(t *testing.T) {
+	isolate(t)
+	const token = "tok-7f3a9c1e5b2d4086"
+	cmd := exec.CommandContext(t.Context(), binPath, "--root", t.TempDir(), "--state-dir", t.TempDir())
+	cmd.Env = append(os.Environ(), worker.TokenEnv+"="+token)
+	stdout, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Signal(syscall.SIGTERM)
+		_ = cmd.Wait()
+	})
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	require.NoError(t, err)
+	addr := strings.TrimSpace(strings.TrimPrefix(line, "durable-worker listening "))
+
+	c := sandbox.NewClient("http://"+addr, token, nil)
+	t.Cleanup(c.CloseIdle)
+	all, err := c.Tools(t.Context())
+	require.NoError(t, err)
+	var bash durable.Tool
+	for _, tl := range all {
+		if tl.Spec().Name == "bash" {
+			bash = tl
+		}
+	}
+	require.NotNil(t, bash)
+
+	out, err := bash.Execute(t.Context(), durable.ToolCall{ID: "e1", Name: "bash", Input: []byte(`{"command":"env","timeout_seconds":null}`)})
+	require.NoError(t, err)
+	require.Contains(t, out, "HOME=", "env should have run")
+	require.NotContains(t, out, worker.TokenEnv)
+	require.NotContains(t, out, token)
+}

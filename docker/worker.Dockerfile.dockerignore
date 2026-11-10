@@ -1,0 +1,7 @@
+.git
+.claude
+dist
+/durable
+coverage.*
+tests.json
+web/node_modules

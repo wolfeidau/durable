@@ -40,6 +40,14 @@ trap 'rc=$?; if [ $rc -ne 0 ]; then docker compose -f e2e/compose.yaml logs --no
 docker compose -f e2e/compose.yaml run --rm --build tests
 """
 
+[tasks."image:worker"]
+# The image is built locally only; there is no registry.
+run = "docker build -f docker/worker.Dockerfile -t durable-worker:dev ."
+
+[tasks."test:openshell"]
+depends = ["image:worker"]
+run = "DURABLE_TEST_OPENSHELL=1 go test -count=1 -timeout 20m -run . ./internal/sandbox/openshell/"
+
 [tasks."web:gen"]
 dir = "{{config_root}}/web"
 # protoc-gen-es has a node shebang, so run buf under bun.
