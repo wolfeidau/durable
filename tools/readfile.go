@@ -19,20 +19,22 @@ const (
 	maxLineChars     = 2000
 )
 
+var readFileEntry = Entry{Replay: durable.ReplaySafe, ReadOnly: true, Spec: durable.ToolSpec{
+	Name: "read_file",
+	Description: "Read a text file and return numbered lines. Returns at most `limit` lines (default 2000) starting at the 1-based line `offset` (default 1); " +
+		"lines longer than 2000 characters are cut. If more lines remain the output ends with a marker giving the offset to continue from. Binary files are rejected.",
+	Schema: json.RawMessage(`{"type":"object","properties":{` +
+		`"path":{"type":"string","description":"File path, relative to the workspace root or absolute inside it."},` +
+		`"offset":{"type":["integer","null"],"description":"1-based line to start at, or null for 1."},` +
+		`"limit":{"type":["integer","null"],"description":"Maximum lines to return, or null for 2000."}},` +
+		`"required":["path","offset","limit"],"additionalProperties":false}`),
+}}
+
 func newReadFile(root string) durable.Tool {
 	return tool{
-		spec: durable.ToolSpec{
-			Name: "read_file",
-			Description: "Read a text file and return numbered lines. Returns at most `limit` lines (default 2000) starting at the 1-based line `offset` (default 1); " +
-				"lines longer than 2000 characters are cut. If more lines remain the output ends with a marker giving the offset to continue from. Binary files are rejected.",
-			Schema: json.RawMessage(`{"type":"object","properties":{` +
-				`"path":{"type":"string","description":"File path, relative to the workspace root or absolute inside it."},` +
-				`"offset":{"type":["integer","null"],"description":"1-based line to start at, or null for 1."},` +
-				`"limit":{"type":["integer","null"],"description":"Maximum lines to return, or null for 2000."}},` +
-				`"required":["path","offset","limit"],"additionalProperties":false}`),
-		},
-		replay:   durable.ReplaySafe,
-		readOnly: true,
+		spec:     readFileEntry.Spec,
+		replay:   readFileEntry.Replay,
+		readOnly: readFileEntry.ReadOnly,
 		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path   string `json:"path"`

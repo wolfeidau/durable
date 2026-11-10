@@ -13,18 +13,20 @@ import (
 
 const maxListEntries = 2000
 
+var listFilesEntry = Entry{Replay: durable.ReplaySafe, ReadOnly: true, Spec: durable.ToolSpec{
+	Name: "list_files",
+	Description: "Recursively list files and directories under a directory, sorted, as paths relative to the workspace root (directories end in /). " +
+		"Skips .git. Output is capped at 2000 entries and ends with a marker if more exist; list a subdirectory to see the rest.",
+	Schema: json.RawMessage(`{"type":"object","properties":{` +
+		`"path":{"type":["string","null"],"description":"Directory to list, or null for the workspace root."}},` +
+		`"required":["path"],"additionalProperties":false}`),
+}}
+
 func newListFiles(root string) durable.Tool {
 	return tool{
-		spec: durable.ToolSpec{
-			Name: "list_files",
-			Description: "Recursively list files and directories under a directory, sorted, as paths relative to the workspace root (directories end in /). " +
-				"Skips .git. Output is capped at 2000 entries and ends with a marker if more exist; list a subdirectory to see the rest.",
-			Schema: json.RawMessage(`{"type":"object","properties":{` +
-				`"path":{"type":["string","null"],"description":"Directory to list, or null for the workspace root."}},` +
-				`"required":["path"],"additionalProperties":false}`),
-		},
-		replay:   durable.ReplaySafe,
-		readOnly: true,
+		spec:     listFilesEntry.Spec,
+		replay:   listFilesEntry.Replay,
+		readOnly: listFilesEntry.ReadOnly,
 		run:      func(ctx context.Context, call durable.ToolCall) (string, error) { return runListFiles(ctx, root, call) },
 	}
 }

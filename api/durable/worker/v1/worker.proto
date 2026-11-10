@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package durable.worker.v1;
+
+option go_package = "github.com/wolfeidau/durable/api/durable/worker/v1;workerv1";
+
+// ToolService runs tools inside a sandbox. The server connects in; the sandbox never dials out.
+service ToolService {
+  // Info reports the worker's environment, without its token.
+  rpc Info(InfoRequest) returns (InfoResponse);
+  // ListTools reports the name, description and schema of each tool. The server checks them against its own catalog.
+  rpc ListTools(ListToolsRequest) returns (ListToolsResponse);
+  // Execute streams zero or more deltas, then exactly one result. It is idempotent per call_id:
+  // a known id streams nothing new and returns the stored result.
+  rpc Execute(ExecuteRequest) returns (stream ExecuteResponse);
+  // Cancel cancels a running call; the call then finishes with whatever the tool returns, which
+  // is stored as its result. An unknown or finished call_id is a no-op.
+  rpc Cancel(CancelRequest) returns (CancelResponse);
+  // Result returns the stored result of a finished call.
+  rpc Result(ResultRequest) returns (ResultResponse);
+}
+
+// InfoRequest asks for the worker's environment.
+message InfoRequest {}
+
+// InfoResponse describes the worker's process.
+message InfoResponse {
+  // hostname is the worker's host name.
+  string hostname = 1;
+  // uid is the user the worker runs as.
+  int64 uid = 2;
+  // cwd is the worker's working directory.
+  string cwd = 3;
+  // root is the workspace root the tools are confined to.
+  string root = 4;
+  // env is the worker's environment, minus its token.
+  map<string, string> env = 5;
+}
+
+// ListToolsRequest asks for the worker's tools.
+message ListToolsRequest {}
+
+// ToolInfo is what a worker claims about one tool. Read-only and replay metadata stay with the server.
+message ToolInfo {
+  // name is the tool name.
+  string name = 1;
+  // description is the text shown to the model.
+  string description = 2;
+  // input_schema is the JSON schema of the tool input.
+  bytes input_schema = 3;
+}
+
+// ListToolsResponse lists the worker's tools in order.
+message ListToolsResponse {
+  // tools are the configured tools.
+  repeated ToolInfo tools = 1;
+}
+
+// ExecuteRequest starts or rejoins one tool call.
+message ExecuteRequest {
+  // call_id identifies the call; it keys idempotency and cancellation.
+  string call_id = 1;
+  // name is the tool to run.
+  string name = 2;
+  // input is the tool's JSON input.
+  bytes input = 3;
+  // stream_output asks for live output as delta messages before the result.
+  bool stream_output = 4;
+}
+
+// ExecuteResponse is a live delta or the final result.
+message ExecuteResponse {
+  // event is a delta, or the result that ends the stream.
+  oneof event {
+    // delta is a piece of live tool output.
+    string delta = 1;
+    // result is the final outcome of the call.
+    ExecuteResult result = 2;
+  }
+}
+
+// ExecuteResult is the outcome of a call.
+message ExecuteResult {
+  // output is the tool output, or the error text when is_error is set.
+  string output = 1;
+  // is_error is set when the tool returned an error.
+  bool is_error = 2;
+}
+
+// CancelRequest names the call to cancel.
+message CancelRequest {
+  // call_id identifies the call.
+  string call_id = 1;
+}
+
+// CancelResponse is empty.
+message CancelResponse {}
+
+// ResultRequest names the call whose result is wanted.
+message ResultRequest {
+  // call_id identifies the call.
+  string call_id = 1;
+}
+
+// ResultResponse carries the stored result, if the call has finished.
+message ResultResponse {
+  // found is false for an unknown or still running call.
+  bool found = 1;
+  // output is the tool output, or the error text when is_error is set.
+  string output = 2;
+  // is_error is set when the tool returned an error.
+  bool is_error = 3;
+}

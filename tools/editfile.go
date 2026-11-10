@@ -13,19 +13,22 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
+var editFileEntry = Entry{Replay: durable.ReplayNever, ReadOnly: false, Spec: durable.ToolSpec{
+	Name: "edit_file",
+	Description: "Edit a file by exact string replacement. `old_string` must occur exactly once in the file (include surrounding context to make it unique); " +
+		"otherwise nothing is changed and an error reports the count. If `old_string` is empty the file is created with `new_string` (parent directories are created) and it is an error if the file already exists.",
+	Schema: json.RawMessage(`{"type":"object","properties":{` +
+		`"path":{"type":"string","description":"File path, relative to the workspace root or absolute inside it."},` +
+		`"old_string":{"type":"string","description":"Exact text to replace, or an empty string to create the file."},` +
+		`"new_string":{"type":"string","description":"Replacement text, or the content of the new file."}},` +
+		`"required":["path","old_string","new_string"],"additionalProperties":false}`),
+}}
+
 func newEditFile(root string) durable.Tool {
 	return tool{
-		spec: durable.ToolSpec{
-			Name: "edit_file",
-			Description: "Edit a file by exact string replacement. `old_string` must occur exactly once in the file (include surrounding context to make it unique); " +
-				"otherwise nothing is changed and an error reports the count. If `old_string` is empty the file is created with `new_string` (parent directories are created) and it is an error if the file already exists.",
-			Schema: json.RawMessage(`{"type":"object","properties":{` +
-				`"path":{"type":"string","description":"File path, relative to the workspace root or absolute inside it."},` +
-				`"old_string":{"type":"string","description":"Exact text to replace, or an empty string to create the file."},` +
-				`"new_string":{"type":"string","description":"Replacement text, or the content of the new file."}},` +
-				`"required":["path","old_string","new_string"],"additionalProperties":false}`),
-		},
-		replay: durable.ReplayNever,
+		spec:     editFileEntry.Spec,
+		replay:   editFileEntry.Replay,
+		readOnly: editFileEntry.ReadOnly,
 		run: func(ctx context.Context, call durable.ToolCall) (string, error) {
 			var in struct {
 				Path      string `json:"path"`

@@ -71,6 +71,20 @@ func WithoutToolOutput(ctx context.Context) context.Context {
 	return context.WithValue(ctx, sinkKey{}, &cp)
 }
 
+// WithToolOutputSink makes EmitToolOutput on the returned context call fn, so a tool host outside the harness can forward live output.
+func WithToolOutputSink(ctx context.Context, fn func(string)) context.Context {
+	if fn == nil {
+		return ctx
+	}
+	return withSink(ctx, func(d Delta) { fn(d.Text) }, 0, "")
+}
+
+// ToolOutputEnabled lets a remote tool skip asking for output that EmitToolOutput would drop.
+func ToolOutputEnabled(ctx context.Context) bool {
+	sk := sinkFrom(ctx)
+	return sk != nil && !sk.noOutput
+}
+
 func emitReset(ctx context.Context) {
 	if sk := sinkFrom(ctx); sk != nil {
 		sk.fn(Delta{Kind: DeltaReset, Submission: sk.submission})

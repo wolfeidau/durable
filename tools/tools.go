@@ -54,6 +54,18 @@ func (t tool) Recover(ctx context.Context, call durable.ToolCall) string {
 	return t.recover(ctx, call)
 }
 
+// Entry is a tool's metadata, which the server trusts instead of anything a worker reports.
+type Entry struct {
+	Spec     durable.ToolSpec
+	ReadOnly bool
+	Replay   durable.Replay
+}
+
+// Catalog returns the metadata of All in the same order, without needing a root.
+func Catalog() []Entry {
+	return []Entry{readFileEntry, listFilesEntry, grepEntry, editFileEntry, bashEntry}
+}
+
 // All returns the tools in a fixed order so the tool list is stable for prompt caching.
 // stateDir holds per-call bookkeeping that must survive a crash; keep it outside the workspace.
 func All(root, stateDir string) ([]durable.Tool, error) {

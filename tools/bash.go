@@ -16,27 +16,39 @@ import (
 	"github.com/wolfeidau/durable"
 )
 
+// MaxOutputBytes is the cap on a tool result, shared with remote tools so local and remote output match.
+const MaxOutputBytes = 30 * 1024
+
+// MaxLiveOutputBytes caps a call's live output, shared with remote tools so a worker can't stream without limit.
+const MaxLiveOutputBytes = 1 << 20
+
+// LiveCapMarker is emitted once when live output reaches MaxLiveOutputBytes.
+const LiveCapMarker = "\n... [live output stopped; the final result is complete] ...\n"
+
 const (
 	defaultTimeoutSeconds = 120
 	maxTimeoutSeconds     = 600
-	maxOutputBytes        = 30 * 1024
-	maxLiveOutputBytes    = 1 << 20
+	maxOutputBytes        = MaxOutputBytes
+	maxLiveOutputBytes    = MaxLiveOutputBytes
 	waitDelay             = 2 * time.Second
 )
 
+var bashEntry = Entry{Replay: durable.ReplayNever, ReadOnly: false, Spec: durable.ToolSpec{
+	Name: "bash",
+	Description: "Run a command with `bash -c` in the workspace root. stdout and stderr are combined; there is no stdin, so interactive commands fail. " +
+		"A non-zero exit is reported as an error including the exit code and output. Output over 30KB keeps the first and last 15KB with a marker for the omitted middle. " +
+		"Default timeout is 120 seconds, maximum 600; on timeout the whole process group is killed.",
+	Schema: json.RawMessage(`{"type":"object","properties":{` +
+		`"command":{"type":"string","description":"Shell command to run."},` +
+		`"timeout_seconds":{"type":["integer","null"],"description":"Timeout in seconds (1-600), or null for 120."}},` +
+		`"required":["command","timeout_seconds"],"additionalProperties":false}`),
+}}
+
 func newBash(root, stateDir string) durable.Tool {
 	return tool{
-		spec: durable.ToolSpec{
-			Name: "bash",
-			Description: "Run a command with `bash -c` in the workspace root. stdout and stderr are combined; there is no stdin, so interactive commands fail. " +
-				"A non-zero exit is reported as an error including the exit code and output. Output over 30KB keeps the first and last 15KB with a marker for the omitted middle. " +
-				"Default timeout is 120 seconds, maximum 600; on timeout the whole process group is killed.",
-			Schema: json.RawMessage(`{"type":"object","properties":{` +
-				`"command":{"type":"string","description":"Shell command to run."},` +
-				`"timeout_seconds":{"type":["integer","null"],"description":"Timeout in seconds (1-600), or null for 120."}},` +
-				`"required":["command","timeout_seconds"],"additionalProperties":false}`),
-		},
-		replay: durable.ReplayNever,
+		spec:     bashEntry.Spec,
+		replay:   bashEntry.Replay,
+		readOnly: bashEntry.ReadOnly,
 		recover: func(ctx context.Context, call durable.ToolCall) string {
 			return recoverBash(ctx, statePath(stateDir, call.ID))
 		},
@@ -175,7 +187,7 @@ func (w *boundedWriter) String() string {
 	return fmt.Sprintf("%s\n... [%d bytes omitted] ...\n%s", w.head, omitted, tail)
 }
 
-const liveCapMarker = "\n... [live output stopped; the final result is complete] ...\n"
+const liveCapMarker = LiveCapMarker
 
 // liveWriter forwards writes to dst unchanged and emits the same bytes as valid UTF-8 text.
 type liveWriter struct {

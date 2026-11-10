@@ -20,20 +20,22 @@ const (
 	maxGrepLine    = 500
 )
 
+var grepEntry = Entry{Replay: durable.ReplaySafe, ReadOnly: true, Spec: durable.ToolSpec{
+	Name: "grep",
+	Description: "Search file contents with a Go (RE2) regular expression. Walks the directory in sorted order, skipping .git, binary files and symlinks. " +
+		"Output lines are path:line:text, with text cut to 500 characters. Capped at 500 matches with a marker if more exist.",
+	Schema: json.RawMessage(`{"type":"object","properties":{` +
+		`"pattern":{"type":"string","description":"Go regular expression matched against each line."},` +
+		`"path":{"type":["string","null"],"description":"File or directory to search, or null for the workspace root."},` +
+		`"glob":{"type":["string","null"],"description":"Only search files whose base name matches this glob (e.g. *.go), or null for all files."}},` +
+		`"required":["pattern","path","glob"],"additionalProperties":false}`),
+}}
+
 func newGrep(root string) durable.Tool {
 	return tool{
-		spec: durable.ToolSpec{
-			Name: "grep",
-			Description: "Search file contents with a Go (RE2) regular expression. Walks the directory in sorted order, skipping .git, binary files and symlinks. " +
-				"Output lines are path:line:text, with text cut to 500 characters. Capped at 500 matches with a marker if more exist.",
-			Schema: json.RawMessage(`{"type":"object","properties":{` +
-				`"pattern":{"type":"string","description":"Go regular expression matched against each line."},` +
-				`"path":{"type":["string","null"],"description":"File or directory to search, or null for the workspace root."},` +
-				`"glob":{"type":["string","null"],"description":"Only search files whose base name matches this glob (e.g. *.go), or null for all files."}},` +
-				`"required":["pattern","path","glob"],"additionalProperties":false}`),
-		},
-		replay:   durable.ReplaySafe,
-		readOnly: true,
+		spec:     grepEntry.Spec,
+		replay:   grepEntry.Replay,
+		readOnly: grepEntry.ReadOnly,
 		run:      func(ctx context.Context, call durable.ToolCall) (string, error) { return runGrep(ctx, root, call) },
 	}
 }

@@ -15,6 +15,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestToolOutputSink(t *testing.T) {
+	var got []string
+	ctx := WithToolOutputSink(t.Context(), func(s string) { got = append(got, s) })
+	require.True(t, ToolOutputEnabled(ctx))
+	EmitToolOutput(ctx, "a")
+	EmitToolOutput(ctx, "")
+	EmitToolOutput(ctx, "b")
+	require.Equal(t, []string{"a", "b"}, got)
+
+	quiet := WithoutToolOutput(ctx)
+	require.False(t, ToolOutputEnabled(quiet))
+	EmitToolOutput(quiet, "c")
+	require.Equal(t, []string{"a", "b"}, got)
+}
+
+func TestToolOutputDisabledWithoutSink(t *testing.T) {
+	require.False(t, ToolOutputEnabled(t.Context()))
+	require.False(t, ToolOutputEnabled(WithToolOutputSink(t.Context(), nil)))
+}
+
 type deltaLog struct {
 	mu sync.Mutex
 	ds []Delta
