@@ -38,7 +38,9 @@ See [remote execution](remote-execution.md#mcp-servers-run-in-the-sandbox).
 - `env` and `headers` values, including expanded `${VAR}`s, are sent to the sandbox, and the agent
   can read them.
 - HTTP servers are reached through a bridge in the worker. The sandbox gets network access to those
-  servers' hosts only, fixed when the session is created. A stdio server has no network access.
+  servers' hosts only, fixed when the session is created. A stdio server has no other network
+  access. That access covers every process the worker starts, so an approved `bash` call can reach
+  those hosts too, and with the headers it can call the servers outside MCP approval.
 - stderr still goes to `mcp-<server>.log` next to the session database, capped at 1 MiB per connection.
 - A session created before this has no MCP tools.
 

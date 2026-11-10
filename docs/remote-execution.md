@@ -360,14 +360,21 @@ is only a pipe.
 - **Egress follows the config.** The first pin records the host and port of each HTTP server (443 or
   80 by scheme) in `sandbox.json`, and create gives the sandbox one allow rule for those endpoints,
   scoped to `/usr/local/bin/durable-worker`. A sandbox created with no policy has no egress, so
-  without HTTP servers nothing is added. Everything else, including `curl` from `bash` and a stdio
-  server's own network use, stays denied until there is a per-session egress policy. The rule is not
-  updated when `mcp.json` changes, because the pin is written once.
+  without HTTP servers nothing is added. Other hosts stay denied, for `bash` and for a stdio server's
+  own network use, until there is a per-session egress policy. The rule is not updated when
+  `mcp.json` changes, because the pin is written once.
+- **The rule reaches every process the worker starts.** OpenShell matches it against a process's
+  ancestors, and the worker starts every tool, so an approved `bash` call can reach the HTTP
+  servers' hosts too (`curl` from `bash` got a response from the configured host and was refused
+  elsewhere). With the headers also readable, the agent can call those servers directly, outside
+  MCP approval, through any approved `bash` command. Providers and per-server scoping are the way to
+  close this.
 - **`env` and headers are visible to the agent.** It runs as the same user, so it can read them.
   OAuth and OpenShell providers are the way out later.
 - **Gateway behaviour the launcher depends on** (probed on OpenShell v0.1.7): a policy keeps the
   default filesystem and process settings (user 1500, writable `/sandbox`), but drops the default
-  Landlock `best_effort`, so the launcher sets it again. The rule's binary is matched by exact path.
+  Landlock `best_effort`, so the launcher sets it again. The rule's binary is matched by exact path
+  against the process and its ancestors: a copy of `curl` started outside the worker was refused.
   TLS works because the sandbox trusts OpenShell's CA through `SSL_CERT_FILE`, which Go honours.
 - **The sandbox's output is hostile input:** messages are capped at 4 MiB and stderr at 1 MiB per
   connection, written to `mcp-<server>.log`.
