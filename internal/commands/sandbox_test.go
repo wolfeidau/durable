@@ -157,3 +157,38 @@ func TestAssembleMisconfiguredProviderCreatesNoSandbox(t *testing.T) {
 	ensures, _, _ := f.Counts()
 	require.Zero(t, ensures)
 }
+
+// writeMarkerMCP configures an MCP server that only touches marker when it starts.
+func writeMarkerMCP(t *testing.T, marker string) {
+	t.Helper()
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	cfg := fmt.Sprintf(`{"mcpServers":{"m":{"command":"sh","args":["-c","touch %s"],"timeoutSeconds":5}}}`, marker)
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "mcp.json"), []byte(cfg), 0o600))
+}
+
+func TestAssembleSandboxedSessionStartsNoHostMCPServers(t *testing.T) {
+	assembleHome(t)
+	marker := filepath.Join(t.TempDir(), "started")
+	writeMarkerMCP(t, marker)
+
+	a, err := Assemble(t.Context(), sandboxCfg(t, sandboxtest.New(t), "img:1"))
+	require.NoError(t, err)
+	defer a.Close()
+
+	require.NoFileExists(t, marker, "a sandboxed session must not start MCP servers on the host")
+	require.Empty(t, a.mcp.Tools)
+}
+
+func TestAssembleLocalSessionStillStartsMCPServers(t *testing.T) {
+	assembleHome(t)
+	marker := filepath.Join(t.TempDir(), "started")
+	writeMarkerMCP(t, marker)
+
+	a, err := Assemble(t.Context(), sandboxCfg(t, sandboxtest.New(t), ""))
+	require.NoError(t, err)
+	defer a.Close()
+
+	require.FileExists(t, marker, "the control: a local session discovers MCP tools")
+}

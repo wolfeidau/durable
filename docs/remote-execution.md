@@ -329,6 +329,10 @@ The spikes still read them from the host.
 stdio MCP servers start inside the sandbox, beside the worker, and their credentials come from
 OpenShell providers. The tool list stays pinned per session. Not yet spiked.
 
+Until then, a sandboxed session pins no MCP tools, because servers from `~/.durable/mcp.json` would
+start on the host and give the model tools that reach around the sandbox. The pin is per session, so
+a session created before slice M stays without MCP tools.
+
 ## Slices
 
 Each slice is one PR. The spike branches are reference, not a base.

@@ -111,7 +111,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if err := createSessionDir(dir, SessionMeta{CWD: cfg.CWD, Name: cfg.Session, CreatedAt: time.Now().UTC()}); err != nil {
 		return nil, err
 	}
-	sandboxed, err := cfg.checkSandboxed(dir)
+	useSandbox, err := cfg.checkSandboxed(dir, existed)
 	if err != nil {
 		return nil, err
 	}
@@ -141,10 +141,11 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 
 	// After the route, so a misconfigured provider fails before a sandbox is created, and before the other pins.
-	toolset, releaseSandbox, err := cfg.openTools(ctx, dir, existed, sandboxed)
+	toolset, releaseSandbox, err := cfg.openTools(ctx, dir, useSandbox)
 	if err != nil {
 		return nil, err
 	}
+	servers = hostMCPServers(servers, useSandbox)
 	pinned, err := pinInstructions(dir, existed, cfg.NoContext, func() (instructions, error) {
 		return discoverInstructions(cfg.CWD, home)
 	})
@@ -238,8 +239,9 @@ func (c AssembleConfig) homeDir() (string, error) {
 	return home, nil
 }
 
-// checkSandboxed reports whether the session has a sandbox, and refuses it when the caller can't run one.
-func (c AssembleConfig) checkSandboxed(dir string) (bool, error) {
+// checkSandboxed reports whether the session's built-in tools run in a sandbox: it has one, or it is new and the caller
+// asks for one. It refuses a sandboxed session when the caller can't run one.
+func (c AssembleConfig) checkSandboxed(dir string, existed bool) (bool, error) {
 	_, ok, err := sandbox.ReadPin(dir)
 	if err != nil {
 		return false, err
@@ -247,14 +249,23 @@ func (c AssembleConfig) checkSandboxed(dir string) (bool, error) {
 	if ok && c.Sandbox == nil {
 		return false, ErrSandboxed
 	}
-	return ok, nil
+	return ok || c.Sandbox != nil && !existed && c.Sandbox.Image != "", nil
+}
+
+// hostMCPServers drops the MCP servers of a sandboxed session: they start on the host until they can run in the
+// sandbox, so pinning none keeps the model from tools that reach around it.
+func hostMCPServers(servers map[string]mcp.Server, sandboxed bool) map[string]mcp.Server {
+	if sandboxed {
+		return nil
+	}
+	return servers
 }
 
 // openTools returns the built-in tools: from the session's sandbox when it has one or this new session asks for one,
 // else local. The sandbox's tools equal tools.All in names, order and specs (sandbox.Open enforces it), so the prompt
 // prefix and tool order don't change with where they run.
-func (c AssembleConfig) openTools(ctx context.Context, dir string, existed, sandboxed bool) ([]durable.Tool, func(), error) {
-	if c.Sandbox == nil || !sandboxed && (existed || c.Sandbox.Image == "") {
+func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox bool) ([]durable.Tool, func(), error) {
+	if !useSandbox {
 		toolset, err := tools.All(c.CWD, dir)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to build tools: %w", err)

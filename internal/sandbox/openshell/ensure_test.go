@@ -1,8 +1,10 @@
 package openshell
 
 import (
+	"context"
 	"testing"
 
+	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
 	"github.com/ai-openshell/sdk-go/openshell/v1/fake"
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
 	"github.com/stretchr/testify/require"
@@ -59,4 +61,43 @@ func TestStartOtherErrorReasonStaysAnError(t *testing.T) {
 	phase, err := l.Phase(t.Context(), "dt-a")
 	require.NoError(t, err)
 	require.Equal(t, types.SandboxError, phase)
+}
+
+// lagClient reports Error from Get for a few calls after Stop, as a gateway may before the stop takes effect.
+type lagClient struct {
+	*fake.Client
+	lag *int
+}
+
+func (c lagClient) Sandboxes() v1.SandboxInterface {
+	return lagSandboxes{SandboxInterface: c.Client.Sandboxes(), lag: c.lag}
+}
+
+type lagSandboxes struct {
+	v1.SandboxInterface
+	lag *int
+}
+
+func (s lagSandboxes) Stop(ctx context.Context, ws, name string) (*types.Sandbox, error) {
+	*s.lag = 2
+	return s.SandboxInterface.Stop(ctx, ws, name)
+}
+
+func (s lagSandboxes) Get(ctx context.Context, ws, name string) (*types.Sandbox, error) {
+	sb, err := s.SandboxInterface.Get(ctx, ws, name)
+	if err == nil && *s.lag > 0 {
+		*s.lag--
+		sb.Status.Phase = types.SandboxError
+	}
+	return sb, err
+}
+
+func TestStartFailedRecoveryWaitsThroughALaggingError(t *testing.T) {
+	fc := fake.NewClient()
+	seedError(fc, "StartFailed")
+	lag := 0
+	l := newWithClient(lagClient{Client: fc, lag: &lag}, "")
+
+	require.NoError(t, l.Start(t.Context(), "dt-a"))
+	require.Zero(t, lag, "the recovery polled through the lagging Error")
 }

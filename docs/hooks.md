@@ -7,7 +7,8 @@ command can edit `~/.durable/hooks.json`, and the change applies at the next sta
 
 **For a sandboxed session, hook input comes from a sandbox the agent controls.** A hook that runs
 its input, for example through `eval`, is a host escape. Treat tool inputs and results as untrusted
-data. See [remote execution](remote-execution.md#hooks-get-untrusted-input).
+data. See [remote execution](remote-execution.md#hooks-get-untrusted-input). Hooks still run on the
+host in the session's host working directory, while tool paths in their input refer to the sandbox's `/sandbox`.
 
 ## Configuration
 

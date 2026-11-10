@@ -27,6 +27,7 @@ const (
 
 	defaultWorkspace = "default"
 	deleteTimeout    = 2 * time.Minute
+	stopPollInterval = 500 * time.Millisecond
 )
 
 // ErrNotFound reports that the sandbox does not exist.
@@ -139,7 +140,7 @@ func (l *Launcher) Start(ctx context.Context, name string) error {
 		if !startFailed(sb) {
 			return fmt.Errorf("sandbox %q is in phase %s", name, phase)
 		}
-		if err := l.Stop(ctx, name); err != nil {
+		if err := l.stopFromError(ctx, name); err != nil {
 			return err
 		}
 		return l.start(ctx, name)
@@ -182,6 +183,30 @@ func (l *Launcher) Stop(ctx context.Context, name string) error {
 		return fmt.Errorf("failed to wait for sandbox to stop: %w", err)
 	}
 	return nil
+}
+
+// stopFromError stops a sandbox in Error and polls until it is Stopped. WaitStopped can't be used here, because it
+// fails at once on Error, which the sandbox may still report just after the stop is requested.
+func (l *Launcher) stopFromError(ctx context.Context, name string) error {
+	if _, err := l.c.Sandboxes().Stop(ctx, l.ws, name); err != nil {
+		return fmt.Errorf("failed to stop sandbox: %w", err)
+	}
+	t := time.NewTicker(stopPollInterval)
+	defer t.Stop()
+	for {
+		phase, err := l.Phase(ctx, name)
+		if err != nil {
+			return err
+		}
+		if phase == types.SandboxStopped {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("failed to wait for sandbox to stop from %s: %w", phase, ctx.Err())
+		case <-t.C:
+		}
+	}
 }
 
 // Delete removes the sandbox. A missing sandbox is not an error.
