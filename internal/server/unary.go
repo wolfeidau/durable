@@ -101,11 +101,11 @@ func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.
 	return connect.NewResponse(out), nil
 }
 
+// minRequestIDLen keeps a guessable request_id from naming, and so opening, another caller's empty session.
+const minRequestIDLen = 16
+
 func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error) {
 	name := req.Msg.GetName()
-	if name == "" {
-		name = "default"
-	}
 	var spec createSpec
 	switch req.Msg.GetWorkspace() {
 	case v1.Workspace_WORKSPACE_UNSPECIFIED, v1.Workspace_WORKSPACE_DIRECTORY:
@@ -121,6 +121,10 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 		if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an existing directory"))
 		}
+		// "default" is part of a directory session's key, shared with durable chat.
+		if name == "" {
+			name = "default"
+		}
 		spec = createSpec{cwd: cwd, name: name}
 	case v1.Workspace_WORKSPACE_EMPTY:
 		if req.Msg.GetCwd() != "" {
@@ -128,6 +132,9 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 		}
 		if req.Msg.GetRequestId() == "" {
 			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id is required for an empty workspace"))
+		}
+		if len(req.Msg.GetRequestId()) < minRequestIDLen {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id must be at least 16 characters; use a random value"))
 		}
 		if !s.reg.Sandboxed() {
 			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image"))
@@ -197,6 +204,10 @@ func (s sessionService) publicErr(ctx context.Context, op string, err error) err
 			return connect.NewError(connect.CodeUnavailable, errors.New("sandbox unavailable: see the server log"))
 		}
 		return connect.NewError(connect.CodeFailedPrecondition, errors.New("sandbox can't start: see the server log"))
+	}
+	if errors.Is(err, commands.ErrEmptyNeedsSandbox) {
+		s.logger.ErrorContext(ctx, "request failed", slog.String("op", op), slog.Any("error", err))
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this empty session has no sandbox pin: see the server log"))
 	}
 	var ce *connect.Error
 	if errors.As(err, &ce) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

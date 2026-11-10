@@ -144,6 +144,44 @@ func TestAssembleFailedOpenKeepsPinAndRetryReusesToken(t *testing.T) {
 	require.Equal(t, first.Spec(), specs[1])
 }
 
+func TestAssembleLaterFailureDeletesANewSessionsSandboxAndStopsAnExistingOne(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		t.Run(fmt.Sprintf("existing=%t", existing), func(t *testing.T) {
+			assembleHome(t)
+			f := sandboxtest.New(t)
+			cfg := sandboxCfg(t, f, "img:1")
+			path, err := SessionPath(cfg.CWD, cfg.Session)
+			require.NoError(t, err)
+			dir := filepath.Dir(path)
+			if existing {
+				a, err := Assemble(t.Context(), cfg)
+				require.NoError(t, err)
+				a.Close()
+				markExisting(t, cfg)
+				require.NoError(t, os.Remove(filepath.Join(dir, pinFile)))
+			}
+			_, stops0, _ := f.Counts()
+			// An unreadable instructions pin fails Assemble after the sandbox is open.
+			require.NoError(t, os.MkdirAll(filepath.Join(dir, pinFile), 0o700))
+
+			_, err = Assemble(t.Context(), cfg)
+
+			require.Error(t, err)
+			_, stops, deletes := f.Counts()
+			if existing {
+				require.Equal(t, stops0+1, stops)
+				require.Zero(t, deletes)
+				return
+			}
+			require.Zero(t, stops)
+			require.Equal(t, 1, deletes)
+			_, ok, err := sandbox.ReadPin(dir)
+			require.NoError(t, err)
+			require.True(t, ok, "the pin is kept")
+		})
+	}
+}
+
 func TestAssembleMisconfiguredProviderCreatesNoSandbox(t *testing.T) {
 	assembleHome(t)
 	f := sandboxtest.New(t)

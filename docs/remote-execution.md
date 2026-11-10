@@ -190,6 +190,8 @@ Persisting results would add a store the agent can write to, for a case the harn
   the session. The image is used only at create, because stop and start keep the container, so a
   rebuilt tag such as `durable-worker:dev` affects only a new sandbox. A new sandbox has a fresh
   workspace, and `ListTools` rejects a worker whose catalog doesn't match.
+- **A failed first open deletes the sandbox and keeps the pin,** so a retry creates it fresh from the
+  current image instead of reusing a stale one.
 - **A session with `sandbox.json` always runs in its sandbox,** even on a server started without
   `--sandbox-image`. A session without one stays local, and `durable chat` refuses a sandboxed
   session rather than run its tools on the host.

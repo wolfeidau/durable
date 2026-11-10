@@ -447,11 +447,12 @@ type CreateSessionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// cwd must be an absolute path to an existing directory, and must be empty for an empty workspace.
 	Cwd string `protobuf:"bytes,1,opt,name=cwd,proto3" json:"cwd,omitempty"`
-	// name defaults to "default", as in durable chat.
+	// name defaults to "default", as in durable chat, for a directory; an empty session stays unnamed.
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// workspace defaults to DIRECTORY.
 	Workspace Workspace `protobuf:"varint,3,opt,name=workspace,proto3,enum=durable.v1.Workspace" json:"workspace,omitempty"`
-	// request_id is required for an empty workspace; a retry with the same one returns the same session.
+	// request_id is required for an empty workspace and must be a random value of at least 16 characters; a retry with the
+	// same one returns the same session.
 	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

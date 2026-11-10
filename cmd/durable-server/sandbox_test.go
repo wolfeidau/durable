@@ -62,7 +62,7 @@ func TestSandboxImageWithoutGatewayFailsCreateGenerically(t *testing.T) {
 	c := newClient(r)
 	require.Equal(t, []v1.Workspace{v1.Workspace_WORKSPACE_EMPTY}, c.workspaces(t))
 
-	_, err := c.createEmpty(t, "", "req-1")
+	_, err := c.createEmpty(t, "", "req-0123456789abcdef")
 
 	require.Equal(t, connect.CodeUnavailable, connect.CodeOf(err), "%v", err)
 	require.EqualError(t, err, "unavailable: sandbox unavailable: see the server log")
@@ -73,7 +73,7 @@ func TestSandboxImageWithoutGatewayFailsCreateGenerically(t *testing.T) {
 	first, rerr := os.ReadFile(pins[0])
 	require.NoError(t, rerr)
 
-	_, err = c.createEmpty(t, "other name", "req-1")
+	_, err = c.createEmpty(t, "other name", "req-0123456789abcdef")
 	require.Equal(t, connect.CodeUnavailable, connect.CodeOf(err), "%v", err)
 	pins, gerr = filepath.Glob(pinGlob)
 	require.NoError(t, gerr)
@@ -96,7 +96,7 @@ func TestPlainServerOffersDirectoriesAndRefusesEmptySessions(t *testing.T) {
 	c := newClient(startIn(t, home))
 
 	require.Equal(t, []v1.Workspace{v1.Workspace_WORKSPACE_DIRECTORY}, c.workspaces(t))
-	_, err := c.createEmpty(t, "", "req-1")
+	_, err := c.createEmpty(t, "", "req-0123456789abcdef")
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err), "%v", err)
 }
 

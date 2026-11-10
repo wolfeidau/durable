@@ -58,3 +58,17 @@ func (s *shared) Stop(ctx context.Context, name string) error {
 	}
 	return s.Backend.Stop(ctx, name)
 }
+
+// Delete drops the caller's use and deletes the sandbox only when no other user holds it, like Stop.
+func (s *shared) Delete(ctx context.Context, name string) error {
+	n := s.entry(name)
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.users > 0 {
+		n.users--
+	}
+	if n.users > 0 {
+		return nil
+	}
+	return s.Backend.Delete(ctx, name)
+}

@@ -58,7 +58,7 @@ export type CreateSessionRequest = Message$1<"durable.v1.CreateSessionRequest"> 
   cwd: string;
 
   /**
-   * name defaults to "default", as in durable chat.
+   * name defaults to "default", as in durable chat, for a directory; an empty session stays unnamed.
    *
    * @generated from field: string name = 2;
    */
@@ -72,7 +72,8 @@ export type CreateSessionRequest = Message$1<"durable.v1.CreateSessionRequest"> 
   workspace: Workspace;
 
   /**
-   * request_id is required for an empty workspace; a retry with the same one returns the same session.
+   * request_id is required for an empty workspace and must be a random value of at least 16 characters; a retry with the
+   * same one returns the same session.
    *
    * @generated from field: string request_id = 4;
    */

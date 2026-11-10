@@ -46,11 +46,12 @@ message GetServerInfoResponse {
 message CreateSessionRequest {
   // cwd must be an absolute path to an existing directory, and must be empty for an empty workspace.
   string cwd = 1;
-  // name defaults to "default", as in durable chat.
+  // name defaults to "default", as in durable chat, for a directory; an empty session stays unnamed.
   string name = 2;
   // workspace defaults to DIRECTORY.
   Workspace workspace = 3;
-  // request_id is required for an empty workspace; a retry with the same one returns the same session.
+  // request_id is required for an empty workspace and must be a random value of at least 16 characters; a retry with the
+  // same one returns the same session.
   string request_id = 4;
 }
 
