@@ -44,8 +44,13 @@ docker compose -f e2e/compose.yaml run --rm --build tests
 # The image is built locally only; there is no registry.
 run = "docker build -f docker/worker.Dockerfile -t durable-worker:dev ."
 
-[tasks."test:openshell"]
+[tasks."image:worker-test"]
 depends = ["image:worker"]
+# The worker image plus a stdio MCP server for the gateway tests.
+run = "docker build -f docker/worker-test.Dockerfile -t durable-worker:mcptest ."
+
+[tasks."test:openshell"]
+depends = ["image:worker-test"]
 run = "DURABLE_TEST_OPENSHELL=1 go test -count=1 -timeout 20m -run . ./internal/sandbox/openshell/ ./cmd/durable-server/"
 
 [tasks."web:gen"]

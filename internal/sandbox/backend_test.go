@@ -61,7 +61,7 @@ func TestOpenReturnsCatalogToolsAndReleaseStops(t *testing.T) {
 	f := sandboxtest.New(t)
 	pin := sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}
 
-	got, release, err := sandbox.Open(t.Context(), f, pin, false)
+	got, _, release, err := sandbox.Open(t.Context(), f, pin, false)
 	require.NoError(t, err)
 
 	var names, want []string
@@ -101,7 +101,7 @@ func TestOpenWrapsErrors(t *testing.T) {
 			f := sandboxtest.New(t)
 			tc.fail(f, tc.err)
 
-			_, _, err := sandbox.Open(t.Context(), f, sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}, false)
+			_, _, _, err := sandbox.Open(t.Context(), f, sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}, false)
 
 			var se *sandbox.Error
 			require.ErrorAs(t, err, &se)
@@ -129,7 +129,7 @@ func TestOpenFailureDeletesAFreshSandboxAndStopsAnExistingOne(t *testing.T) {
 			f := sandboxtest.New(t)
 			f.FailConnect(boom)
 
-			_, _, err := sandbox.Open(t.Context(), f, sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}, tc.fresh)
+			_, _, _, err := sandbox.Open(t.Context(), f, sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}, tc.fresh)
 
 			require.ErrorIs(t, err, boom)
 			_, stops, deletes := f.Counts()

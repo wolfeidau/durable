@@ -29,6 +29,14 @@ type Spec struct {
 	Image string
 	// Token is the worker's bearer token, passed in the sandbox environment only.
 	Token string
+	// Egress is where the sandbox may connect, scoped to the worker binary.
+	Egress []Endpoint
+}
+
+// Endpoint is a host and port a sandbox may reach.
+type Endpoint struct {
+	Host string `json:"host"`
+	Port uint32 `json:"port"`
 }
 
 // Backend runs sandboxes.
@@ -57,6 +65,8 @@ type Pin struct {
 	Name  string `json:"name"`
 	Image string `json:"image"`
 	Token string `json:"token"`
+	// Egress is fixed at the first pin, so a recreated sandbox gets the same rule. Pins from before it have none.
+	Egress []Endpoint `json:"egress,omitempty"`
 }
 
 // Spec returns the pin as a sandbox spec.
@@ -80,9 +90,9 @@ func ReadPin(dir string) (p Pin, ok bool, err error) {
 	return p, true, nil
 }
 
-// WritePin pins image for the session in dir with a fresh random name and token. The first writer wins, and every
-// caller gets the winner's pin back.
-func WritePin(dir, image string) (Pin, error) {
+// WritePin pins image and egress for the session in dir with a fresh random name and token. The first writer wins, and
+// every caller gets the winner's pin back.
+func WritePin(dir, image string, egress ...Endpoint) (Pin, error) {
 	if p, ok, err := ReadPin(dir); ok || err != nil {
 		return p, err
 	}
@@ -95,7 +105,7 @@ func WritePin(dir, image string) (Pin, error) {
 		return Pin{}, err
 	}
 	// The name is random, not derived from the session, so homes never collide; "ds-" plus 16 hex fits OpenShell's name limit.
-	data, err := json.Marshal(Pin{Name: "ds-" + name, Image: image, Token: token})
+	data, err := json.Marshal(Pin{Name: "ds-" + name, Image: image, Token: token, Egress: egress})
 	if err != nil {
 		return Pin{}, fmt.Errorf("failed to encode sandbox pin: %w", err)
 	}
@@ -149,14 +159,14 @@ func writeOnce(dir, path string, content []byte) error {
 	return nil
 }
 
-// Open readies the pinned sandbox and returns tools that run in it. The tools equal the server's catalog in names,
+// Open readies the pinned sandbox and returns tools that run in it, and the client for its worker. The tools equal the server's catalog in names,
 // order and specs, because Client.Tools enforces it. release closes the connection and stops the sandbox, or deletes it
 // when discard is true; it is safe to call more than once and returns the error for the caller to log. A fresh sandbox
 // is one this session's first open may have created, so a failed open deletes it instead of leaving a stale one for
 // every retry to reuse.
-func Open(ctx context.Context, b Backend, pin Pin, fresh bool) (toolset []durable.Tool, release func(discard bool) error, err error) {
+func Open(ctx context.Context, b Backend, pin Pin, fresh bool) (toolset []durable.Tool, client *Client, release func(discard bool) error, err error) {
 	if err := b.Ensure(ctx, pin.Spec()); err != nil {
-		return nil, nil, &Error{Unavailable: b.IsUnavailable(err), Err: err}
+		return nil, nil, nil, &Error{Unavailable: b.IsUnavailable(err), Err: err}
 	}
 	var (
 		once   sync.Once
@@ -187,14 +197,13 @@ func Open(ctx context.Context, b Backend, pin Pin, fresh bool) (toolset []durabl
 		}
 		return oe
 	}
-	var client *Client
 	client, closer, err = b.Connect(ctx, pin.Name, pin.Token)
 	if err != nil {
-		return nil, nil, fail(err)
+		return nil, nil, nil, fail(err)
 	}
 	toolset, err = client.Tools(ctx)
 	if err != nil {
-		return nil, nil, fail(err)
+		return nil, nil, nil, fail(err)
 	}
-	return toolset, release, nil
+	return toolset, client, release, nil
 }

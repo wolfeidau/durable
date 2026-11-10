@@ -148,11 +148,10 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 
 	// After the route, so a misconfigured provider fails before a sandbox is created, and before the other pins.
-	toolset, releaseSandbox, err := cfg.openTools(ctx, dir, useSandbox, !existed)
+	toolset, client, releaseSandbox, err := cfg.openTools(ctx, dir, useSandbox, !existed, servers)
 	if err != nil {
 		return nil, err
 	}
-	servers = hostMCPServers(servers, useSandbox)
 	pinned, err := pinInstructions(dir, existed, cfg.NoContext, func() (instructions, error) {
 		return discoverInstructions(cfg.CWD, home)
 	})
@@ -161,7 +160,12 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		return nil, err
 	}
 
-	pool := mcp.NewPool(servers, mcp.Options{Root: cfg.CWD, LogDir: dir})
+	poolOpts := mcp.Options{Root: cfg.CWD, LogDir: dir}
+	if useSandbox {
+		// The servers run beside the worker, so nothing starts on the host.
+		poolOpts.Dial = sandboxDial(client, dir)
+	}
+	pool := mcp.NewPool(servers, poolOpts)
 	mcpPinned, err := pinMCPTools(ctx, dir, existed, pool.Discover)
 	if err != nil {
 		_ = pool.Close()
@@ -274,36 +278,27 @@ func (c AssembleConfig) checkSandboxed(dir string, existed bool) (bool, error) {
 	return sandboxed, nil
 }
 
-// hostMCPServers drops the MCP servers of a sandboxed session: they start on the host until they can run in the
-// sandbox, so pinning none keeps the model from tools that reach around it.
-func hostMCPServers(servers map[string]mcp.Server, sandboxed bool) map[string]mcp.Server {
-	if sandboxed {
-		return nil
-	}
-	return servers
-}
-
-// openTools returns the built-in tools: from the session's sandbox when it has one or this new session asks for one,
+// openTools returns the built-in tools, and the worker's client when sandboxed: from the session's sandbox when it has one or this new session asks for one,
 // else local. The sandbox's tools equal tools.All in names, order and specs (sandbox.Open enforces it), so the prompt
 // prefix and tool order don't change with where they run.
-func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, fresh bool) ([]durable.Tool, func(discard bool), error) {
+func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, fresh bool, servers map[string]mcp.Server) ([]durable.Tool, *sandbox.Client, func(discard bool), error) {
 	if !useSandbox {
 		toolset, err := tools.All(c.CWD, dir)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to build tools: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to build tools: %w", err)
 		}
-		return toolset, func(bool) {}, nil
+		return toolset, nil, func(bool) {}, nil
 	}
 	// Pinned before the sandbox is created, so a failed create leaves its token on disk for the retry.
-	pin, err := sandbox.WritePin(dir, c.Sandbox.Image)
+	pin, err := sandbox.WritePin(dir, c.Sandbox.Image, mcpEgress(servers)...)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	toolset, release, err := sandbox.Open(ctx, c.Sandbox.Backend, pin, fresh)
+	toolset, client, release, err := sandbox.Open(ctx, c.Sandbox.Backend, pin, fresh)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to open sandbox: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to open sandbox: %w", err)
 	}
-	return toolset, func(discard bool) {
+	return toolset, client, func(discard bool) {
 		if err := release(discard); err != nil && c.Logger != nil {
 			c.Logger.ErrorContext(ctx, "failed to release sandbox", slog.String("sandbox", pin.Name), slog.Any("error", err))
 		}

@@ -22,12 +22,17 @@ import (
 )
 
 type cli struct {
+	Serve   serveCmd   `cmd:"" default:"withargs" help:"Serve the coding tools. This is the default."`
+	MCPHTTP mcpHTTPCmd `cmd:"" name:"mcp-http" help:"Bridge an HTTP MCP server to stdio, so it is reached from this sandbox."`
+}
+
+type serveCmd struct {
 	Addr     string `help:"Address to listen on." default:"127.0.0.1:0"`
 	Root     string `help:"Workspace root the tools are confined to. Defaults to the current directory." type:"path"`
 	StateDir string `name:"state-dir" help:"Per-call state that must survive a crash, kept outside the root. Defaults to durable-worker under $XDG_STATE_HOME, or under the temp directory." type:"path"`
 }
 
-func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
+func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	token := os.Getenv(worker.TokenEnv)
 	if token == "" {
 		return fmt.Errorf("%s must be set to a non-empty token", worker.TokenEnv)

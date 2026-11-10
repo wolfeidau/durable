@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -38,6 +39,7 @@ type Fake struct {
 	deletes    int
 	ensureErr  error
 	connectErr error
+	stdios     int
 }
 
 var _ sandbox.Backend = (*Fake)(nil)
@@ -59,6 +61,14 @@ func (f *Fake) Counts() (ensures, stops, deletes int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.ensures, f.stops, f.deletes
+}
+
+// StdioStarts returns how many Stdio streams workers have been asked to open, so tests can tell a process the
+// worker started from one started on the host.
+func (f *Fake) StdioStarts() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.stdios
 }
 
 // Specs returns the specs Ensure was called with, in order.
@@ -116,7 +126,14 @@ func (f *Fake) Connect(_ context.Context, _, token string) (*sandbox.Client, io.
 	require.NoError(f.t, err)
 	h, err := worker.Handler(worker.Config{Tools: all, Root: f.t.TempDir(), Token: token})
 	require.NoError(f.t, err)
-	srv := httptest.NewUnstartedServer(h)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/Stdio") {
+			f.mu.Lock()
+			f.stdios++
+			f.mu.Unlock()
+		}
+		h.ServeHTTP(w, r)
+	}))
 	srv.Config.Protocols = new(http.Protocols)
 	srv.Config.Protocols.SetHTTP1(true)
 	srv.Config.Protocols.SetUnencryptedHTTP2(true)

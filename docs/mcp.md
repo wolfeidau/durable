@@ -28,6 +28,20 @@ from Claude Code.
   `env`.
 - Their stderr goes to `mcp-<server>.log` next to the session database.
 
+## Sandboxed sessions
+
+A session with a sandbox runs its servers in the sandbox, beside the worker, instead of on the host.
+See [remote execution](remote-execution.md#mcp-servers-run-in-the-sandbox).
+
+- The image needs what the servers need. The base image has no `npx` or `uvx`, so build one with
+  `FROM durable-worker:dev` and install them.
+- `env` and `headers` values, including expanded `${VAR}`s, are sent to the sandbox, and the agent
+  can read them.
+- HTTP servers are reached through a bridge in the worker. The sandbox gets network access to those
+  servers' hosts only, fixed when the session is created. A stdio server has no network access.
+- stderr still goes to `mcp-<server>.log` next to the session database, capped at 1 MiB per connection.
+- A session created before this has no MCP tools.
+
 ## Naming and pinning
 
 Tools are named `mcp__<server>__<tool>` and pinned in `mcp-tools.json` when the session first
