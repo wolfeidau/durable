@@ -75,7 +75,7 @@ func TestGatewayHTTPMCPServerGoesThroughBridgeWithEgressFiltered(t *testing.T) {
 	writeMCPConfig(t, home, `{"mcpServers":{"wiki":{"url":"https://mcp.deepwiki.com/mcp"}}}`)
 	api := sequenceAPI(t,
 		toolReply("toolu_wiki", "mcp__wiki__read_wiki_structure", `{"repoName":"golang/go"}`),
-		toolReply("toolu_curl", "bash", bashInput(t, "curl -sS -m 15 -o /dev/null https://example.org; echo rc=$?")),
+		toolReply("toolu_curl", "bash", bashInput(t, `curl -sS -m 15 -o /dev/null -w "wiki=%{http_code}\n" https://mcp.deepwiki.com/mcp; curl -sS -m 15 -o /dev/null https://example.org; echo rc=$?`)),
 		textReply("done"),
 	)
 	r := startEnv(t, home, apiEnv(api), "--api-token", "dummy", "--sandbox-image", mcpTestImage)
@@ -97,4 +97,7 @@ func TestGatewayHTTPMCPServerGoesThroughBridgeWithEgressFiltered(t *testing.T) {
 	out, ok = toolResult(items, "toolu_curl")
 	require.True(t, ok)
 	require.NotContains(t, out, "rc=0", "curl to a host that is not allowed is denied")
+	// The rule matches the worker's descendants, so bash reaches the MCP host too; the docs record this.
+	require.Contains(t, out, "wiki=")
+	require.NotContains(t, out, "wiki=000", "bash reaches the configured MCP host")
 }
