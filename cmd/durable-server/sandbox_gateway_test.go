@@ -130,10 +130,14 @@ func TestGatewaySessionRunsToolsInSandboxStopsIdleAndKeepsWorkspace(t *testing.T
 	r := startEnv(t, home, apiEnv(api), "--api-token", "dummy", "--idle-timeout", "2s", "--sandbox-image", gatewayImage())
 	c := newClient(r)
 
-	got, err := c.create(t, ws, "")
+	got, err := c.createEmpty(t, "", "req-create")
 	require.NoError(t, err)
 	id := got.GetSession().GetId()
 	pin := sessionPin(t, home, id, l)
+	retry, err := c.createEmpty(t, "", "req-create")
+	require.NoError(t, err)
+	require.False(t, retry.GetCreated())
+	require.Equal(t, id, retry.GetSession().GetId())
 
 	stream := openWatch(t, r, id, true)
 	submitAs(t, c, id, "look around, then run it")
@@ -171,14 +175,14 @@ func TestGatewaySessionRunsToolsInSandboxStopsIdleAndKeepsWorkspace(t *testing.T
 }
 
 func TestGatewaySandboxDeleteCreatesAFreshSandboxOnNextOpen(t *testing.T) {
-	ws, home, l := gatewayHome(t)
+	_, home, l := gatewayHome(t)
 	api := sequenceAPI(t,
 		toolReply("toolu_bash1", "bash", bashInput(t, "echo kept > /sandbox/kept.txt")),
 		textReply("first done"),
 	)
 	r := startEnv(t, home, apiEnv(api), "--api-token", "dummy", "--sandbox-image", gatewayImage())
 	c := newClient(r)
-	got, err := c.create(t, ws, "")
+	got, err := c.createEmpty(t, "", "req-create")
 	require.NoError(t, err)
 	id := got.GetSession().GetId()
 	pin := sessionPin(t, home, id, l)

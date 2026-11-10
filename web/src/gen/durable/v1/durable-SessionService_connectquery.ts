@@ -29,10 +29,18 @@ export const decideApproval = SessionService.method.decideApproval;
 export const listSessions = SessionService.method.listSessions;
 
 /**
- * CreateSession creates the session for an absolute cwd and name, or returns the existing one.
+ * CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
+ * by request_id for an empty one.
  * A server that can't create sessions, for example a missing provider key, returns
  * FAILED_PRECONDITION and logs the detail.
  *
  * @generated from rpc durable.v1.SessionService.CreateSession
  */
 export const createSession = SessionService.method.createSession;
+
+/**
+ * GetServerInfo reports which workspace kinds CreateSession accepts.
+ *
+ * @generated from rpc durable.v1.SessionService.GetServerInfo
+ */
+export const getServerInfo = SessionService.method.getServerInfo;

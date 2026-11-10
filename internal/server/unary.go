@@ -87,7 +87,7 @@ func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.
 	}
 	out := &v1.ListSessionsResponse{Warnings: warnings}
 	for _, m := range metas {
-		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt)}
+		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt), Workspace: workspaceOf(m)}
 		st, err := durable.ReadStatus(ctx, filepath.Join(s.home, ".durable", "sessions", m.ID, "session.sqlite"))
 		if err != nil {
 			// The warning is returned to the client, so it isn't logged here.
@@ -106,16 +106,37 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 	if name == "" {
 		name = "default"
 	}
-	cwd := req.Msg.GetCwd()
-	if !filepath.IsAbs(cwd) {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an absolute path"))
+	var spec createSpec
+	switch req.Msg.GetWorkspace() {
+	case v1.Workspace_WORKSPACE_UNSPECIFIED, v1.Workspace_WORKSPACE_DIRECTORY:
+		if s.reg.Sandboxed() {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty sessions: start it without --sandbox-image for directory sessions"))
+		}
+		cwd := req.Msg.GetCwd()
+		if !filepath.IsAbs(cwd) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an absolute path"))
+		}
+		// Symlinks stay unresolved: the CLI hashes os.Getwd() as given, so both name the same session.
+		cwd = filepath.Clean(cwd)
+		if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an existing directory"))
+		}
+		spec = createSpec{cwd: cwd, name: name}
+	case v1.Workspace_WORKSPACE_EMPTY:
+		if req.Msg.GetCwd() != "" {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("an empty workspace takes no cwd"))
+		}
+		if req.Msg.GetRequestId() == "" {
+			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id is required for an empty workspace"))
+		}
+		if !s.reg.Sandboxed() {
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image"))
+		}
+		spec = createSpec{workspace: commands.WorkspaceEmpty, name: name, id: commands.EmptySessionID(req.Msg.GetRequestId())}
+	default:
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unknown workspace"))
 	}
-	// Symlinks stay unresolved: the CLI hashes os.Getwd() as given, so both name the same session.
-	cwd = filepath.Clean(cwd)
-	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an existing directory"))
-	}
-	meta, created, err := s.reg.Create(ctx, cwd, name)
+	meta, created, err := s.reg.Create(ctx, spec)
 	if err != nil {
 		var se *sandbox.Error
 		if errors.Is(err, errCreate) && !errors.As(err, &se) {
@@ -126,9 +147,24 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 		return nil, s.publicErr(ctx, "create session", err)
 	}
 	return connect.NewResponse(&v1.CreateSessionResponse{
-		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt)},
+		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt), Workspace: workspaceOf(meta)},
 		Created: created,
 	}), nil
+}
+
+func workspaceOf(m commands.SessionMeta) v1.Workspace {
+	if m.Workspace == commands.WorkspaceEmpty {
+		return v1.Workspace_WORKSPACE_EMPTY
+	}
+	return v1.Workspace_WORKSPACE_DIRECTORY
+}
+
+func (s sessionService) GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error) {
+	kind := v1.Workspace_WORKSPACE_DIRECTORY
+	if s.reg.Sandboxed() {
+		kind = v1.Workspace_WORKSPACE_EMPTY
+	}
+	return connect.NewResponse(&v1.GetServerInfoResponse{Workspaces: []v1.Workspace{kind}}), nil
 }
 
 // leaseLost marks the session lost and returns Unavailable for an ErrLeaseLost, or nil for any other error.

@@ -72,6 +72,7 @@ next to the session database.
 ## Process
 
 - Hooks run in an empty temp folder, unless `"useWorkspaceCwd": true`.
+- An empty session has no host directory, so its hooks always run in a temp folder, and `cwd` in the input is empty. Tool paths in the input refer to the sandbox's `/sandbox`.
 - They run in order.
 - They don't inherit `ANTHROPIC_*`, `OPENROUTER_*` or `OP_*`.
 - Stdout over 1 MiB is a failure.

@@ -30,6 +30,9 @@ var ErrNoSession = errors.New("session does not exist")
 // ErrSandboxed is returned by Assemble for a sandboxed session when the caller has no sandbox support.
 var ErrSandboxed = errors.New("this session runs in a sandbox; open it with durable-server")
 
+// ErrEmptyNeedsSandbox is returned by Assemble for an empty session that has no sandbox.
+var ErrEmptyNeedsSandbox = errors.New("an empty session needs a sandbox")
+
 // SandboxConfig lets Assemble run a session's built-in tools in a sandbox.
 type SandboxConfig struct {
 	Backend sandbox.Backend
@@ -41,6 +44,10 @@ type SandboxConfig struct {
 type AssembleConfig struct {
 	CWD     string
 	Session string
+	// Workspace is WorkspaceEmpty for a session with no host directory, or empty for a directory session.
+	Workspace string
+	// SessionID is the empty session's directory name, from EmptySessionID.
+	SessionID string
 	// Home is where user config is read from; empty means the user's home directory.
 	Home string
 
@@ -95,7 +102,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if out == nil {
 		out = io.Discard
 	}
-	path, err := SessionPath(cfg.CWD, cfg.Session)
+	path, err := cfg.sessionPath()
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +115,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if cfg.ExistingOnly && !existed {
 		return nil, ErrNoSession
 	}
-	if err := createSessionDir(dir, SessionMeta{CWD: cfg.CWD, Name: cfg.Session, CreatedAt: time.Now().UTC()}); err != nil {
+	if err := createSessionDir(dir, SessionMeta{CWD: cfg.CWD, Name: cfg.Session, Workspace: cfg.Workspace, CreatedAt: time.Now().UTC()}); err != nil {
 		return nil, err
 	}
 	useSandbox, err := cfg.checkSandboxed(dir, existed)
@@ -228,6 +235,17 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}, nil
 }
 
+func (c AssembleConfig) sessionPath() (string, error) {
+	if c.Workspace != WorkspaceEmpty {
+		return SessionPath(c.CWD, c.Session)
+	}
+	home, err := c.homeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".durable", "sessions", c.SessionID, "session.sqlite"), nil
+}
+
 func (c AssembleConfig) homeDir() (string, error) {
 	if c.Home != "" {
 		return c.Home, nil
@@ -249,7 +267,11 @@ func (c AssembleConfig) checkSandboxed(dir string, existed bool) (bool, error) {
 	if ok && c.Sandbox == nil {
 		return false, ErrSandboxed
 	}
-	return ok || c.Sandbox != nil && !existed && c.Sandbox.Image != "", nil
+	sandboxed := ok || c.Sandbox != nil && !existed && c.Sandbox.Image != ""
+	if c.Workspace == WorkspaceEmpty && !sandboxed {
+		return false, ErrEmptyNeedsSandbox
+	}
+	return sandboxed, nil
 }
 
 // hostMCPServers drops the MCP servers of a sandboxed session: they start on the host until they can run in the

@@ -341,7 +341,7 @@ func TestConcurrentAcquireAndCreateShareOneSession(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Go(func() {
-			_, _, err := r.Create(t.Context(), cwd, "new")
+			_, _, err := r.Create(t.Context(), createSpec{cwd: cwd, name: "new"})
 			errs <- err
 		})
 		wg.Go(func() {
@@ -393,7 +393,7 @@ func TestCreateReturnsSessionAnotherProcessCreatedMeanwhile(t *testing.T) {
 	r := e.registry(t)
 	cwd := t.TempDir()
 
-	meta, created, err := r.Create(t.Context(), cwd, "raced")
+	meta, created, err := r.Create(t.Context(), createSpec{cwd: cwd, name: "raced"})
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, cwd, meta.CWD)

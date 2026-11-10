@@ -21,6 +21,22 @@ func (c apiClient) create(t *testing.T, cwd, name string) (*v1.CreateSessionResp
 	return resp.Msg, nil
 }
 
+func (c apiClient) createEmpty(t *testing.T, name, requestID string) (*v1.CreateSessionResponse, error) {
+	t.Helper()
+	resp, err := c.CreateSession(t.Context(), authed(c, &v1.CreateSessionRequest{Workspace: v1.Workspace_WORKSPACE_EMPTY, Name: name, RequestId: requestID}))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}
+
+func (c apiClient) workspaces(t *testing.T) []v1.Workspace {
+	t.Helper()
+	resp, err := c.GetServerInfo(t.Context(), authed(c, &v1.GetServerInfoRequest{}))
+	require.NoError(t, err)
+	return resp.Msg.GetWorkspaces()
+}
+
 func waitDone(t *testing.T, c apiClient, id string) *v1.Submission {
 	t.Helper()
 	require.Eventually(t, func() bool {

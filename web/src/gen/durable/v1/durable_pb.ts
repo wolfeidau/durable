@@ -12,14 +12,46 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file durable/v1/durable.proto.
  */
 export const file_durable_v1_durable: GenFile = /*@__PURE__*/
-  fileDesc("ChhkdXJhYmxlL3YxL2R1cmFibGUucHJvdG8SCmR1cmFibGUudjEiMQoUQ3JlYXRlU2Vzc2lvblJlcXVlc3QSCwoDY3dkGAEgASgJEgwKBG5hbWUYAiABKAkiUgoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEigKB3Nlc3Npb24YASABKAsyFy5kdXJhYmxlLnYxLlNlc3Npb25JbmZvEg8KB2NyZWF0ZWQYAiABKAgiFQoTTGlzdFNlc3Npb25zUmVxdWVzdCJTChRMaXN0U2Vzc2lvbnNSZXNwb25zZRIpCghzZXNzaW9ucxgBIAMoCzIXLmR1cmFibGUudjEuU2Vzc2lvbkluZm8SEAoId2FybmluZ3MYAiADKAkinwEKC1Nlc3Npb25JbmZvEgoKAmlkGAEgASgJEgsKA2N3ZBgCIAEoCRIMCgRuYW1lGAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhkKEXBlbmRpbmdfYXBwcm92YWxzGAUgASgFEh4KFnVuZmluaXNoZWRfc3VibWlzc2lvbnMYBiABKAUiRQoNU3VibWl0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhIKCnJlcXVlc3RfaWQYAiABKAkSDAoEdGV4dBgDIAEoCSI8Cg5TdWJtaXRSZXNwb25zZRIqCgpzdWJtaXNzaW9uGAEgASgLMhYuZHVyYWJsZS52MS5TdWJtaXNzaW9uIjcKDUNhbmNlbFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJIjwKDkNhbmNlbFJlc3BvbnNlEioKCnN1Ym1pc3Npb24YASABKAsyFi5kdXJhYmxlLnYxLlN1Ym1pc3Npb24iXAoVRGVjaWRlQXBwcm92YWxSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSFAoMYXBwcm92YWxfc2VxGAIgASgDEg0KBWFsbG93GAMgASgIEgoKAmJ5GAQgASgJIkAKFkRlY2lkZUFwcHJvdmFsUmVzcG9uc2USJgoIYXBwcm92YWwYASABKAsyFC5kdXJhYmxlLnYxLkFwcHJvdmFsImIKEldhdGNoRXZlbnRzUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWVwb2NoGAIgASgJEhEKCWFmdGVyX3NlcRgDIAEoAxIWCg5pbmNsdWRlX2RlbHRhcxgEIAEoCCKRAQoTV2F0Y2hFdmVudHNSZXNwb25zZRIiCgVldmVudBgBIAEoCzIRLmR1cmFibGUudjEuRXZlbnRIABIqCgloZWFydGJlYXQYAiABKAsyFS5kdXJhYmxlLnYxLkhlYXJ0YmVhdEgAEiIKBWRlbHRhGAMgASgLMhEuZHVyYWJsZS52MS5EZWx0YUgAQgYKBGl0ZW0iCwoJSGVhcnRiZWF0InEKBURlbHRhEhAKCGxhc3Rfc2VxGAEgASgDEiMKBGtpbmQYAiABKA4yFS5kdXJhYmxlLnYxLkRlbHRhS2luZBISCgpzdWJtaXNzaW9uGAMgASgDEg8KB2NhbGxfaWQYBCABKAkSDAoEdGV4dBgFIAEoCSKIAQoKU3VibWlzc2lvbhILCgNzZXEYASABKAMSEgoKcmVxdWVzdF9pZBgCIAEoCRIMCgR0ZXh0GAMgASgJEiwKBnN0YXR1cxgEIAEoDjIcLmR1cmFibGUudjEuU3VibWlzc2lvblN0YXR1cxIOCgZyZXN1bHQYBSABKAkSDQoFZXJyb3IYBiABKAkiogEKCEFwcHJvdmFsEgsKA3NlcRgBIAEoAxISCgpzdWJtaXNzaW9uGAIgASgDEiIKBGNhbGwYAyABKAsyFC5kdXJhYmxlLnYxLlRvb2xDYWxsEhEKCXJld3JpdHRlbhgEIAEoCBIqCgZzdGF0dXMYBSABKA4yGi5kdXJhYmxlLnYxLkFwcHJvdmFsU3RhdHVzEhIKCmRlY2lkZWRfYnkYBiABKAkiMwoIVG9vbENhbGwSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVpbnB1dBgDIAEoDCKvAQoHTWVzc2FnZRIeCgRyb2xlGAEgASgOMhAuZHVyYWJsZS52MS5Sb2xlEgwKBHRleHQYAiABKAkSKAoKdG9vbF9jYWxscxgDIAMoCzIULmR1cmFibGUudjEuVG9vbENhbGwSFAoMdG9vbF9jYWxsX2lkGAQgASgJEhAKCGlzX2Vycm9yGAUgASgIEhYKDmNvbnRleHRfdG9rZW5zGAYgASgDEgwKBG5vdGUYByABKAgi9AIKBUV2ZW50EgsKA3NlcRgBIAEoAxINCgVlcG9jaBgCIAEoCRIjCgRraW5kGAMgASgOMhUuZHVyYWJsZS52MS5FdmVudEtpbmQSEgoKc3VibWlzc2lvbhgEIAEoAxIsCgZzdGF0dXMYBSABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDQoFZXJyb3IYBiABKAkSJAoHbWVzc2FnZRgHIAEoCzITLmR1cmFibGUudjEuTWVzc2FnZRIiCgRjYWxsGAggASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YCSABKAgSEAoIaXNfZXJyb3IYCiABKAgSFAoMYXBwcm92YWxfc2VxGAsgASgDEiwKCGFwcHJvdmFsGAwgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GA0gASgJEhIKCnJlcXVlc3RfaWQYDiABKAkiMAoNRXBvY2hNaXNtYXRjaBINCgVlcG9jaBgBIAEoCRIQCghsYXN0X3NlcRgCIAEoAypuCglEZWx0YUtpbmQSGgoWREVMVEFfS0lORF9VTlNQRUNJRklFRBAAEhQKEERFTFRBX0tJTkRfUkVTRVQQARITCg9ERUxUQV9LSU5EX1RFWFQQAhIaChZERUxUQV9LSU5EX1RPT0xfT1VUUFVUEAMqzQEKEFN1Ym1pc3Npb25TdGF0dXMSIQodU1VCTUlTU0lPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIcChhTVUJNSVNTSU9OX1NUQVRVU19RVUVVRUQQARIdChlTVUJNSVNTSU9OX1NUQVRVU19SVU5OSU5HEAISGgoWU1VCTUlTU0lPTl9TVEFUVVNfRE9ORRADEhwKGFNVQk1JU1NJT05fU1RBVFVTX0ZBSUxFRBAEEh8KG1NVQk1JU1NJT05fU1RBVFVTX0NBTkNFTExFRBAFKqgBCg5BcHByb3ZhbFN0YXR1cxIfChtBUFBST1ZBTF9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdBUFBST1ZBTF9TVEFUVVNfUEVORElORxABEhsKF0FQUFJPVkFMX1NUQVRVU19BTExPV0VEEAISHAoYQVBQUk9WQUxfU1RBVFVTX0RFQ0xJTkVEEAMSHQoZQVBQUk9WQUxfU1RBVFVTX0NBTkNFTExFRBAEKq8CCglFdmVudEtpbmQSGgoWRVZFTlRfS0lORF9VTlNQRUNJRklFRBAAEhkKFUVWRU5UX0tJTkRfU1VCTUlTU0lPThABEhYKEkVWRU5UX0tJTkRfTUVTU0FHRRACEhsKF0VWRU5UX0tJTkRfQ0FMTF9TVEFSVEVEEAMSHAoYRVZFTlRfS0lORF9DQUxMX1JFUExBWUVEEAQSGAoURVZFTlRfS0lORF9DQUxMX0RPTkUQBRIYChRFVkVOVF9LSU5EX0NPTVBBQ1RFRBAGEiAKHEVWRU5UX0tJTkRfQ09NUEFDVElPTl9GQUlMRUQQBxIhCh1FVkVOVF9LSU5EX0FQUFJPVkFMX1JFUVVFU1RFRBAIEh8KG0VWRU5UX0tJTkRfQVBQUk9WQUxfREVDSURFRBAJKk4KBFJvbGUSFAoQUk9MRV9VTlNQRUNJRklFRBAAEg0KCVJPTEVfVVNFUhABEhIKDlJPTEVfQVNTSVNUQU5UEAISDQoJUk9MRV9UT09MEAMy5gMKDlNlc3Npb25TZXJ2aWNlEj8KBlN1Ym1pdBIZLmR1cmFibGUudjEuU3VibWl0UmVxdWVzdBoaLmR1cmFibGUudjEuU3VibWl0UmVzcG9uc2USPwoGQ2FuY2VsEhkuZHVyYWJsZS52MS5DYW5jZWxSZXF1ZXN0GhouZHVyYWJsZS52MS5DYW5jZWxSZXNwb25zZRJXCg5EZWNpZGVBcHByb3ZhbBIhLmR1cmFibGUudjEuRGVjaWRlQXBwcm92YWxSZXF1ZXN0GiIuZHVyYWJsZS52MS5EZWNpZGVBcHByb3ZhbFJlc3BvbnNlElAKC1dhdGNoRXZlbnRzEh4uZHVyYWJsZS52MS5XYXRjaEV2ZW50c1JlcXVlc3QaHy5kdXJhYmxlLnYxLldhdGNoRXZlbnRzUmVzcG9uc2UwARJRCgxMaXN0U2Vzc2lvbnMSHy5kdXJhYmxlLnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaIC5kdXJhYmxlLnYxLkxpc3RTZXNzaW9uc1Jlc3BvbnNlElQKDUNyZWF0ZVNlc3Npb24SIC5kdXJhYmxlLnYxLkNyZWF0ZVNlc3Npb25SZXF1ZXN0GiEuZHVyYWJsZS52MS5DcmVhdGVTZXNzaW9uUmVzcG9uc2VCN1o1Z2l0aHViLmNvbS93b2xmZWlkYXUvZHVyYWJsZS9hcGkvZHVyYWJsZS92MTtkdXJhYmxldjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("ChhkdXJhYmxlL3YxL2R1cmFibGUucHJvdG8SCmR1cmFibGUudjEiFgoUR2V0U2VydmVySW5mb1JlcXVlc3QiQgoVR2V0U2VydmVySW5mb1Jlc3BvbnNlEikKCndvcmtzcGFjZXMYASADKA4yFS5kdXJhYmxlLnYxLldvcmtzcGFjZSJvChRDcmVhdGVTZXNzaW9uUmVxdWVzdBILCgNjd2QYASABKAkSDAoEbmFtZRgCIAEoCRIoCgl3b3Jrc3BhY2UYAyABKA4yFS5kdXJhYmxlLnYxLldvcmtzcGFjZRISCgpyZXF1ZXN0X2lkGAQgASgJIlIKFUNyZWF0ZVNlc3Npb25SZXNwb25zZRIoCgdzZXNzaW9uGAEgASgLMhcuZHVyYWJsZS52MS5TZXNzaW9uSW5mbxIPCgdjcmVhdGVkGAIgASgIIhUKE0xpc3RTZXNzaW9uc1JlcXVlc3QiUwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKQoIc2Vzc2lvbnMYASADKAsyFy5kdXJhYmxlLnYxLlNlc3Npb25JbmZvEhAKCHdhcm5pbmdzGAIgAygJIskBCgtTZXNzaW9uSW5mbxIKCgJpZBgBIAEoCRILCgNjd2QYAiABKAkSDAoEbmFtZRgDIAEoCRIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZChFwZW5kaW5nX2FwcHJvdmFscxgFIAEoBRIeChZ1bmZpbmlzaGVkX3N1Ym1pc3Npb25zGAYgASgFEigKCXdvcmtzcGFjZRgHIAEoDjIVLmR1cmFibGUudjEuV29ya3NwYWNlIkUKDVN1Ym1pdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJEgwKBHRleHQYAyABKAkiPAoOU3VibWl0UmVzcG9uc2USKgoKc3VibWlzc2lvbhgBIAEoCzIWLmR1cmFibGUudjEuU3VibWlzc2lvbiI3Cg1DYW5jZWxSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEgoKcmVxdWVzdF9pZBgCIAEoCSI8Cg5DYW5jZWxSZXNwb25zZRIqCgpzdWJtaXNzaW9uGAEgASgLMhYuZHVyYWJsZS52MS5TdWJtaXNzaW9uIlwKFURlY2lkZUFwcHJvdmFsUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhQKDGFwcHJvdmFsX3NlcRgCIAEoAxINCgVhbGxvdxgDIAEoCBIKCgJieRgEIAEoCSJAChZEZWNpZGVBcHByb3ZhbFJlc3BvbnNlEiYKCGFwcHJvdmFsGAEgASgLMhQuZHVyYWJsZS52MS5BcHByb3ZhbCJiChJXYXRjaEV2ZW50c1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgVlcG9jaBgCIAEoCRIRCglhZnRlcl9zZXEYAyABKAMSFgoOaW5jbHVkZV9kZWx0YXMYBCABKAgikQEKE1dhdGNoRXZlbnRzUmVzcG9uc2USIgoFZXZlbnQYASABKAsyES5kdXJhYmxlLnYxLkV2ZW50SAASKgoJaGVhcnRiZWF0GAIgASgLMhUuZHVyYWJsZS52MS5IZWFydGJlYXRIABIiCgVkZWx0YRgDIAEoCzIRLmR1cmFibGUudjEuRGVsdGFIAEIGCgRpdGVtIgsKCUhlYXJ0YmVhdCJxCgVEZWx0YRIQCghsYXN0X3NlcRgBIAEoAxIjCgRraW5kGAIgASgOMhUuZHVyYWJsZS52MS5EZWx0YUtpbmQSEgoKc3VibWlzc2lvbhgDIAEoAxIPCgdjYWxsX2lkGAQgASgJEgwKBHRleHQYBSABKAkiiAEKClN1Ym1pc3Npb24SCwoDc2VxGAEgASgDEhIKCnJlcXVlc3RfaWQYAiABKAkSDAoEdGV4dBgDIAEoCRIsCgZzdGF0dXMYBCABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDgoGcmVzdWx0GAUgASgJEg0KBWVycm9yGAYgASgJIqIBCghBcHByb3ZhbBILCgNzZXEYASABKAMSEgoKc3VibWlzc2lvbhgCIAEoAxIiCgRjYWxsGAMgASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YBCABKAgSKgoGc3RhdHVzGAUgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GAYgASgJIjMKCFRvb2xDYWxsEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDQoFaW5wdXQYAyABKAwirwEKB01lc3NhZ2USHgoEcm9sZRgBIAEoDjIQLmR1cmFibGUudjEuUm9sZRIMCgR0ZXh0GAIgASgJEigKCnRvb2xfY2FsbHMYAyADKAsyFC5kdXJhYmxlLnYxLlRvb2xDYWxsEhQKDHRvb2xfY2FsbF9pZBgEIAEoCRIQCghpc19lcnJvchgFIAEoCBIWCg5jb250ZXh0X3Rva2VucxgGIAEoAxIMCgRub3RlGAcgASgIIvQCCgVFdmVudBILCgNzZXEYASABKAMSDQoFZXBvY2gYAiABKAkSIwoEa2luZBgDIAEoDjIVLmR1cmFibGUudjEuRXZlbnRLaW5kEhIKCnN1Ym1pc3Npb24YBCABKAMSLAoGc3RhdHVzGAUgASgOMhwuZHVyYWJsZS52MS5TdWJtaXNzaW9uU3RhdHVzEg0KBWVycm9yGAYgASgJEiQKB21lc3NhZ2UYByABKAsyEy5kdXJhYmxlLnYxLk1lc3NhZ2USIgoEY2FsbBgIIAEoCzIULmR1cmFibGUudjEuVG9vbENhbGwSEQoJcmV3cml0dGVuGAkgASgIEhAKCGlzX2Vycm9yGAogASgIEhQKDGFwcHJvdmFsX3NlcRgLIAEoAxIsCghhcHByb3ZhbBgMIAEoDjIaLmR1cmFibGUudjEuQXBwcm92YWxTdGF0dXMSEgoKZGVjaWRlZF9ieRgNIAEoCRISCgpyZXF1ZXN0X2lkGA4gASgJIjAKDUVwb2NoTWlzbWF0Y2gSDQoFZXBvY2gYASABKAkSEAoIbGFzdF9zZXEYAiABKAMqVAoJV29ya3NwYWNlEhkKFVdPUktTUEFDRV9VTlNQRUNJRklFRBAAEhcKE1dPUktTUEFDRV9ESVJFQ1RPUlkQARITCg9XT1JLU1BBQ0VfRU1QVFkQAipuCglEZWx0YUtpbmQSGgoWREVMVEFfS0lORF9VTlNQRUNJRklFRBAAEhQKEERFTFRBX0tJTkRfUkVTRVQQARITCg9ERUxUQV9LSU5EX1RFWFQQAhIaChZERUxUQV9LSU5EX1RPT0xfT1VUUFVUEAMqzQEKEFN1Ym1pc3Npb25TdGF0dXMSIQodU1VCTUlTU0lPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIcChhTVUJNSVNTSU9OX1NUQVRVU19RVUVVRUQQARIdChlTVUJNSVNTSU9OX1NUQVRVU19SVU5OSU5HEAISGgoWU1VCTUlTU0lPTl9TVEFUVVNfRE9ORRADEhwKGFNVQk1JU1NJT05fU1RBVFVTX0ZBSUxFRBAEEh8KG1NVQk1JU1NJT05fU1RBVFVTX0NBTkNFTExFRBAFKqgBCg5BcHByb3ZhbFN0YXR1cxIfChtBUFBST1ZBTF9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdBUFBST1ZBTF9TVEFUVVNfUEVORElORxABEhsKF0FQUFJPVkFMX1NUQVRVU19BTExPV0VEEAISHAoYQVBQUk9WQUxfU1RBVFVTX0RFQ0xJTkVEEAMSHQoZQVBQUk9WQUxfU1RBVFVTX0NBTkNFTExFRBAEKq8CCglFdmVudEtpbmQSGgoWRVZFTlRfS0lORF9VTlNQRUNJRklFRBAAEhkKFUVWRU5UX0tJTkRfU1VCTUlTU0lPThABEhYKEkVWRU5UX0tJTkRfTUVTU0FHRRACEhsKF0VWRU5UX0tJTkRfQ0FMTF9TVEFSVEVEEAMSHAoYRVZFTlRfS0lORF9DQUxMX1JFUExBWUVEEAQSGAoURVZFTlRfS0lORF9DQUxMX0RPTkUQBRIYChRFVkVOVF9LSU5EX0NPTVBBQ1RFRBAGEiAKHEVWRU5UX0tJTkRfQ09NUEFDVElPTl9GQUlMRUQQBxIhCh1FVkVOVF9LSU5EX0FQUFJPVkFMX1JFUVVFU1RFRBAIEh8KG0VWRU5UX0tJTkRfQVBQUk9WQUxfREVDSURFRBAJKk4KBFJvbGUSFAoQUk9MRV9VTlNQRUNJRklFRBAAEg0KCVJPTEVfVVNFUhABEhIKDlJPTEVfQVNTSVNUQU5UEAISDQoJUk9MRV9UT09MEAMyvAQKDlNlc3Npb25TZXJ2aWNlEj8KBlN1Ym1pdBIZLmR1cmFibGUudjEuU3VibWl0UmVxdWVzdBoaLmR1cmFibGUudjEuU3VibWl0UmVzcG9uc2USPwoGQ2FuY2VsEhkuZHVyYWJsZS52MS5DYW5jZWxSZXF1ZXN0GhouZHVyYWJsZS52MS5DYW5jZWxSZXNwb25zZRJXCg5EZWNpZGVBcHByb3ZhbBIhLmR1cmFibGUudjEuRGVjaWRlQXBwcm92YWxSZXF1ZXN0GiIuZHVyYWJsZS52MS5EZWNpZGVBcHByb3ZhbFJlc3BvbnNlElAKC1dhdGNoRXZlbnRzEh4uZHVyYWJsZS52MS5XYXRjaEV2ZW50c1JlcXVlc3QaHy5kdXJhYmxlLnYxLldhdGNoRXZlbnRzUmVzcG9uc2UwARJRCgxMaXN0U2Vzc2lvbnMSHy5kdXJhYmxlLnYxLkxpc3RTZXNzaW9uc1JlcXVlc3QaIC5kdXJhYmxlLnYxLkxpc3RTZXNzaW9uc1Jlc3BvbnNlElQKDUNyZWF0ZVNlc3Npb24SIC5kdXJhYmxlLnYxLkNyZWF0ZVNlc3Npb25SZXF1ZXN0GiEuZHVyYWJsZS52MS5DcmVhdGVTZXNzaW9uUmVzcG9uc2USVAoNR2V0U2VydmVySW5mbxIgLmR1cmFibGUudjEuR2V0U2VydmVySW5mb1JlcXVlc3QaIS5kdXJhYmxlLnYxLkdldFNlcnZlckluZm9SZXNwb25zZUI3WjVnaXRodWIuY29tL3dvbGZlaWRhdS9kdXJhYmxlL2FwaS9kdXJhYmxlL3YxO2R1cmFibGV2MWIGcHJvdG8z", [file_google_protobuf_timestamp]);
+
+/**
+ * @generated from message durable.v1.GetServerInfoRequest
+ */
+export type GetServerInfoRequest = Message$1<"durable.v1.GetServerInfoRequest"> & {
+};
+
+/**
+ * Describes the message durable.v1.GetServerInfoRequest.
+ * Use `create(GetServerInfoRequestSchema)` to create a new message.
+ */
+export const GetServerInfoRequestSchema: GenMessage<GetServerInfoRequest> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 0);
+
+/**
+ * @generated from message durable.v1.GetServerInfoResponse
+ */
+export type GetServerInfoResponse = Message$1<"durable.v1.GetServerInfoResponse"> & {
+  /**
+   * workspaces lists the kinds CreateSession accepts.
+   *
+   * @generated from field: repeated durable.v1.Workspace workspaces = 1;
+   */
+  workspaces: Workspace[];
+};
+
+/**
+ * Describes the message durable.v1.GetServerInfoResponse.
+ * Use `create(GetServerInfoResponseSchema)` to create a new message.
+ */
+export const GetServerInfoResponseSchema: GenMessage<GetServerInfoResponse> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 1);
 
 /**
  * @generated from message durable.v1.CreateSessionRequest
  */
 export type CreateSessionRequest = Message$1<"durable.v1.CreateSessionRequest"> & {
   /**
-   * cwd must be an absolute path to an existing directory.
+   * cwd must be an absolute path to an existing directory, and must be empty for an empty workspace.
    *
    * @generated from field: string cwd = 1;
    */
@@ -31,6 +63,20 @@ export type CreateSessionRequest = Message$1<"durable.v1.CreateSessionRequest"> 
    * @generated from field: string name = 2;
    */
   name: string;
+
+  /**
+   * workspace defaults to DIRECTORY.
+   *
+   * @generated from field: durable.v1.Workspace workspace = 3;
+   */
+  workspace: Workspace;
+
+  /**
+   * request_id is required for an empty workspace; a retry with the same one returns the same session.
+   *
+   * @generated from field: string request_id = 4;
+   */
+  requestId: string;
 };
 
 /**
@@ -38,7 +84,7 @@ export type CreateSessionRequest = Message$1<"durable.v1.CreateSessionRequest"> 
  * Use `create(CreateSessionRequestSchema)` to create a new message.
  */
 export const CreateSessionRequestSchema: GenMessage<CreateSessionRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 0);
+  messageDesc(file_durable_v1_durable, 2);
 
 /**
  * @generated from message durable.v1.CreateSessionResponse
@@ -62,7 +108,7 @@ export type CreateSessionResponse = Message$1<"durable.v1.CreateSessionResponse"
  * Use `create(CreateSessionResponseSchema)` to create a new message.
  */
 export const CreateSessionResponseSchema: GenMessage<CreateSessionResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 1);
+  messageDesc(file_durable_v1_durable, 3);
 
 /**
  * @generated from message durable.v1.ListSessionsRequest
@@ -75,7 +121,7 @@ export type ListSessionsRequest = Message$1<"durable.v1.ListSessionsRequest"> & 
  * Use `create(ListSessionsRequestSchema)` to create a new message.
  */
 export const ListSessionsRequestSchema: GenMessage<ListSessionsRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 2);
+  messageDesc(file_durable_v1_durable, 4);
 
 /**
  * @generated from message durable.v1.ListSessionsResponse
@@ -99,7 +145,7 @@ export type ListSessionsResponse = Message$1<"durable.v1.ListSessionsResponse"> 
  * Use `create(ListSessionsResponseSchema)` to create a new message.
  */
 export const ListSessionsResponseSchema: GenMessage<ListSessionsResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 3);
+  messageDesc(file_durable_v1_durable, 5);
 
 /**
  * @generated from message durable.v1.SessionInfo
@@ -113,6 +159,8 @@ export type SessionInfo = Message$1<"durable.v1.SessionInfo"> & {
   id: string;
 
   /**
+   * cwd is empty for an empty workspace.
+   *
    * @generated from field: string cwd = 2;
    */
   cwd: string;
@@ -140,6 +188,11 @@ export type SessionInfo = Message$1<"durable.v1.SessionInfo"> & {
    * @generated from field: int32 unfinished_submissions = 6;
    */
   unfinishedSubmissions: number;
+
+  /**
+   * @generated from field: durable.v1.Workspace workspace = 7;
+   */
+  workspace: Workspace;
 };
 
 /**
@@ -147,7 +200,7 @@ export type SessionInfo = Message$1<"durable.v1.SessionInfo"> & {
  * Use `create(SessionInfoSchema)` to create a new message.
  */
 export const SessionInfoSchema: GenMessage<SessionInfo> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 4);
+  messageDesc(file_durable_v1_durable, 6);
 
 /**
  * @generated from message durable.v1.SubmitRequest
@@ -174,7 +227,7 @@ export type SubmitRequest = Message$1<"durable.v1.SubmitRequest"> & {
  * Use `create(SubmitRequestSchema)` to create a new message.
  */
 export const SubmitRequestSchema: GenMessage<SubmitRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 5);
+  messageDesc(file_durable_v1_durable, 7);
 
 /**
  * @generated from message durable.v1.SubmitResponse
@@ -191,7 +244,7 @@ export type SubmitResponse = Message$1<"durable.v1.SubmitResponse"> & {
  * Use `create(SubmitResponseSchema)` to create a new message.
  */
 export const SubmitResponseSchema: GenMessage<SubmitResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 6);
+  messageDesc(file_durable_v1_durable, 8);
 
 /**
  * @generated from message durable.v1.CancelRequest
@@ -213,7 +266,7 @@ export type CancelRequest = Message$1<"durable.v1.CancelRequest"> & {
  * Use `create(CancelRequestSchema)` to create a new message.
  */
 export const CancelRequestSchema: GenMessage<CancelRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 7);
+  messageDesc(file_durable_v1_durable, 9);
 
 /**
  * @generated from message durable.v1.CancelResponse
@@ -230,7 +283,7 @@ export type CancelResponse = Message$1<"durable.v1.CancelResponse"> & {
  * Use `create(CancelResponseSchema)` to create a new message.
  */
 export const CancelResponseSchema: GenMessage<CancelResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 8);
+  messageDesc(file_durable_v1_durable, 10);
 
 /**
  * @generated from message durable.v1.DecideApprovalRequest
@@ -264,7 +317,7 @@ export type DecideApprovalRequest = Message$1<"durable.v1.DecideApprovalRequest"
  * Use `create(DecideApprovalRequestSchema)` to create a new message.
  */
 export const DecideApprovalRequestSchema: GenMessage<DecideApprovalRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 9);
+  messageDesc(file_durable_v1_durable, 11);
 
 /**
  * @generated from message durable.v1.DecideApprovalResponse
@@ -281,7 +334,7 @@ export type DecideApprovalResponse = Message$1<"durable.v1.DecideApprovalRespons
  * Use `create(DecideApprovalResponseSchema)` to create a new message.
  */
 export const DecideApprovalResponseSchema: GenMessage<DecideApprovalResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 10);
+  messageDesc(file_durable_v1_durable, 12);
 
 /**
  * @generated from message durable.v1.WatchEventsRequest
@@ -321,7 +374,7 @@ export type WatchEventsRequest = Message$1<"durable.v1.WatchEventsRequest"> & {
  * Use `create(WatchEventsRequestSchema)` to create a new message.
  */
 export const WatchEventsRequestSchema: GenMessage<WatchEventsRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 11);
+  messageDesc(file_durable_v1_durable, 13);
 
 /**
  * @generated from message durable.v1.WatchEventsResponse
@@ -356,7 +409,7 @@ export type WatchEventsResponse = Message$1<"durable.v1.WatchEventsResponse"> & 
  * Use `create(WatchEventsResponseSchema)` to create a new message.
  */
 export const WatchEventsResponseSchema: GenMessage<WatchEventsResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 12);
+  messageDesc(file_durable_v1_durable, 14);
 
 /**
  * @generated from message durable.v1.Heartbeat
@@ -369,7 +422,7 @@ export type Heartbeat = Message$1<"durable.v1.Heartbeat"> & {
  * Use `create(HeartbeatSchema)` to create a new message.
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 13);
+  messageDesc(file_durable_v1_durable, 15);
 
 /**
  * Delta is a live view of work in progress; the committed events stay authoritative.
@@ -412,7 +465,7 @@ export type Delta = Message$1<"durable.v1.Delta"> & {
  * Use `create(DeltaSchema)` to create a new message.
  */
 export const DeltaSchema: GenMessage<Delta> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 14);
+  messageDesc(file_durable_v1_durable, 16);
 
 /**
  * @generated from message durable.v1.Submission
@@ -458,7 +511,7 @@ export type Submission = Message$1<"durable.v1.Submission"> & {
  * Use `create(SubmissionSchema)` to create a new message.
  */
 export const SubmissionSchema: GenMessage<Submission> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 15);
+  messageDesc(file_durable_v1_durable, 17);
 
 /**
  * @generated from message durable.v1.Approval
@@ -500,7 +553,7 @@ export type Approval = Message$1<"durable.v1.Approval"> & {
  * Use `create(ApprovalSchema)` to create a new message.
  */
 export const ApprovalSchema: GenMessage<Approval> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 16);
+  messageDesc(file_durable_v1_durable, 18);
 
 /**
  * ToolCall omits input when a gate rewrote it, because the rewrite can hold secrets.
@@ -531,7 +584,7 @@ export type ToolCall = Message$1<"durable.v1.ToolCall"> & {
  * Use `create(ToolCallSchema)` to create a new message.
  */
 export const ToolCallSchema: GenMessage<ToolCall> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 17);
+  messageDesc(file_durable_v1_durable, 19);
 
 /**
  * Message omits Raw: provider content is replayed server side only.
@@ -582,7 +635,7 @@ export type Message = Message$1<"durable.v1.Message"> & {
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 18);
+  messageDesc(file_durable_v1_durable, 20);
 
 /**
  * @generated from message durable.v1.Event
@@ -674,7 +727,7 @@ export type Event = Message$1<"durable.v1.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 19);
+  messageDesc(file_durable_v1_durable, 21);
 
 /**
  * EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.
@@ -698,7 +751,39 @@ export type EpochMismatch = Message$1<"durable.v1.EpochMismatch"> & {
  * Use `create(EpochMismatchSchema)` to create a new message.
  */
 export const EpochMismatchSchema: GenMessage<EpochMismatch> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 20);
+  messageDesc(file_durable_v1_durable, 22);
+
+/**
+ * Workspace is the kind of workspace a session runs in.
+ *
+ * @generated from enum durable.v1.Workspace
+ */
+export enum Workspace {
+  /**
+   * @generated from enum value: WORKSPACE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * DIRECTORY is a host directory, picked by cwd.
+   *
+   * @generated from enum value: WORKSPACE_DIRECTORY = 1;
+   */
+  DIRECTORY = 1,
+
+  /**
+   * EMPTY is an empty sandbox workspace with no host directory.
+   *
+   * @generated from enum value: WORKSPACE_EMPTY = 2;
+   */
+  EMPTY = 2,
+}
+
+/**
+ * Describes the enum durable.v1.Workspace.
+ */
+export const WorkspaceSchema: GenEnum<Workspace> = /*@__PURE__*/
+  enumDesc(file_durable_v1_durable, 0);
 
 /**
  * @generated from enum durable.v1.DeltaKind
@@ -731,7 +816,7 @@ export enum DeltaKind {
  * Describes the enum durable.v1.DeltaKind.
  */
 export const DeltaKindSchema: GenEnum<DeltaKind> = /*@__PURE__*/
-  enumDesc(file_durable_v1_durable, 0);
+  enumDesc(file_durable_v1_durable, 1);
 
 /**
  * @generated from enum durable.v1.SubmissionStatus
@@ -772,7 +857,7 @@ export enum SubmissionStatus {
  * Describes the enum durable.v1.SubmissionStatus.
  */
 export const SubmissionStatusSchema: GenEnum<SubmissionStatus> = /*@__PURE__*/
-  enumDesc(file_durable_v1_durable, 1);
+  enumDesc(file_durable_v1_durable, 2);
 
 /**
  * @generated from enum durable.v1.ApprovalStatus
@@ -808,7 +893,7 @@ export enum ApprovalStatus {
  * Describes the enum durable.v1.ApprovalStatus.
  */
 export const ApprovalStatusSchema: GenEnum<ApprovalStatus> = /*@__PURE__*/
-  enumDesc(file_durable_v1_durable, 2);
+  enumDesc(file_durable_v1_durable, 3);
 
 /**
  * @generated from enum durable.v1.EventKind
@@ -869,7 +954,7 @@ export enum EventKind {
  * Describes the enum durable.v1.EventKind.
  */
 export const EventKindSchema: GenEnum<EventKind> = /*@__PURE__*/
-  enumDesc(file_durable_v1_durable, 3);
+  enumDesc(file_durable_v1_durable, 4);
 
 /**
  * @generated from enum durable.v1.Role
@@ -900,7 +985,7 @@ export enum Role {
  * Describes the enum durable.v1.Role.
  */
 export const RoleSchema: GenEnum<Role> = /*@__PURE__*/
-  enumDesc(file_durable_v1_durable, 4);
+  enumDesc(file_durable_v1_durable, 5);
 
 /**
  * SessionService drives one durable session. session_id is the 16-hex session directory name.
@@ -957,7 +1042,8 @@ export const SessionService: GenService<{
     output: typeof ListSessionsResponseSchema;
   },
   /**
-   * CreateSession creates the session for an absolute cwd and name, or returns the existing one.
+   * CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
+   * by request_id for an empty one.
    * A server that can't create sessions, for example a missing provider key, returns
    * FAILED_PRECONDITION and logs the detail.
    *
@@ -967,6 +1053,16 @@ export const SessionService: GenService<{
     methodKind: "unary";
     input: typeof CreateSessionRequestSchema;
     output: typeof CreateSessionResponseSchema;
+  },
+  /**
+   * GetServerInfo reports which workspace kinds CreateSession accepts.
+   *
+   * @generated from rpc durable.v1.SessionService.GetServerInfo
+   */
+  getServerInfo: {
+    methodKind: "unary";
+    input: typeof GetServerInfoRequestSchema;
+    output: typeof GetServerInfoResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_durable_v1_durable, 0);

@@ -14,11 +14,16 @@ import (
 
 const sessionMetaFile = "session.json"
 
+// WorkspaceEmpty marks a session with no host directory; its tools run in an empty sandbox workspace.
+const WorkspaceEmpty = "empty"
+
 // SessionMeta names a session, because its directory is a one-way hash.
 type SessionMeta struct {
 	CWD       string    `json:"cwd"`
 	Name      string    `json:"name"`
 	CreatedAt time.Time `json:"created_at"`
+	// Workspace is empty for a directory session.
+	Workspace string `json:"workspace,omitempty"`
 	// ID is the session directory name, the id the API uses.
 	ID string `json:"-"`
 }
@@ -94,6 +99,13 @@ func ReadSessionMeta(dir string) (SessionMeta, error) {
 	}
 	m.ID = filepath.Base(dir)
 	return m, nil
+}
+
+// EmptySessionID derives an empty session's directory name from its request ID, so a retry lands on the same session.
+// A directory key starts with "/", so the two kinds can't share a preimage.
+func EmptySessionID(requestID string) string {
+	sum := sha256.Sum256([]byte("empty\x00" + requestID))
+	return hex.EncodeToString(sum[:])[:16]
 }
 
 // SessionPath returns the database path for a working directory and session name.

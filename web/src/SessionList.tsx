@@ -1,9 +1,10 @@
 import { useMutation, useQuery } from "@connectrpc/connect-query";
 import { ConnectError } from "@connectrpc/connect";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
-import { useState, type FormEvent, type ReactElement } from "react";
-import { createSession, listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
-import type { SessionInfo } from "./gen/durable/v1/durable_pb";
+import { useRef, useState, type FormEvent, type ReactElement } from "react";
+import { createSession, getServerInfo, listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
+import { Workspace, type SessionInfo } from "./gen/durable/v1/durable_pb";
+import { buildRequest, canCreate, emptyOnly, RequestIds } from "./newSession";
 
 const cwdKey = "durable.lastCwd";
 
@@ -51,28 +52,40 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
   const [cwd, setCwd] = useState(lastCwd);
   const [name, setName] = useState("");
   const create = useMutation(createSession);
+  const info = useQuery(getServerInfo, {}, { staleTime: Infinity });
+  const requestIds = useRef(new RequestIds());
+  const empty = emptyOnly(info.data?.workspaces ?? []);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const res = await create.mutateAsync({ cwd: cwd.trim(), name: name.trim() }).catch(() => undefined);
+    const form = { cwd, name };
+    const res = await create.mutateAsync(buildRequest(form, empty, requestIds.current.get())).catch(() => undefined);
     if (!res?.session) return;
-    rememberCwd(cwd.trim());
+    requestIds.current.succeeded();
+    if (!empty) rememberCwd(cwd.trim());
     setName("");
     onCreated(res.session.id);
   };
 
+  // Until the server says which kinds it offers, the form could show the wrong fields.
+  if (info.isPending) return <></>;
+
   return (
     <form className="new-session" onSubmit={(e) => void submit(e)}>
       <h2>New session</h2>
-      <label>
-        Working directory
-        <input value={cwd} placeholder="/absolute/path" onChange={(e) => setCwd(e.target.value)} />
-      </label>
+      {empty ? (
+        <p className="muted">Empty workspace</p>
+      ) : (
+        <label>
+          Working directory
+          <input value={cwd} placeholder="/absolute/path" onChange={(e) => setCwd(e.target.value)} />
+        </label>
+      )}
       <label>
         Name (optional)
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
-      <button type="submit" disabled={!cwd.trim() || create.isPending}>
+      <button type="submit" disabled={!canCreate({ cwd, name }, empty) || create.isPending}>
         Create
       </button>
       {create.error && <p className="error">{ConnectError.from(create.error).rawMessage}</p>}
@@ -108,7 +121,7 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
               }}
             >
               <span className="session-name">{s.name || s.id}</span>
-              <span className="session-cwd">{s.cwd}</span>
+              <span className="session-cwd">{s.workspace === Workspace.EMPTY ? "empty workspace" : s.cwd}</span>
               <span className="session-meta">
                 {s.pendingApprovals > 0 && <span className="badge attention">{s.pendingApprovals} waiting for approval</span>}
                 {s.unfinishedSubmissions > 0 && <span className="badge working">working</span>}

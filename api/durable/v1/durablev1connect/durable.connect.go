@@ -49,6 +49,9 @@ const (
 	// SessionServiceCreateSessionProcedure is the fully-qualified name of the SessionService's
 	// CreateSession RPC.
 	SessionServiceCreateSessionProcedure = "/durable.v1.SessionService/CreateSession"
+	// SessionServiceGetServerInfoProcedure is the fully-qualified name of the SessionService's
+	// GetServerInfo RPC.
+	SessionServiceGetServerInfoProcedure = "/durable.v1.SessionService/GetServerInfo"
 )
 
 // SessionServiceClient is a client for the durable.v1.SessionService service.
@@ -63,10 +66,13 @@ type SessionServiceClient interface {
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest]) (*connect.ServerStreamForClient[v1.WatchEventsResponse], error)
 	// ListSessions lists the sessions under the server's home, without opening any.
 	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
-	// CreateSession creates the session for an absolute cwd and name, or returns the existing one.
+	// CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
+	// by request_id for an empty one.
 	// A server that can't create sessions, for example a missing provider key, returns
 	// FAILED_PRECONDITION and logs the detail.
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
+	// GetServerInfo reports which workspace kinds CreateSession accepts.
+	GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error)
 }
 
 // NewSessionServiceClient constructs a client for the durable.v1.SessionService service. By
@@ -116,6 +122,12 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("CreateSession")),
 			connect.WithClientOptions(opts...),
 		),
+		getServerInfo: connect.NewClient[v1.GetServerInfoRequest, v1.GetServerInfoResponse](
+			httpClient,
+			baseURL+SessionServiceGetServerInfoProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("GetServerInfo")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -127,6 +139,7 @@ type sessionServiceClient struct {
 	watchEvents    *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
 	listSessions   *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
 	createSession  *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
+	getServerInfo  *connect.Client[v1.GetServerInfoRequest, v1.GetServerInfoResponse]
 }
 
 // Submit calls durable.v1.SessionService.Submit.
@@ -159,6 +172,11 @@ func (c *sessionServiceClient) CreateSession(ctx context.Context, req *connect.R
 	return c.createSession.CallUnary(ctx, req)
 }
 
+// GetServerInfo calls durable.v1.SessionService.GetServerInfo.
+func (c *sessionServiceClient) GetServerInfo(ctx context.Context, req *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error) {
+	return c.getServerInfo.CallUnary(ctx, req)
+}
+
 // SessionServiceHandler is an implementation of the durable.v1.SessionService service.
 type SessionServiceHandler interface {
 	// Submit is exactly-once per request_id.
@@ -171,10 +189,13 @@ type SessionServiceHandler interface {
 	WatchEvents(context.Context, *connect.Request[v1.WatchEventsRequest], *connect.ServerStream[v1.WatchEventsResponse]) error
 	// ListSessions lists the sessions under the server's home, without opening any.
 	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
-	// CreateSession creates the session for an absolute cwd and name, or returns the existing one.
+	// CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
+	// by request_id for an empty one.
 	// A server that can't create sessions, for example a missing provider key, returns
 	// FAILED_PRECONDITION and logs the detail.
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
+	// GetServerInfo reports which workspace kinds CreateSession accepts.
+	GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error)
 }
 
 // NewSessionServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -220,6 +241,12 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("CreateSession")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceGetServerInfoHandler := connect.NewUnaryHandler(
+		SessionServiceGetServerInfoProcedure,
+		svc.GetServerInfo,
+		connect.WithSchema(sessionServiceMethods.ByName("GetServerInfo")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/durable.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionServiceSubmitProcedure:
@@ -234,6 +261,8 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceListSessionsHandler.ServeHTTP(w, r)
 		case SessionServiceCreateSessionProcedure:
 			sessionServiceCreateSessionHandler.ServeHTTP(w, r)
+		case SessionServiceGetServerInfoProcedure:
+			sessionServiceGetServerInfoHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -265,4 +294,8 @@ func (UnimplementedSessionServiceHandler) ListSessions(context.Context, *connect
 
 func (UnimplementedSessionServiceHandler) CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.CreateSession is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.GetServerInfo is not implemented"))
 }
