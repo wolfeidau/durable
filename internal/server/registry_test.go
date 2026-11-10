@@ -341,7 +341,7 @@ func TestConcurrentAcquireAndCreateShareOneSession(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := range n {
 		wg.Go(func() {
-			_, _, err := r.Create(t.Context(), cwd, "new")
+			_, _, err := r.Create(t.Context(), createSpec{cwd: cwd, name: "new"})
 			errs <- err
 		})
 		wg.Go(func() {
@@ -393,9 +393,46 @@ func TestCreateReturnsSessionAnotherProcessCreatedMeanwhile(t *testing.T) {
 	r := e.registry(t)
 	cwd := t.TempDir()
 
-	meta, created, err := r.Create(t.Context(), cwd, "raced")
+	meta, created, err := r.Create(t.Context(), createSpec{cwd: cwd, name: "raced"})
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Equal(t, cwd, meta.CWD)
 	require.NotEmpty(t, meta.ID)
+}
+
+func TestConcurrentDirectoryCreatesReportOneCreated(t *testing.T) {
+	e := newEnv(t)
+	r := e.registry(t)
+	cwd := t.TempDir()
+
+	const n = 6
+	type result struct {
+		id      string
+		created bool
+		err     error
+	}
+	results := make(chan result, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			meta, created, err := r.Create(t.Context(), createSpec{cwd: cwd, name: "race"})
+			results <- result{id: meta.ID, created: created, err: err}
+		})
+	}
+	wg.Wait()
+	close(results)
+
+	created := 0
+	var id string
+	for res := range results {
+		require.NoError(t, res.err)
+		if id == "" {
+			id = res.id
+		}
+		require.Equal(t, id, res.id)
+		if res.created {
+			created++
+		}
+	}
+	require.Equal(t, 1, created)
 }

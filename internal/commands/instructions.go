@@ -43,11 +43,18 @@ func buildPrompt(pinned string) string {
 
 // discoverInstructions reads cwd's AGENTS.md first, then its parents up to the repository root, then the user file.
 func discoverInstructions(cwd, home string) (instructions, error) {
-	resolved, err := filepath.EvalSymlinks(cwd)
-	if err != nil {
-		return instructions{}, fmt.Errorf("failed to resolve working directory: %w", err)
+	// An empty cwd (an empty session) has no project; EvalSymlinks("") would resolve to the process cwd.
+	var (
+		root string
+		dirs []string
+	)
+	if cwd != "" {
+		resolved, err := filepath.EvalSymlinks(cwd)
+		if err != nil {
+			return instructions{}, fmt.Errorf("failed to resolve working directory: %w", err)
+		}
+		root, dirs = projectDirs(resolved, uint32(os.Geteuid())) //nolint:gosec // uids fit in 32 bits
 	}
-	root, dirs := projectDirs(resolved, uint32(os.Geteuid())) //nolint:gosec // uids fit in 32 bits
 
 	var (
 		res    instructions

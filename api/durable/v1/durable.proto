@@ -18,17 +18,41 @@ service SessionService {
   rpc WatchEvents(WatchEventsRequest) returns (stream WatchEventsResponse);
   // ListSessions lists the sessions under the server's home, without opening any.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
-  // CreateSession creates the session for an absolute cwd and name, or returns the existing one.
+  // CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
+  // by request_id for an empty one.
   // A server that can't create sessions, for example a missing provider key, returns
   // FAILED_PRECONDITION and logs the detail.
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  // GetServerInfo reports which workspace kinds CreateSession accepts.
+  rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
+}
+
+// Workspace is the kind of workspace a session runs in.
+enum Workspace {
+  WORKSPACE_UNSPECIFIED = 0;
+  // DIRECTORY is a host directory, picked by cwd.
+  WORKSPACE_DIRECTORY = 1;
+  // EMPTY is an empty sandbox workspace with no host directory.
+  WORKSPACE_EMPTY = 2;
+}
+
+message GetServerInfoRequest {}
+
+message GetServerInfoResponse {
+  // workspaces lists the kinds CreateSession accepts.
+  repeated Workspace workspaces = 1;
 }
 
 message CreateSessionRequest {
-  // cwd must be an absolute path to an existing directory.
+  // cwd must be an absolute path to an existing directory, and must be empty for an empty workspace.
   string cwd = 1;
-  // name defaults to "default", as in durable chat.
+  // name defaults to "default", as in durable chat, for a directory; an empty session stays unnamed.
   string name = 2;
+  // workspace defaults to DIRECTORY.
+  Workspace workspace = 3;
+  // request_id is required for an empty workspace and must be a random value of at least 16 characters; a retry with the
+  // same one returns the same session.
+  string request_id = 4;
 }
 
 message CreateSessionResponse {
@@ -48,6 +72,7 @@ message ListSessionsResponse {
 message SessionInfo {
   // id is the session_id other RPCs take.
   string id = 1;
+  // cwd is empty for an empty workspace.
   string cwd = 2;
   string name = 3;
   google.protobuf.Timestamp created_at = 4;
@@ -55,6 +80,7 @@ message SessionInfo {
   int32 pending_approvals = 5;
   // unfinished_submissions counts queued plus running submissions; it may lag while another process writes.
   int32 unfinished_submissions = 6;
+  Workspace workspace = 7;
 }
 
 message SubmitRequest {

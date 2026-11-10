@@ -150,9 +150,11 @@ func writeOnce(dir, path string, content []byte) error {
 }
 
 // Open readies the pinned sandbox and returns tools that run in it. The tools equal the server's catalog in names,
-// order and specs, because Client.Tools enforces it. release closes the connection and stops the sandbox; it is safe to
-// call more than once and returns the stop error for the caller to log.
-func Open(ctx context.Context, b Backend, pin Pin) (toolset []durable.Tool, release func() error, err error) {
+// order and specs, because Client.Tools enforces it. release closes the connection and stops the sandbox, or deletes it
+// when discard is true; it is safe to call more than once and returns the error for the caller to log. A fresh sandbox
+// is one this session's first open may have created, so a failed open deletes it instead of leaving a stale one for
+// every retry to reuse.
+func Open(ctx context.Context, b Backend, pin Pin, fresh bool) (toolset []durable.Tool, release func(discard bool) error, err error) {
 	if err := b.Ensure(ctx, pin.Spec()); err != nil {
 		return nil, nil, &Error{Unavailable: b.IsUnavailable(err), Err: err}
 	}
@@ -160,7 +162,7 @@ func Open(ctx context.Context, b Backend, pin Pin) (toolset []durable.Tool, rele
 		once   sync.Once
 		closer io.Closer
 	)
-	release = func() error {
+	release = func(discard bool) error {
 		var rerr error
 		once.Do(func() {
 			if closer != nil {
@@ -169,14 +171,18 @@ func Open(ctx context.Context, b Backend, pin Pin) (toolset []durable.Tool, rele
 			// Detached so a cancelled request doesn't leave the sandbox running.
 			sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), stopTimeout)
 			defer cancel()
+			if discard {
+				rerr = errors.Join(rerr, b.Delete(sctx, pin.Name))
+				return
+			}
 			rerr = errors.Join(rerr, b.Stop(sctx, pin.Name))
 		})
 		return rerr
 	}
-	// A failed open stops the sandbox it started, and reports the open error first.
+	// A failed open releases the sandbox it started, and reports the open error first.
 	fail := func(err error) error {
 		oe := &Error{Unavailable: b.IsUnavailable(err), Err: err}
-		if rerr := release(); rerr != nil {
+		if rerr := release(fresh); rerr != nil {
 			return errors.Join(oe, rerr)
 		}
 		return oe

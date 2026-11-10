@@ -21,11 +21,23 @@ type skillSet struct {
 
 // skillSources lists skill directories in precedence order: project directories nearest first, then the user's.
 func skillSources(cwd, home string) ([]skills.Source, error) {
+	// An empty cwd (an empty session) has no project; EvalSymlinks("") would resolve to the process cwd.
+	if cwd == "" {
+		return userSkillSources(home), nil
+	}
 	resolved, err := filepath.EvalSymlinks(cwd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve working directory: %w", err)
 	}
 	return skillSourcesFor(resolved, home, uint32(os.Geteuid())), nil //nolint:gosec // uids fit in 32 bits
+}
+
+func userSkillSources(home string) []skills.Source {
+	var srcs []skills.Source
+	for _, sub := range []string{".durable", ".agents"} {
+		srcs = append(srcs, skills.Source{Dir: filepath.Join(home, sub, "skills")})
+	}
+	return srcs
 }
 
 func skillSourcesFor(cwd, home string, uid uint32) []skills.Source {

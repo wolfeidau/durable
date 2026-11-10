@@ -108,16 +108,34 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 }
 
 // createSpec makes open create the session instead of requiring it to exist.
-type createSpec struct{ cwd, name string }
+// workspace is commands.WorkspaceEmpty, where id names the session, or empty for a directory session at cwd.
+type createSpec struct {
+	workspace, cwd, name, id string
+	// led is set by acquire when this caller opened the session, not one that joined it.
+	led bool
+}
 
-// Create returns the session for cwd and name, creating and opening it if it doesn't exist.
+// Sandboxed reports whether new sessions run their tools in a sandbox.
+func (r *Registry) Sandboxed() bool {
+	return r.cfg.Sandbox != nil && r.cfg.Sandbox.Image != ""
+}
+
+// Create returns the session for the spec, creating and opening it if it doesn't exist.
 // created is false for an existing session, which is returned as it is.
-func (r *Registry) Create(ctx context.Context, cwd, name string) (meta commands.SessionMeta, created bool, err error) {
-	path, err := commands.SessionPath(cwd, name)
-	if err != nil {
-		return commands.SessionMeta{}, false, err
+func (r *Registry) Create(ctx context.Context, spec createSpec) (meta commands.SessionMeta, created bool, err error) {
+	var dir string
+	if spec.workspace == commands.WorkspaceEmpty {
+		dir, err = SessionDir(r.cfg.Home, spec.id)
+		if err != nil {
+			return commands.SessionMeta{}, false, err
+		}
+	} else {
+		path, err := commands.SessionPath(spec.cwd, spec.name)
+		if err != nil {
+			return commands.SessionMeta{}, false, err
+		}
+		dir = filepath.Dir(path)
 	}
-	dir := filepath.Dir(path)
 	id := filepath.Base(dir)
 	meta, err = commands.ReadSessionMeta(dir)
 	if err == nil {
@@ -127,7 +145,7 @@ func (r *Registry) Create(ctx context.Context, cwd, name string) (meta commands.
 	if !errors.Is(err, commands.ErrNoSession) {
 		return commands.SessionMeta{}, false, err
 	}
-	_, release, err := r.acquire(ctx, id, dir, &createSpec{cwd: cwd, name: name})
+	_, release, err := r.acquire(ctx, id, dir, &spec)
 	if err != nil {
 		// Another process may have created it meanwhile, and its pin can reject the server's provider flags.
 		if errors.Is(err, errCreate) {
@@ -144,7 +162,7 @@ func (r *Registry) Create(ctx context.Context, cwd, name string) (meta commands.
 		return commands.SessionMeta{}, false, err
 	}
 	meta.ID = id
-	return meta, true, nil
+	return meta, spec.led, nil
 }
 
 // acquire opens the session with spec only if no caller has it open yet.
@@ -163,6 +181,9 @@ func (r *Registry) acquire(ctx context.Context, id, dir string, spec *createSpec
 		e.holders++
 		r.mu.Unlock()
 
+		if spec != nil {
+			spec.led = !ok
+		}
 		if !ok {
 			r.finishOpen(ctx, id, dir, e, spec)
 		}
@@ -252,7 +273,7 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		Logger:      s.logger,
 	}
 	if spec != nil {
-		ac.CWD, ac.Session = spec.cwd, spec.name
+		ac.CWD, ac.Session, ac.Workspace, ac.SessionID = spec.cwd, spec.name, spec.workspace, spec.id
 		ac.Provider, ac.Protocol, ac.Model = r.cfg.Provider, r.cfg.Protocol, r.cfg.Model
 	} else {
 		meta, err := commands.ReadSessionMeta(dir)
@@ -261,6 +282,7 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		}
 		// No provider fields: route.matches rejects a flag that differs from the session's pin.
 		ac.CWD, ac.Session, ac.ExistingOnly = meta.CWD, meta.Name, true
+		ac.Workspace, ac.SessionID = meta.Workspace, filepath.Base(dir)
 	}
 	asm, err := r.cfg.assemble(ctx, ac)
 	if err != nil {

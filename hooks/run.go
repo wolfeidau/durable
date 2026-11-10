@@ -65,7 +65,8 @@ func (r *Runner) invoke(ctx context.Context, event, tool string, h Handler, payl
 
 func (r *Runner) start(ctx context.Context, h Handler, payload []byte) (output, error) {
 	dir := r.opts.Workspace
-	if !h.UseWorkspaceCwd {
+	// An empty workspace (an empty session) has no host directory; an empty cmd.Dir would be the process cwd.
+	if !h.UseWorkspaceCwd || dir == "" {
 		tmp, err := os.MkdirTemp("", "durable-hook-*")
 		if err != nil {
 			return output{}, fmt.Errorf("failed to create hook directory: %w", err)

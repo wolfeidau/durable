@@ -61,7 +61,7 @@ func TestOpenReturnsCatalogToolsAndReleaseStops(t *testing.T) {
 	f := sandboxtest.New(t)
 	pin := sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}
 
-	got, release, err := sandbox.Open(t.Context(), f, pin)
+	got, release, err := sandbox.Open(t.Context(), f, pin, false)
 	require.NoError(t, err)
 
 	var names, want []string
@@ -75,8 +75,8 @@ func TestOpenReturnsCatalogToolsAndReleaseStops(t *testing.T) {
 	require.Equal(t, sandboxtest.Ready, f.Phase("ds-a"))
 	require.Equal(t, []sandbox.Spec{pin.Spec()}, f.Specs())
 
-	require.NoError(t, release())
-	require.NoError(t, release())
+	require.NoError(t, release(false))
+	require.NoError(t, release(false))
 	_, stops, _ := f.Counts()
 	require.Equal(t, 1, stops)
 	require.Equal(t, sandboxtest.Stopped, f.Phase("ds-a"))
@@ -101,7 +101,7 @@ func TestOpenWrapsErrors(t *testing.T) {
 			f := sandboxtest.New(t)
 			tc.fail(f, tc.err)
 
-			_, _, err := sandbox.Open(t.Context(), f, sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"})
+			_, _, err := sandbox.Open(t.Context(), f, sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}, false)
 
 			var se *sandbox.Error
 			require.ErrorAs(t, err, &se)
@@ -109,6 +109,33 @@ func TestOpenWrapsErrors(t *testing.T) {
 			require.ErrorIs(t, err, tc.err)
 			_, stops, _ := f.Counts()
 			require.Equal(t, tc.stops, stops)
+		})
+	}
+}
+
+func TestOpenFailureDeletesAFreshSandboxAndStopsAnExistingOne(t *testing.T) {
+	boom := errors.New("catalog mismatch")
+	tests := []struct {
+		name           string
+		fresh          bool
+		stops, deletes int
+		phase          string
+	}{
+		{name: "fresh", fresh: true, deletes: 1},
+		{name: "existing", stops: 1, phase: sandboxtest.Stopped},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := sandboxtest.New(t)
+			f.FailConnect(boom)
+
+			_, _, err := sandbox.Open(t.Context(), f, sandbox.Pin{Name: "ds-a", Image: "img", Token: "tok"}, tc.fresh)
+
+			require.ErrorIs(t, err, boom)
+			_, stops, deletes := f.Counts()
+			require.Equal(t, tc.stops, stops)
+			require.Equal(t, tc.deletes, deletes)
+			require.Equal(t, tc.phase, f.Phase("ds-a"))
 		})
 	}
 }

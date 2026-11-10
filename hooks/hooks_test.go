@@ -500,6 +500,15 @@ func TestUseWorkspaceCwd(t *testing.T) {
 	require.FileExists(t, filepath.Join(workspace, "here"))
 }
 
+func TestUseWorkspaceCwdWithEmptyWorkspaceRunsInTempDir(t *testing.T) {
+	proc := t.TempDir()
+	t.Chdir(proc)
+	r := New(load(t, PreToolUse, "", handlerJSON(t, script(t, `touch here`), map[string]any{"useWorkspaceCwd": true})),
+		Options{})
+	gate(t, r, nil, bashCall)
+	require.NoFileExists(t, filepath.Join(proc, "here"))
+}
+
 func TestFailuresAreLogged(t *testing.T) {
 	logDir := t.TempDir()
 	cmd := script(t, `echo "diagnostic detail" >&2; exit 1`)
