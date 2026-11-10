@@ -21,6 +21,7 @@ import (
 
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/server"
 )
 
@@ -110,7 +111,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		Provider:    c.Provider,
 		Protocol:    c.Protocol,
 		Model:       c.Model,
-		Sandbox:     &commands.SandboxConfig{Backend: backend, Image: c.SandboxImage},
+		Sandbox:     &commands.SandboxConfig{Backend: sandbox.Shared(backend), Image: c.SandboxImage},
 		Logger:      logger,
 	})
 	defer registry.Close()
