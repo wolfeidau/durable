@@ -36,6 +36,8 @@ type RegistryConfig struct {
 	Provider string
 	Protocol string
 	Model    string
+	// Sandbox runs built-in tools in sandboxes; nil keeps every session local.
+	Sandbox *commands.SandboxConfig
 	// RetryBase and RetryCap bound the delay before a failed run is retried; the delay doubles from base. Zero means 5s and 5m.
 	RetryBase time.Duration
 	RetryCap  time.Duration
@@ -246,6 +248,8 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		APIToken:    r.cfg.APIToken,
 		Interactive: false,
 		Observer:    s.observe,
+		Sandbox:     r.cfg.Sandbox,
+		Logger:      s.logger,
 	}
 	if spec != nil {
 		ac.CWD, ac.Session = spec.cwd, spec.name

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/tools"
 )
 
@@ -57,7 +58,7 @@ func newSandbox(t *testing.T, l *Launcher) (name, token string) {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	require.NoError(t, l.Create(ctx, Spec{Name: name, Image: testImage(), Token: token}))
+	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token}))
 	return name, token
 }
 
@@ -65,7 +66,7 @@ func dialWorker(t *testing.T, l *Launcher, name, token string) *Conn {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
-	conn, err := l.Connect(ctx, name, token)
+	conn, err := l.Dial(ctx, name, token)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	return conn
@@ -187,7 +188,7 @@ func TestGatewayMissingImageFailsFast(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
-	err := l.Create(ctx, Spec{Name: name, Image: "registry.invalid/durable/does-not-exist:0", Token: "t"})
+	err := l.Create(ctx, sandbox.Spec{Name: name, Image: "registry.invalid/durable/does-not-exist:0", Token: "t"})
 	require.Error(t, err)
 	require.NoError(t, ctx.Err(), "a missing image should fail before the deadline")
 	require.False(t, IsUnavailable(err), "a missing image is configuration, not an outage: %v", err)
@@ -205,7 +206,7 @@ func TestGatewayExitedWorkerFailsAndDeletes(t *testing.T) {
 	// The base image has no worker, so the sandbox's command fails at once.
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
-	err := l.Create(ctx, Spec{Name: name, Image: "debian:13.7-slim", Token: "t"})
+	err := l.Create(ctx, sandbox.Spec{Name: name, Image: "debian:13.7-slim", Token: "t"})
 	require.Error(t, err)
 	require.NoError(t, ctx.Err(), "an exited worker should fail before the deadline")
 	require.False(t, IsUnavailable(err), "an exited worker is configuration, not an outage: %v", err)

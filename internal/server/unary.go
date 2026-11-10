@@ -15,6 +15,7 @@ import (
 	"github.com/wolfeidau/durable"
 	v1 "github.com/wolfeidau/durable/api/durable/v1"
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/wire"
 )
 
@@ -116,7 +117,8 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 	}
 	meta, created, err := s.reg.Create(ctx, cwd, name)
 	if err != nil {
-		if errors.Is(err, errCreate) {
+		var se *sandbox.Error
+		if errors.Is(err, errCreate) && !errors.As(err, &se) {
 			// The detail can echo a credential reference, so only the log gets it.
 			s.logger.ErrorContext(ctx, "request failed", slog.String("op", "create session"), slog.Any("error", err))
 			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("server can't create sessions: see its log"))
@@ -150,6 +152,16 @@ func (s sessionService) internal(ctx context.Context, op string, err error) erro
 
 // publicErr keeps codes already chosen and the caller's own cancellation, and hides everything else.
 func (s sessionService) publicErr(ctx context.Context, op string, err error) error {
+	// First, because an unavailable sandbox can wrap a deadline, which would otherwise pass through with its detail.
+	var se *sandbox.Error
+	if errors.As(err, &se) && !errors.Is(err, context.Canceled) {
+		// Gateway errors can name providers, so only the log gets the cause.
+		s.logger.ErrorContext(ctx, "request failed", slog.String("op", op), slog.Any("error", err))
+		if se.Unavailable {
+			return connect.NewError(connect.CodeUnavailable, errors.New("sandbox unavailable: see the server log"))
+		}
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("sandbox can't start: see the server log"))
+	}
 	var ce *connect.Error
 	if errors.As(err, &ce) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err

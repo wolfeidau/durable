@@ -13,6 +13,7 @@ import (
 	"github.com/ai-openshell/sdk-go/openshell/v1/gateway"
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
 
+	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/worker"
 )
 
@@ -26,6 +27,7 @@ const (
 
 	defaultWorkspace = "default"
 	deleteTimeout    = 2 * time.Minute
+	stopPollInterval = 500 * time.Millisecond
 )
 
 // ErrNotFound reports that the sandbox does not exist.
@@ -37,14 +39,6 @@ type Config struct {
 	Gateway string
 	// Workspace is the OpenShell workspace sandboxes live in; empty means "default".
 	Workspace string
-}
-
-// Spec describes a sandbox to create.
-type Spec struct {
-	Name  string
-	Image string
-	// Token is the worker's bearer token, passed in the sandbox environment only.
-	Token string
 }
 
 // Launcher manages worker sandboxes on one gateway.
@@ -85,7 +79,7 @@ func (l *Launcher) Close() error { return l.c.Close() }
 
 // Create creates the sandbox and waits until it is ready. A sandbox that never gets ready is deleted, so a failed
 // create leaves nothing behind whose token the caller may not have kept.
-func (l *Launcher) Create(ctx context.Context, s Spec) error {
+func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 	if s.Name == "" || s.Image == "" || s.Token == "" {
 		return errors.New("sandbox name, image and worker token are required")
 	}
@@ -111,12 +105,24 @@ func (l *Launcher) Create(ctx context.Context, s Spec) error {
 	return nil
 }
 
+// Ensure creates the sandbox when it is missing, else starts it.
+func (l *Launcher) Ensure(ctx context.Context, s sandbox.Spec) error {
+	if _, err := l.Phase(ctx, s.Name); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return l.Create(ctx, s)
+		}
+		return err
+	}
+	return l.Start(ctx, s.Name)
+}
+
 // Start makes sure the sandbox is running and ready, so it is safe to call on every session open.
 func (l *Launcher) Start(ctx context.Context, name string) error {
-	phase, err := l.Phase(ctx, name)
+	sb, err := l.get(ctx, name)
 	if err != nil {
 		return err
 	}
+	phase := sb.Status.Phase
 	switch phase {
 	case types.SandboxReady:
 		return nil
@@ -129,6 +135,15 @@ func (l *Launcher) Start(ctx context.Context, name string) error {
 		return l.start(ctx, name)
 	case types.SandboxProvisioning, types.SandboxStarting:
 		return l.waitReady(ctx, name)
+	case types.SandboxError:
+		// A gateway restart leaves the container stopped but the sandbox in Error (NVIDIA/OpenShell#4910); stop then start recovers it.
+		if !startFailed(sb) {
+			return fmt.Errorf("sandbox %q is in phase %s", name, phase)
+		}
+		if err := l.stopFromError(ctx, name); err != nil {
+			return err
+		}
+		return l.start(ctx, name)
 	default:
 		return fmt.Errorf("sandbox %q is in phase %s", name, phase)
 	}
@@ -170,6 +185,30 @@ func (l *Launcher) Stop(ctx context.Context, name string) error {
 	return nil
 }
 
+// stopFromError stops a sandbox in Error and polls until it is Stopped. WaitStopped can't be used here, because it
+// fails at once on Error, which the sandbox may still report just after the stop is requested.
+func (l *Launcher) stopFromError(ctx context.Context, name string) error {
+	if _, err := l.c.Sandboxes().Stop(ctx, l.ws, name); err != nil {
+		return fmt.Errorf("failed to stop sandbox: %w", err)
+	}
+	t := time.NewTicker(stopPollInterval)
+	defer t.Stop()
+	for {
+		phase, err := l.Phase(ctx, name)
+		if err != nil {
+			return err
+		}
+		if phase == types.SandboxStopped {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("failed to wait for sandbox to stop from %s: %w", phase, ctx.Err())
+		case <-t.C:
+		}
+	}
+}
+
 // Delete removes the sandbox. A missing sandbox is not an error.
 func (l *Launcher) Delete(ctx context.Context, name string) error {
 	if _, err := l.c.Sandboxes().Delete(ctx, l.ws, name, v1.DeleteOptions{AllowMissing: true}); err != nil {
@@ -180,14 +219,32 @@ func (l *Launcher) Delete(ctx context.Context, name string) error {
 
 // Phase returns the sandbox's phase, or ErrNotFound if it does not exist.
 func (l *Launcher) Phase(ctx context.Context, name string) (types.SandboxPhase, error) {
+	sb, err := l.get(ctx, name)
+	if err != nil {
+		return "", err
+	}
+	return sb.Status.Phase, nil
+}
+
+func (l *Launcher) get(ctx context.Context, name string) (*types.Sandbox, error) {
 	sb, err := l.c.Sandboxes().Get(ctx, l.ws, name)
 	if err != nil {
 		if v1.IsNotFound(err) {
-			return "", fmt.Errorf("sandbox %q: %w", name, ErrNotFound)
+			return nil, fmt.Errorf("sandbox %q: %w", name, ErrNotFound)
 		}
-		return "", fmt.Errorf("failed to get sandbox: %w", err)
+		return nil, fmt.Errorf("failed to get sandbox: %w", err)
 	}
-	return sb.Status.Phase, nil
+	return sb, nil
+}
+
+// startFailed reports whether the Ready condition says the sandbox failed to start, as opposed to its worker failing.
+func startFailed(sb *types.Sandbox) bool {
+	for _, c := range sb.Status.Conditions {
+		if c.Type == "Ready" && c.Reason == "StartFailed" {
+			return true
+		}
+	}
+	return false
 }
 
 // IsUnavailable reports whether err is the gateway or worker being unreachable or slow, which a retry may fix.
@@ -196,3 +253,8 @@ func IsUnavailable(err error) bool {
 	return v1.IsUnavailable(err) || v1.IsDeadlineExceeded(err) ||
 		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errWorkerUnreachable)
 }
+
+// IsUnavailable implements sandbox.Backend.
+func (*Launcher) IsUnavailable(err error) bool { return IsUnavailable(err) }
+
+var _ sandbox.Backend = (*Launcher)(nil)
