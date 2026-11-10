@@ -31,7 +31,9 @@ from Claude Code.
 ## Sandboxed sessions
 
 A session with a sandbox runs its servers in the sandbox, beside the worker, instead of on the host.
-See [remote execution](remote-execution.md#mcp-servers-run-in-the-sandbox).
+See [remote execution](remote-execution.md#mcp-servers-run-in-the-sandbox). The sandbox is the trust
+boundary: the agent and its MCP servers share it, so the agent can reach whatever they can, but
+nothing in the sandbox can touch the host or reach hosts outside its allowlist.
 
 - The image needs what the servers need. The base image has no `npx` or `uvx`, so build one with
   `FROM durable-worker:dev` and install them.

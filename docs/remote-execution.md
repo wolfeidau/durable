@@ -347,6 +347,13 @@ The server keeps the MCP client: discovery, the per-session pin, naming, caps, t
 `ReplayNever` are the same as for a local session, and server hints still change nothing. The worker
 is only a pipe.
 
+**The sandbox is the trust boundary, not the MCP server.** The agent and the session's MCP servers
+share one sandbox, one user and one egress allowlist, so the agent can reach anything its MCP servers
+can: their credentials and their hosts. That is an accepted trade-off. What matters is what the
+sandbox can't do: touch the host, reach the server's API, or reach any host outside the allowlist.
+Giving each MCP server its own sandbox would separate its credentials and egress from the agent; see
+[open questions](#open-questions).
+
 - **stdio servers run beside the worker** through the `Stdio` RPC. The server wraps the stream in an
   MCP transport. The process gets the worker's environment (without its token) plus the server's
   configured `env`, including `${VAR}` values the host expanded. It runs in its own process group in
@@ -367,8 +374,8 @@ is only a pipe.
   ancestors, and the worker starts every tool, so an approved `bash` call can reach the HTTP
   servers' hosts too (`curl` from `bash` got a response from the configured host and was refused
   elsewhere). With the headers also readable, the agent can call those servers directly, outside
-  MCP approval, through any approved `bash` command. Providers and per-server scoping are the way to
-  close this.
+  MCP approval, through any approved `bash` command. This follows from the shared trust boundary
+  above; providers, or a sandbox per MCP server, would close it.
 - **`env` and headers are visible to the agent.** It runs as the same user, so it can read them.
   OAuth and OpenShell providers are the way out later.
 - **Gateway behaviour the launcher depends on** (probed on OpenShell v0.1.7): a policy keeps the
@@ -412,4 +419,7 @@ Each slice is one PR. The spike branches are reference, not a base.
   matters only at create. See [one sandbox per session](#one-sandbox-per-session).
 - **Later:** one sandbox per session, or one per repository shared across sessions?
 - **Later:** a per-session egress policy beyond GitHub, and how a person approves a new rule.
+- **Later:** run each MCP server in its own sandbox, so its credentials and egress aren't shared
+  with the agent. Today they share the session's sandbox; see
+  [MCP servers run in the sandbox](#mcp-servers-run-in-the-sandbox).
 - **Later:** a cancelled call's result takes about 2 s to be stored. Find out why before it matters.
