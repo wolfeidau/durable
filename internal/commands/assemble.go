@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"github.com/wolfeidau/durable/compaction"
 	"github.com/wolfeidau/durable/hooks"
 	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/mcp"
 	"github.com/wolfeidau/durable/skills"
 	"github.com/wolfeidau/durable/tools"
@@ -24,6 +26,16 @@ import (
 
 // ErrNoSession is returned by Assemble with ExistingOnly when the session database doesn't exist.
 var ErrNoSession = errors.New("session does not exist")
+
+// ErrSandboxed is returned by Assemble for a sandboxed session when the caller has no sandbox support.
+var ErrSandboxed = errors.New("this session runs in a sandbox; open it with durable-server")
+
+// SandboxConfig lets Assemble run a session's built-in tools in a sandbox.
+type SandboxConfig struct {
+	Backend sandbox.Backend
+	// Image is the worker image for new sessions; empty keeps new sessions local. A session that already has a sandbox keeps its pin.
+	Image string
+}
 
 // AssembleConfig is everything Assemble needs to build a session's options without a terminal.
 type AssembleConfig struct {
@@ -50,6 +62,10 @@ type AssembleConfig struct {
 	ExistingOnly bool
 	// Observer runs after the compaction observer, so it doesn't replace the compaction notices.
 	Observer func(durable.Event)
+	// Sandbox is nil when the caller can't run sandboxes, as for the CLI.
+	Sandbox *SandboxConfig
+	// Logger receives a failed sandbox stop on Close; nil discards it.
+	Logger *slog.Logger
 }
 
 // Assembled is a session's options plus what the CLI reports about them.
@@ -57,7 +73,7 @@ type Assembled struct {
 	Path string
 	// Options has no Ask or OnDelta, and Tools are not wrapped for display.
 	Options durable.Options
-	// Close releases the MCP pool.
+	// Close releases the MCP pool and stops the session's sandbox.
 	Close func()
 
 	instructions instructions
@@ -95,18 +111,15 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if err := createSessionDir(dir, SessionMeta{CWD: cfg.CWD, Name: cfg.Session, CreatedAt: time.Now().UTC()}); err != nil {
 		return nil, err
 	}
-	toolset, err := tools.All(cfg.CWD, dir)
+	sandboxed, err := cfg.checkSandboxed(dir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build tools: %w", err)
+		return nil, err
 	}
 
 	// Pin after anything likely to fail, so a failed start doesn't freeze the text.
-	home := cfg.Home
-	if home == "" {
-		var err error
-		if home, err = os.UserHomeDir(); err != nil {
-			return nil, fmt.Errorf("failed to find home directory: %w", err)
-		}
+	home, err := cfg.homeDir()
+	if err != nil {
+		return nil, err
 	}
 	// Only the user's file: a repository must not be able to start commands.
 	servers, mcpWarnings, err := mcp.LoadConfig(filepath.Join(home, ".durable", "mcp.json"))
@@ -126,10 +139,17 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// After the route, so a misconfigured provider fails before a sandbox is created, and before the other pins.
+	toolset, releaseSandbox, err := cfg.openTools(ctx, dir, existed, sandboxed)
+	if err != nil {
+		return nil, err
+	}
 	pinned, err := pinInstructions(dir, existed, cfg.NoContext, func() (instructions, error) {
 		return discoverInstructions(cfg.CWD, home)
 	})
 	if err != nil {
+		releaseSandbox()
 		return nil, err
 	}
 
@@ -137,6 +157,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	mcpPinned, err := pinMCPTools(ctx, dir, existed, pool.Discover)
 	if err != nil {
 		_ = pool.Close()
+		releaseSandbox()
 		return nil, err
 	}
 	toolset = append(toolset, pool.Tools(mcpPinned.Tools)...)
@@ -150,6 +171,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	})
 	if err != nil {
 		_ = pool.Close()
+		releaseSandbox()
 		return nil, err
 	}
 	// Added before the display wrapper and the gate so the read-only tool runs without prompting.
@@ -186,9 +208,12 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	opts.DeferApprovals = !cfg.Interactive && opts.Gate != nil
 
 	return &Assembled{
-		Path:             path,
-		Options:          opts,
-		Close:            func() { _ = pool.Close() },
+		Path:    path,
+		Options: opts,
+		Close: func() {
+			_ = pool.Close()
+			releaseSandbox()
+		},
 		instructions:     pinned,
 		route:            rt,
 		mcpServers:       servers,
@@ -199,6 +224,56 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		hookWarnings:     hookWarnings,
 		toolset:          toolset,
 		CompactionNotice: notice,
+	}, nil
+}
+
+func (c AssembleConfig) homeDir() (string, error) {
+	if c.Home != "" {
+		return c.Home, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to find home directory: %w", err)
+	}
+	return home, nil
+}
+
+// checkSandboxed reports whether the session has a sandbox, and refuses it when the caller can't run one.
+func (c AssembleConfig) checkSandboxed(dir string) (bool, error) {
+	_, ok, err := sandbox.ReadPin(dir)
+	if err != nil {
+		return false, err
+	}
+	if ok && c.Sandbox == nil {
+		return false, ErrSandboxed
+	}
+	return ok, nil
+}
+
+// openTools returns the built-in tools: from the session's sandbox when it has one or this new session asks for one,
+// else local. The sandbox's tools equal tools.All in names, order and specs (sandbox.Open enforces it), so the prompt
+// prefix and tool order don't change with where they run.
+func (c AssembleConfig) openTools(ctx context.Context, dir string, existed, sandboxed bool) ([]durable.Tool, func(), error) {
+	if c.Sandbox == nil || !sandboxed && (existed || c.Sandbox.Image == "") {
+		toolset, err := tools.All(c.CWD, dir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to build tools: %w", err)
+		}
+		return toolset, func() {}, nil
+	}
+	// Pinned before the sandbox is created, so a failed create leaves its token on disk for the retry.
+	pin, err := sandbox.WritePin(dir, c.Sandbox.Image)
+	if err != nil {
+		return nil, nil, err
+	}
+	toolset, release, err := sandbox.Open(ctx, c.Sandbox.Backend, pin)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to open sandbox: %w", err)
+	}
+	return toolset, func() {
+		if err := release(); err != nil && c.Logger != nil {
+			c.Logger.ErrorContext(ctx, "failed to stop sandbox", slog.String("sandbox", pin.Name), slog.Any("error", err))
+		}
 	}, nil
 }
 

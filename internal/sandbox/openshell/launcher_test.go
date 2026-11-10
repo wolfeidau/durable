@@ -11,6 +11,7 @@ import (
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/worker"
 )
 
@@ -22,7 +23,7 @@ func TestCreatePassesTokenInEnvironmentOnly(t *testing.T) {
 	fc := fake.NewClient()
 	l := newWithClient(fc, "")
 
-	require.NoError(t, l.Create(t.Context(), Spec{Name: "dt-a", Image: "img:1", Token: "s3cret"}))
+	require.NoError(t, l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img:1", Token: "s3cret"}))
 
 	sb, err := fc.Sandboxes().Get(t.Context(), "default", "dt-a")
 	require.NoError(t, err)
@@ -35,7 +36,7 @@ func TestCreatePassesTokenInEnvironmentOnly(t *testing.T) {
 
 func TestCreateUsesConfiguredWorkspace(t *testing.T) {
 	fc := fake.NewClient()
-	require.NoError(t, newWithClient(fc, "team").Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"}))
+	require.NoError(t, newWithClient(fc, "team").Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"}))
 
 	_, err := fc.Sandboxes().Get(t.Context(), "team", "dt-a")
 	require.NoError(t, err)
@@ -114,7 +115,7 @@ func TestClosedGatewayIsUnavailable(t *testing.T) {
 	l := newWithClient(fc, "")
 	require.NoError(t, l.Close())
 
-	err := l.Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"})
+	err := l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"})
 	require.Error(t, err)
 	require.True(t, IsUnavailable(err))
 }
@@ -163,7 +164,7 @@ func (s waitSandboxes) WaitReady(ctx context.Context, ws, name string, _ ...v1.W
 
 func TestCreateRequiresNameImageAndToken(t *testing.T) {
 	l := newWithClient(fake.NewClient(), "")
-	for _, s := range []Spec{
+	for _, s := range []sandbox.Spec{
 		{Image: "img", Token: "t"},
 		{Name: "dt-a", Token: "t"},
 		{Name: "dt-a", Image: "img"},
@@ -174,7 +175,7 @@ func TestCreateRequiresNameImageAndToken(t *testing.T) {
 
 func TestCreateNeverRestartsTheWorker(t *testing.T) {
 	fc := fake.NewClient()
-	require.NoError(t, newWithClient(fc, "").Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"}))
+	require.NoError(t, newWithClient(fc, "").Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"}))
 
 	sb, err := fc.Sandboxes().Get(t.Context(), "default", "dt-a")
 	require.NoError(t, err)
@@ -185,7 +186,7 @@ func TestCreateWithExitedWorkerFailsAndDeletes(t *testing.T) {
 	c := waitClient{Client: fake.NewClient(), phase: types.SandboxCompleted}
 	l := newWithClient(c, "")
 
-	err := l.Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"})
+	err := l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"})
 	require.ErrorContains(t, err, "worker exited")
 	require.False(t, IsUnavailable(err))
 	_, err = l.Phase(t.Context(), "dt-a")
@@ -196,7 +197,7 @@ func TestCreateThatNeverGetsReadyDeletes(t *testing.T) {
 	c := waitClient{Client: fake.NewClient(), err: &types.StatusError{Code: types.ErrorDeadlineExceeded, Message: "slow"}}
 	l := newWithClient(c, "")
 
-	err := l.Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"})
+	err := l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"})
 	require.True(t, IsUnavailable(err))
 	_, err = l.Phase(t.Context(), "dt-a")
 	require.ErrorIs(t, err, ErrNotFound)

@@ -136,7 +136,7 @@ Results and deltas are capped and must be valid UTF-8, and a malformed response 
 ### Hooks get untrusted input
 
 Hooks still run on the host, as you. Their input now comes from a sandbox the agent controls, so a
-hook that runs its input, for example through `eval`, is a host escape. Slice S adds this to
+hook that runs its input, for example through `eval`, is a host escape. This is also in
 [hooks](hooks.md).
 
 ### Worker API
@@ -185,8 +185,21 @@ Persisting results would add a store the agent can write to, for a case the harn
   automatically; deleting a session deletes it.
 - **Connect** with a new dial on each open; there's no forward to recreate.
 - **Pin** the sandbox name, image and worker token in `sandbox.json` in the session directory, next
-  to `provider.json`. A local tag such as `durable-worker:dev` is rebuilt in place, so the tag
-  alone doesn't pin the image; see the open questions.
+  to `provider.json`, before the sandbox is created, so a failed create leaves its token on disk and
+  the next open creates again. The name is `ds-` and 16 random hex characters, never derived from
+  the session. The image is used only at create, because stop and start keep the container, so a
+  rebuilt tag such as `durable-worker:dev` affects only a new sandbox. A new sandbox has a fresh
+  workspace, and `ListTools` rejects a worker whose catalog doesn't match.
+- **A session with `sandbox.json` always runs in its sandbox,** even on a server started without
+  `--sandbox-image`. A session without one stays local, and `durable chat` refuses a sandboxed
+  session rather than run its tools on the host.
+- **A gateway restart** leaves a sandbox in `Error` with the `Ready` reason `StartFailed`
+  ([#90](https://github.com/wolfeidau/durable/issues/90),
+  [NVIDIA/OpenShell#4910](https://github.com/NVIDIA/OpenShell/issues/4910)). Open recovers it with
+  a stop, then a start. Any other `Error`, such as `MainProcessFailed`, is configuration.
+- **`durable-server sandbox-delete <session-id>`** deletes the sandbox and keeps `sandbox.json`, so
+  the next open creates a fresh, empty sandbox with the same pin. It is the escape hatch when
+  OpenShell can't recover a sandbox. It takes the server lock, so it is refused while `serve` runs.
 - **Never restart the worker.** A worker that exits leaves the sandbox in `Error`, which is a
   configuration failure, and a failed create deletes its sandbox, so no sandbox is left with a token
   nobody kept. On OpenShell v0.1.7 the `OnFailure` restart policy crash-loops in `Starting`, where
@@ -199,6 +212,20 @@ Persisting results would add a store the agent can write to, for a case the harn
   references. A gateway that can't be reached or can't provision in time returns `UNAVAILABLE`,
   which clients retry. A configuration problem, such as a missing image, provider or profile, returns
   `FAILED_PRECONDITION`, which they don't. Neither is an internal error.
+
+### Running it
+
+Prerequisites: an OpenShell gateway, and the worker image from `mise run image:worker`.
+
+```sh
+durable-server --sandbox-image durable-worker:dev
+```
+
+- `--sandbox-image <ref>` runs the built-in tools of new sessions in an OpenShell sandbox from the
+  image. Existing sessions keep their pin. The server connects to the gateway on first use, so
+  without the flag and without sandboxed sessions it never contacts one.
+- `durable-server sandbox-delete <session-id>` deletes a session's sandbox; see above.
+- `mise run test:openshell` runs the gateway tests.
 
 ### A sandboxed session's workspace is empty or a repo
 
@@ -310,7 +337,7 @@ Each slice is one PR. The spike branches are reference, not a base.
 |---|---|---|
 | **W. Worker** | `worker.proto`, `internal/worker`, `cmd/durable-worker`, the remote `Tool` adapter with the fixed table, and the local subprocess launcher. The exported delta helpers. Tests run without OpenShell: deltas, cancel, recovery, and a worker that lies about metadata | |
 | **L. OpenShell launcher** | The SDK client with the mTLS workaround, the lifecycle, the TCP dial, and the worker image build. Tests against a gateway are skipped without one | W |
-| **S. Server wiring** | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the `UNAVAILABLE` and `FAILED_PRECONDITION` errors, `durable-server sandbox-delete`, and the hooks note. Real-binary tests for the flag: approval, a call in the sandbox, stop on idle and start on reopen | L |
+| **S. Server wiring** (done) | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the `UNAVAILABLE` and `FAILED_PRECONDITION` errors, `durable-server sandbox-delete`, and the hooks note. Real-binary tests for the flag: approval, a call in the sandbox, stop on idle and start on reopen | L |
 | **E. Empty sessions** | Sandboxed sessions with an empty workspace: their key, `session.json` fields, create by `request_id`, and the UI's choice of workspace. The first sandboxed agent you can use, with no git host. Real-binary tests: a retried create returns the same session, and directory sessions unchanged | S |
 | **G. Git hosts and GitHub** | The git host interface, the token flags and environment variables, one provider per host, per-session profile and policy, cleanup, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
 | **R. Repo sessions** | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
@@ -324,11 +351,12 @@ Each slice is one PR. The spike branches are reference, not a base.
   without a prompt.
 - **Before G:** will OpenShell add profile import with request rules to the Go SDK, and mTLS support
   to `gateway.NewClient`? Until then the server needs the `openshell` binary for profiles.
-- **Before S:** what does a gateway restart do to running sandboxes and their workers? The spikes
-  didn't test it.
-- **Before S:** how does the server pin a locally built image? The gateway may not accept a
-  digest for an image that was never pushed, and a rebuilt tag changes what a stopped session
-  starts with.
+- **Resolved in S, gateway restart:** a restart leaves sandboxes in `Error` with reason
+  `StartFailed`, which open recovers with a stop and a start. See
+  [#90](https://github.com/wolfeidau/durable/issues/90) and
+  [NVIDIA/OpenShell#4910](https://github.com/NVIDIA/OpenShell/issues/4910).
+- **Resolved in S, local image pinning:** `sandbox.json` pins the reference as given, and the image
+  matters only at create. See [one sandbox per session](#one-sandbox-per-session).
 - **Later:** one sandbox per session, or one per repository shared across sessions?
 - **Later:** a per-session egress policy beyond GitHub, and how a person approves a new rule.
 - **Later:** a cancelled call's result takes about 2 s to be stored. Find out why before it matters.

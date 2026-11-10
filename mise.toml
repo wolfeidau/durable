@@ -46,7 +46,7 @@ run = "docker build -f docker/worker.Dockerfile -t durable-worker:dev ."
 
 [tasks."test:openshell"]
 depends = ["image:worker"]
-run = "DURABLE_TEST_OPENSHELL=1 go test -count=1 -timeout 20m -run . ./internal/sandbox/openshell/"
+run = "DURABLE_TEST_OPENSHELL=1 go test -count=1 -timeout 20m -run . ./internal/sandbox/openshell/ ./cmd/durable-server/"
 
 [tasks."web:gen"]
 dir = "{{config_root}}/web"

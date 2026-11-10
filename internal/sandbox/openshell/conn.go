@@ -37,9 +37,18 @@ func (c *Conn) Close() error {
 	return nil
 }
 
-// Connect dials the worker and polls until it answers or ctx ends, because the worker may not be listening yet
+// Connect implements sandbox.Backend.
+func (l *Launcher) Connect(ctx context.Context, name, token string) (*sandbox.Client, io.Closer, error) {
+	conn, err := l.Dial(ctx, name, token)
+	if err != nil {
+		return nil, nil, err
+	}
+	return conn.Client(), conn, nil
+}
+
+// Dial dials the worker and polls until it answers or ctx ends, because the worker may not be listening yet
 // when the sandbox first reports Ready.
-func (l *Launcher) Connect(ctx context.Context, name, token string) (*Conn, error) {
+func (l *Launcher) Dial(ctx context.Context, name, token string) (*Conn, error) {
 	conns := &connSet{conns: map[*forwardConn]struct{}{}}
 	dial := func(ctx context.Context, _, _ string) (net.Conn, error) {
 		// The stream must outlive the dial's context, which ends with the request that triggered it.

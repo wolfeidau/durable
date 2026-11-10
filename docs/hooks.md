@@ -5,6 +5,10 @@ Run your own commands around tool calls to allow, deny, rewrite or annotate them
 **Hooks run as you and aren't sandboxed, and they aren't a security boundary:** an approved `bash`
 command can edit `~/.durable/hooks.json`, and the change applies at the next start.
 
+**For a sandboxed session, hook input comes from a sandbox the agent controls.** A hook that runs
+its input, for example through `eval`, is a host escape. Treat tool inputs and results as untrusted
+data. See [remote execution](remote-execution.md#hooks-get-untrusted-input).
+
 ## Configuration
 
 `~/.durable/hooks.json` runs commands around tool calls, using the JSON contract from Claude Code's

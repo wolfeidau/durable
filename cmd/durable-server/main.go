@@ -19,6 +19,7 @@ import (
 
 	"github.com/alecthomas/kong"
 
+	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/server"
 )
@@ -34,12 +35,14 @@ type serveCmd struct {
 	Model                 string        `help:"Model name for new sessions. Required for new openrouter sessions, which pin it. For anthropic, empty uses the built-in default."`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
+	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker). Existing sessions keep their pin."`
 }
 
 type cli struct {
-	Serve       serveCmd       `cmd:"" default:"withargs" help:"Run the server."`
-	URL         urlCmd         `cmd:"" name:"url" help:"Print the browser link for the running server."`
-	RotateToken rotateTokenCmd `cmd:"" name:"rotate-token" help:"Replace the stored token. It takes effect when the server next starts."`
+	Serve       serveCmd         `cmd:"" default:"withargs" help:"Run the server."`
+	URL         urlCmd           `cmd:"" name:"url" help:"Print the browser link for the running server."`
+	RotateToken rotateTokenCmd   `cmd:"" name:"rotate-token" help:"Replace the stored token. It takes effect when the server next starts."`
+	SandboxDel  sandboxDeleteCmd `cmd:"" name:"sandbox-delete" help:"Delete a session's sandbox. The session keeps its pin, and its next open creates a fresh sandbox."`
 }
 
 type urlCmd struct{}
@@ -95,6 +98,9 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	// Requests drain within the grace period, and streams end when the base context is cancelled.
 	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
+	// Closed after the registry, whose sessions stop their sandboxes through it.
+	backend := &lazyBackend{}
+	defer backend.Close()
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
 		Home:        home,
@@ -104,6 +110,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		Provider:    c.Provider,
 		Protocol:    c.Protocol,
 		Model:       c.Model,
+		Sandbox:     &commands.SandboxConfig{Backend: backend, Image: c.SandboxImage},
 		Logger:      logger,
 	})
 	defer registry.Close()

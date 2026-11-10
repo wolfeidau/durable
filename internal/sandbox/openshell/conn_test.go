@@ -99,7 +99,7 @@ func newForwarded(t *testing.T, addr string) (*Launcher, *forwarder) {
 func TestConnectReachesWorker(t *testing.T) {
 	l, f := newForwarded(t, startWorker(t))
 
-	conn, err := l.Connect(t.Context(), "dt-a", testToken)
+	conn, err := l.Dial(t.Context(), "dt-a", testToken)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 
@@ -116,7 +116,7 @@ func TestConnectReachesWorker(t *testing.T) {
 
 func TestRequestAfterDroppedForwardRedials(t *testing.T) {
 	l, f := newForwarded(t, startWorker(t))
-	conn, err := l.Connect(t.Context(), "dt-a", testToken)
+	conn, err := l.Dial(t.Context(), "dt-a", testToken)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	before := f.opened.Load()
@@ -131,7 +131,7 @@ func TestRequestAfterDroppedForwardRedials(t *testing.T) {
 
 func TestConnCloseClosesForwards(t *testing.T) {
 	l, f := newForwarded(t, startWorker(t))
-	conn, err := l.Connect(t.Context(), "dt-a", testToken)
+	conn, err := l.Dial(t.Context(), "dt-a", testToken)
 	require.NoError(t, err)
 	require.Positive(t, f.opened.Load())
 
@@ -147,7 +147,7 @@ func TestConnectPollsUntilWorkerListens(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	conn, err := l.Connect(ctx, "dt-a", testToken)
+	conn, err := l.Dial(ctx, "dt-a", testToken)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
 	require.Positive(t, f.opened.Load())
@@ -158,7 +158,7 @@ func TestConnectFailsWhenContextEnds(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), 700*time.Millisecond)
 	defer cancel()
-	_, err := l.Connect(ctx, "dt-a", testToken)
+	_, err := l.Dial(ctx, "dt-a", testToken)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.True(t, IsUnavailable(err))
@@ -169,7 +169,7 @@ func TestConnectCancelledIsNotUnavailable(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	time.AfterFunc(700*time.Millisecond, cancel)
-	_, err := l.Connect(ctx, "dt-a", testToken)
+	_, err := l.Dial(ctx, "dt-a", testToken)
 	require.ErrorIs(t, err, context.Canceled)
 	require.False(t, IsUnavailable(err))
 }
@@ -178,7 +178,7 @@ func TestConnectStopsOnWrongToken(t *testing.T) {
 	l, _ := newForwarded(t, startWorker(t))
 
 	start := time.Now()
-	_, err := l.Connect(t.Context(), "dt-a", "wrong")
+	_, err := l.Dial(t.Context(), "dt-a", "wrong")
 	require.Error(t, err)
 	require.False(t, IsUnavailable(err))
 	require.Less(t, time.Since(start), attemptTimeout)
@@ -197,7 +197,7 @@ func TestConnectStopsOnMismatchedCatalog(t *testing.T) {
 	l, _ := newForwarded(t, srv.Listener.Addr().String())
 
 	start := time.Now()
-	_, err = l.Connect(t.Context(), "dt-a", testToken)
+	_, err = l.Dial(t.Context(), "dt-a", testToken)
 	require.ErrorContains(t, err, "worker offers")
 	require.False(t, IsUnavailable(err))
 	require.Less(t, time.Since(start), attemptTimeout)
