@@ -99,6 +99,23 @@ client: the setup docs tell you to set `OPENSHELL_TELEMETRY_ENABLED=false` on th
 
 Nothing in the worker API depends on OpenShell, so another sandbox only needs a launcher.
 
+### The worker image is built locally
+
+`mise run image:worker` builds `durable-worker:dev` from `docker/worker.Dockerfile`. There is no
+registry and no published image, because an image has to match the project's toolchain
+([issue #9](https://github.com/wolfeidau/durable/issues/9)) and one shared image can't.
+
+The image contract:
+
+- The worker is at `/usr/local/bin/durable-worker`.
+- A user `app` with uid and gid 1500 runs it, because OpenShell drops agent processes to that user.
+- `/sandbox` is owned by that user and is the working directory.
+- `bash` and `git` are present.
+
+For a project with its own toolchain, start with `FROM durable-worker:dev`, switch to root to
+install the tools, and switch back to `app`. Or copy the worker binary into your own image at the
+same path.
+
 ### The server owns tool metadata
 
 The worker is untrusted. Whether a tool is read-only decides approval, and its replay decides
@@ -295,10 +312,6 @@ Each slice is one PR. The spike branches are reference, not a base.
   without a prompt.
 - **Before G:** will OpenShell add profile import with request rules to the Go SDK, and mTLS support
   to `gateway.NewClient`? Until then the server needs the `openshell` binary for profiles.
-- **Before L:** who builds the worker image, and how is it pinned and published: one image, or one
-  per repository with its toolchain? [Issue #9](https://github.com/wolfeidau/durable/issues/9)
-  rejected containers for local use because an image has to match the project's toolchain, and that
-  cost now applies here.
 - **Before S:** what does a gateway restart do to running sandboxes and their workers? The spikes
   didn't test it.
 - **Later:** one sandbox per session, or one per repository shared across sessions?

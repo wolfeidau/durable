@@ -32,6 +32,10 @@ func (c *cli) Run(ctx context.Context, logger *slog.Logger) error {
 	if token == "" {
 		return fmt.Errorf("%s must be set to a non-empty token", worker.TokenEnv)
 	}
+	// Tool subprocesses inherit the environment, so `env` would otherwise print the token into tool output.
+	if err := os.Unsetenv(worker.TokenEnv); err != nil {
+		return fmt.Errorf("failed to unset %s: %w", worker.TokenEnv, err)
+	}
 	root := c.Root
 	if root == "" {
 		cwd, err := os.Getwd()
