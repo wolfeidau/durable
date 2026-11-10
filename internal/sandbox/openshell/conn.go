@@ -62,9 +62,10 @@ func (l *Launcher) Connect(ctx context.Context, name, token string) (*Conn, erro
 		if err == nil {
 			return conn, nil
 		}
-		if connect.CodeOf(err) == connect.CodeUnauthenticated {
+		// Only a worker that isn't listening yet is worth waiting for; a wrong token or catalog won't fix itself.
+		if code := connect.CodeOf(err); code != connect.CodeUnavailable && code != connect.CodeDeadlineExceeded {
 			_ = conn.Close()
-			return nil, fmt.Errorf("worker rejected the token: %w", err)
+			return nil, fmt.Errorf("failed to connect to worker: %w", err)
 		}
 		select {
 		case <-ctx.Done():

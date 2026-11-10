@@ -174,6 +174,25 @@ func TestConnectStopsOnWrongToken(t *testing.T) {
 	require.Less(t, time.Since(start), attemptTimeout)
 }
 
+func TestConnectStopsOnMismatchedCatalog(t *testing.T) {
+	all, err := tools.All(t.TempDir(), t.TempDir())
+	require.NoError(t, err)
+	h, err := worker.Handler(worker.Config{Tools: all[:len(all)-1], Root: t.TempDir(), Token: testToken})
+	require.NoError(t, err)
+	srv := httptest.NewUnstartedServer(h)
+	srv.Config.Protocols = new(http.Protocols)
+	srv.Config.Protocols.SetUnencryptedHTTP2(true)
+	srv.Start()
+	t.Cleanup(srv.Close)
+	l, _ := newForwarded(t, srv.Listener.Addr().String())
+
+	start := time.Now()
+	_, err = l.Connect(t.Context(), "dt-a", testToken)
+	require.ErrorContains(t, err, "worker offers")
+	require.False(t, IsUnavailable(err))
+	require.Less(t, time.Since(start), attemptTimeout)
+}
+
 func TestSDKStaysOutOfOtherBinaries(t *testing.T) {
 	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", ".", "./cmd/durable", "./cmd/durable-worker")
 	cmd.Dir = "../../.."
