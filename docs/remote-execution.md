@@ -113,8 +113,12 @@ The image contract:
 - `bash` and `git` are present.
 
 For a project with its own toolchain, start with `FROM durable-worker:dev`, switch to root to
-install the tools, and switch back to `app`. Or copy the worker binary into your own image at the
-same path.
+install the tools, and switch back to `app`. Copying the worker binary into another image works only
+if that image has glibc at least as new as Debian 13's, because the worker links SQLite through cgo;
+musl images such as Alpine can't run it.
+
+The gateway runs images from its own container runtime, so a locally built tag is visible to a local
+gateway only.
 
 ### The server owns tool metadata
 
@@ -180,8 +184,16 @@ Persisting results would add a store the agent can write to, for a case the harn
   and keeps its workspace. **Start** when the session opens again. Nothing deletes a sandbox
   automatically; deleting a session deletes it.
 - **Connect** with a new dial on each open; there's no forward to recreate.
-- **Pin** the sandbox name, image digest and worker token in `sandbox.json` in the session
-  directory, next to `provider.json`.
+- **Pin** the sandbox name, image and worker token in `sandbox.json` in the session directory, next
+  to `provider.json`. A local tag such as `durable-worker:dev` is rebuilt in place, so the tag
+  alone doesn't pin the image; see the open questions.
+- **Never restart the worker.** A worker that exits leaves the sandbox in `Error`, which is a
+  configuration failure, and a failed create deletes its sandbox, so no sandbox is left with a token
+  nobody kept. On OpenShell v0.1.7 the `OnFailure` restart policy crash-loops in `Starting`, where
+  the sandbox can be neither stopped nor deleted.
+- **The worker token is in the sandbox spec,** so anyone who can read the gateway can read it. That
+  is the same principal that runs the server; the token keeps other local processes out, not the
+  gateway's operator.
 - **Fail clearly, without leaking detail.** The server logs the cause and returns a fixed message,
   as it does for a misconfigured provider, because gateway errors can name providers or `op://`
   references. A gateway that can't be reached or can't provision in time returns `UNAVAILABLE`,
@@ -314,6 +326,9 @@ Each slice is one PR. The spike branches are reference, not a base.
   to `gateway.NewClient`? Until then the server needs the `openshell` binary for profiles.
 - **Before S:** what does a gateway restart do to running sandboxes and their workers? The spikes
   didn't test it.
+- **Before S:** how does the server pin a locally built image? The gateway may not accept a
+  digest for an image that was never pushed, and a rebuilt tag changes what a stopped session
+  starts with.
 - **Later:** one sandbox per session, or one per repository shared across sessions?
 - **Later:** a per-session egress policy beyond GitHub, and how a person approves a new rule.
 - **Later:** a cancelled call's result takes about 2 s to be stored. Find out why before it matters.

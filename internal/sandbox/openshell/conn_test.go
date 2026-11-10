@@ -164,6 +164,16 @@ func TestConnectFailsWhenContextEnds(t *testing.T) {
 	require.True(t, IsUnavailable(err))
 }
 
+func TestConnectCancelledIsNotUnavailable(t *testing.T) {
+	l, _ := newForwarded(t, unreachableAddr(t))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	time.AfterFunc(700*time.Millisecond, cancel)
+	_, err := l.Connect(ctx, "dt-a", testToken)
+	require.ErrorIs(t, err, context.Canceled)
+	require.False(t, IsUnavailable(err))
+}
+
 func TestConnectStopsOnWrongToken(t *testing.T) {
 	l, _ := newForwarded(t, startWorker(t))
 

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -156,6 +157,7 @@ func TestGatewayStopStartKeepsWorkspace(t *testing.T) {
 	phase, err := l.Phase(ctx, name)
 	require.NoError(t, err)
 	require.Equal(t, "Stopped", string(phase))
+	require.NoError(t, l.Stop(ctx, name), "stopping a stopped sandbox is not an error")
 
 	require.NoError(t, l.Start(ctx, name))
 	second := dialWorker(t, l, name, token)
@@ -189,4 +191,26 @@ func TestGatewayMissingImageFailsFast(t *testing.T) {
 	require.Error(t, err)
 	require.NoError(t, ctx.Err(), "a missing image should fail before the deadline")
 	require.False(t, IsUnavailable(err), "a missing image is configuration, not an outage: %v", err)
+}
+
+func TestGatewayExitedWorkerFailsAndDeletes(t *testing.T) {
+	l := gatewayLauncher(t)
+	name := "dt-" + randHex(t, 6)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		require.NoError(t, l.Delete(ctx, name))
+	})
+
+	// The base image has no worker, so the sandbox's command fails at once.
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
+	defer cancel()
+	err := l.Create(ctx, Spec{Name: name, Image: "debian:13.7-slim", Token: "t"})
+	require.Error(t, err)
+	require.NoError(t, ctx.Err(), "an exited worker should fail before the deadline")
+	require.False(t, IsUnavailable(err), "an exited worker is configuration, not an outage: %v", err)
+	require.Eventually(t, func() bool {
+		_, err := l.Phase(t.Context(), name)
+		return errors.Is(err, ErrNotFound)
+	}, time.Minute, time.Second, "a failed create deletes its sandbox")
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
 	"github.com/ai-openshell/sdk-go/openshell/v1/fake"
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
 	"github.com/stretchr/testify/require"
@@ -13,8 +14,8 @@ import (
 	"github.com/wolfeidau/durable/internal/worker"
 )
 
-func seed(fc *fake.Client, name string, phase types.SandboxPhase) {
-	fc.AddSandbox("default", &types.Sandbox{Name: name, Workspace: "default", Status: types.SandboxStatus{Phase: phase}})
+func seed(fc *fake.Client, phase types.SandboxPhase) {
+	fc.AddSandbox("default", &types.Sandbox{Name: "dt-a", Workspace: "default", Status: types.SandboxStatus{Phase: phase}})
 }
 
 func TestCreatePassesTokenInEnvironmentOnly(t *testing.T) {
@@ -52,11 +53,12 @@ func TestStartByPhase(t *testing.T) {
 		{phase: types.SandboxStarting},
 		{phase: types.SandboxError, wantErr: true},
 		{phase: types.SandboxDeleting, wantErr: true},
+		{phase: types.SandboxCompleted, wantErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(string(tc.phase), func(t *testing.T) {
 			fc := fake.NewClient()
-			seed(fc, "dt-a", tc.phase)
+			seed(fc, tc.phase)
 			l := newWithClient(fc, "")
 
 			err := l.Start(t.Context(), "dt-a")
@@ -80,7 +82,7 @@ func TestStartMissingIsNotFound(t *testing.T) {
 
 func TestStopStopsAndMissingIsNoOp(t *testing.T) {
 	fc := fake.NewClient()
-	seed(fc, "dt-a", types.SandboxReady)
+	seed(fc, types.SandboxReady)
 	l := newWithClient(fc, "")
 
 	require.NoError(t, l.Stop(t.Context(), "dt-a"))
@@ -93,7 +95,7 @@ func TestStopStopsAndMissingIsNoOp(t *testing.T) {
 
 func TestDeleteMissingIsNoOp(t *testing.T) {
 	fc := fake.NewClient()
-	seed(fc, "dt-a", types.SandboxReady)
+	seed(fc, types.SandboxReady)
 	l := newWithClient(fc, "")
 
 	require.NoError(t, l.Delete(t.Context(), "dt-a"))
@@ -129,4 +131,82 @@ func TestIsUnavailable(t *testing.T) {
 	require.False(t, IsUnavailable(ErrNotFound))
 	require.False(t, IsUnavailable(&types.StatusError{Code: types.ErrorInvalidArgument}))
 	require.False(t, IsUnavailable(&types.StatusError{Code: types.ErrorNotFound}))
+}
+
+// waitClient makes WaitReady report phase, or fail with err, instead of the fake's instant Ready.
+type waitClient struct {
+	*fake.Client
+	phase types.SandboxPhase
+	err   error
+}
+
+func (c waitClient) Sandboxes() v1.SandboxInterface {
+	return waitSandboxes{SandboxInterface: c.Client.Sandboxes(), c: c}
+}
+
+type waitSandboxes struct {
+	v1.SandboxInterface
+	c waitClient
+}
+
+func (s waitSandboxes) WaitReady(ctx context.Context, ws, name string, _ ...v1.WaitOptions) (*types.Sandbox, error) {
+	if s.c.err != nil {
+		return nil, s.c.err
+	}
+	sb, err := s.Get(ctx, ws, name)
+	if err != nil {
+		return nil, err
+	}
+	sb.Status.Phase = s.c.phase
+	return sb, nil
+}
+
+func TestCreateRequiresNameImageAndToken(t *testing.T) {
+	l := newWithClient(fake.NewClient(), "")
+	for _, s := range []Spec{
+		{Image: "img", Token: "t"},
+		{Name: "dt-a", Token: "t"},
+		{Name: "dt-a", Image: "img"},
+	} {
+		require.Error(t, l.Create(t.Context(), s))
+	}
+}
+
+func TestCreateNeverRestartsTheWorker(t *testing.T) {
+	fc := fake.NewClient()
+	require.NoError(t, newWithClient(fc, "").Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"}))
+
+	sb, err := fc.Sandboxes().Get(t.Context(), "default", "dt-a")
+	require.NoError(t, err)
+	require.Equal(t, types.SandboxRestartNever, sb.Spec.RestartPolicy)
+}
+
+func TestCreateWithExitedWorkerFailsAndDeletes(t *testing.T) {
+	c := waitClient{Client: fake.NewClient(), phase: types.SandboxCompleted}
+	l := newWithClient(c, "")
+
+	err := l.Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"})
+	require.ErrorContains(t, err, "worker exited")
+	require.False(t, IsUnavailable(err))
+	_, err = l.Phase(t.Context(), "dt-a")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestCreateThatNeverGetsReadyDeletes(t *testing.T) {
+	c := waitClient{Client: fake.NewClient(), err: &types.StatusError{Code: types.ErrorDeadlineExceeded, Message: "slow"}}
+	l := newWithClient(c, "")
+
+	err := l.Create(t.Context(), Spec{Name: "dt-a", Image: "img", Token: "t"})
+	require.True(t, IsUnavailable(err))
+	_, err = l.Phase(t.Context(), "dt-a")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestStartWithExitedWorkerFails(t *testing.T) {
+	c := waitClient{Client: fake.NewClient(), phase: types.SandboxCompleted}
+	seed(c.Client, types.SandboxStarting)
+
+	err := newWithClient(c, "").Start(t.Context(), "dt-a")
+	require.ErrorContains(t, err, "worker exited")
+	require.False(t, IsUnavailable(err))
 }

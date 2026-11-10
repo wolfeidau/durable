@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"time"
 
 	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
 	"github.com/ai-openshell/sdk-go/openshell/v1/gateway"
@@ -24,6 +25,7 @@ const (
 	Root = "/sandbox"
 
 	defaultWorkspace = "default"
+	deleteTimeout    = 2 * time.Minute
 )
 
 // ErrNotFound reports that the sandbox does not exist.
@@ -81,17 +83,32 @@ func newWithClient(c v1.ClientInterface, workspace string) *Launcher {
 // Close releases the gateway connection.
 func (l *Launcher) Close() error { return l.c.Close() }
 
-// Create creates the sandbox and waits until it is ready.
+// Create creates the sandbox and waits until it is ready. A sandbox that never gets ready is deleted, so a failed
+// create leaves nothing behind whose token the caller may not have kept.
 func (l *Launcher) Create(ctx context.Context, s Spec) error {
+	if s.Name == "" || s.Image == "" || s.Token == "" {
+		return errors.New("sandbox name, image and worker token are required")
+	}
 	spec := &v1.SandboxSpec{
 		Environment: map[string]string{worker.TokenEnv: s.Token},
 		Template:    &v1.SandboxTemplate{Image: s.Image},
 		Command:     []string{WorkerBinary, "--addr", "127.0.0.1:" + strconv.Itoa(WorkerPort), "--root", Root},
+		// A worker that exits leaves the sandbox in Error. On OpenShell v0.1.7 OnFailure crash-loops in Starting,
+		// where the sandbox can be neither stopped nor deleted.
+		RestartPolicy: v1.SandboxRestartNever,
 	}
 	if _, err := l.c.Sandboxes().Create(ctx, l.ws, s.Name, spec); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
-	return l.waitReady(ctx, s.Name)
+	if err := l.waitReady(ctx, s.Name); err != nil {
+		dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), deleteTimeout)
+		defer cancel()
+		if derr := l.Delete(dctx, s.Name); derr != nil {
+			return errors.Join(err, derr)
+		}
+		return err
+	}
+	return nil
 }
 
 // Start makes sure the sandbox is running and ready, so it is safe to call on every session open.
@@ -125,8 +142,13 @@ func (l *Launcher) start(ctx context.Context, name string) error {
 }
 
 func (l *Launcher) waitReady(ctx context.Context, name string) error {
-	if _, err := l.c.Sandboxes().WaitReady(ctx, l.ws, name); err != nil {
+	sb, err := l.c.Sandboxes().WaitReady(ctx, l.ws, name)
+	if err != nil {
 		return fmt.Errorf("failed to wait for sandbox: %w", err)
+	}
+	// WaitReady also returns a Completed sandbox, whose worker has exited.
+	if sb.Status.Phase != types.SandboxReady {
+		return fmt.Errorf("sandbox %q is %s, not Ready: its worker exited", name, sb.Status.Phase)
 	}
 	return nil
 }

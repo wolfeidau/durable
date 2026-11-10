@@ -70,7 +70,11 @@ func (l *Launcher) Connect(ctx context.Context, name, token string) (*Conn, erro
 		select {
 		case <-ctx.Done():
 			_ = conn.Close()
-			return nil, fmt.Errorf("%w: %w; last error: %w", errWorkerUnreachable, ctx.Err(), err)
+			// Only a timeout means the worker is unreachable; a cancel is the caller giving up.
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return nil, fmt.Errorf("%w: %w; last error: %w", errWorkerUnreachable, ctx.Err(), err)
+			}
+			return nil, fmt.Errorf("failed to connect to worker: %w; last error: %w", ctx.Err(), err)
 		case <-time.After(attemptBackoff):
 		}
 	}
