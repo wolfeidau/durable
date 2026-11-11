@@ -29,7 +29,7 @@ func project(t *testing.T) (string, []Skill) {
 	write(t, filepath.Join(dir, "pdf", "scripts", "run.sh"), "echo hi\n")
 	write(t, filepath.Join(dir, "pdf", ".git", "config"), "x")
 	write(t, filepath.Join(dir, "secret", "SKILL.md"), "---\nname: secret\ndescription: hidden one\ndisable-model-invocation: true\n---\nSecret body.")
-	got, warns := Discover([]Source{{Dir: dir, Root: root}})
+	got, warns := Discover(context.Background(), []Source{{Dir: dir, Root: root}})
 	require.Empty(t, warns)
 	require.Len(t, got, 2)
 	return root, got
@@ -37,7 +37,7 @@ func project(t *testing.T) (string, []Skill) {
 
 func TestToolSpec(t *testing.T) {
 	_, ss := project(t)
-	tool := Tool(ss)
+	tool := Tool(ss, nil)
 	require.NotNil(t, tool)
 	spec := tool.Spec()
 	require.Equal(t, "skill", spec.Name)
@@ -64,8 +64,8 @@ func TestToolSpec(t *testing.T) {
 }
 
 func TestToolNilWithoutVisibleSkills(t *testing.T) {
-	require.Nil(t, Tool(nil))
-	require.Nil(t, Tool([]Skill{{Name: "h", Description: "d", Hidden: true}}))
+	require.Nil(t, Tool(nil, nil))
+	require.Nil(t, Tool([]Skill{{Name: "h", Description: "d", Hidden: true}}, nil))
 }
 
 func TestCatalogStable(t *testing.T) {
@@ -73,9 +73,9 @@ func TestCatalogStable(t *testing.T) {
 	for _, n := range []string{"zeta", "alpha", "mid"} {
 		ss = append(ss, Skill{Name: n, Description: "d " + n, Root: "/r", Dir: n})
 	}
-	first := Tool(ss).Spec()
+	first := Tool(ss, nil).Spec()
 	for range 5 {
-		got := Tool(ss).Spec()
+		got := Tool(ss, nil).Spec()
 		require.Equal(t, first.Description, got.Description)
 		require.Equal(t, string(first.Schema), string(got.Schema))
 	}
@@ -84,7 +84,7 @@ func TestCatalogStable(t *testing.T) {
 
 func TestExecuteLoad(t *testing.T) {
 	root, ss := project(t)
-	out, err := run(t, Tool(ss), `{"name":"pdf","path":null}`)
+	out, err := run(t, Tool(ss, nil), `{"name":"pdf","path":null}`)
 	require.NoError(t, err)
 	require.Contains(t, out, `<skill_content name="pdf">`)
 	require.Contains(t, out, "Body of pdf.")
@@ -97,14 +97,14 @@ func TestExecuteLoad(t *testing.T) {
 
 func TestExecuteReadPath(t *testing.T) {
 	_, ss := project(t)
-	out, err := run(t, Tool(ss), `{"name":"pdf","path":"scripts/run.sh"}`)
+	out, err := run(t, Tool(ss, nil), `{"name":"pdf","path":"scripts/run.sh"}`)
 	require.NoError(t, err)
 	require.Equal(t, "echo hi\n", out)
 }
 
 func TestExecuteBadInput(t *testing.T) {
 	_, ss := project(t)
-	tool := Tool(ss)
+	tool := Tool(ss, nil)
 	for _, in := range []string{"", "null", "  ", "{}", `[]`, `{"name":"pdf","path":null,"x":1}`, `{"name":"nope","path":null}`, `{"name":"pdf","path":5}`, `{"name":"pdf","path":""}`} {
 		_, err := tool.Execute(context.Background(), durable.ToolCall{Input: json.RawMessage(in)})
 		require.Error(t, err, in)
@@ -117,23 +117,23 @@ func TestExecuteCancelled(t *testing.T) {
 	_, ss := project(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := Tool(ss).Execute(ctx, durable.ToolCall{Input: json.RawMessage(`{"name":"pdf","path":null}`)})
+	_, err := Tool(ss, nil).Execute(ctx, durable.ToolCall{Input: json.RawMessage(`{"name":"pdf","path":null}`)})
 	require.ErrorIs(t, err, context.Canceled)
 }
 
 func TestHiddenSkill(t *testing.T) {
 	_, ss := project(t)
-	_, err := run(t, Tool(ss), `{"name":"secret","path":null}`)
+	_, err := run(t, Tool(ss, nil), `{"name":"secret","path":null}`)
 	require.ErrorContains(t, err, "unknown skill")
 
 	s, ok := Find(ss, "secret")
 	require.True(t, ok)
-	out, err := Expand(context.Background(), s, "do it")
+	out, err := Expand(context.Background(), s, "do it", nil)
 	require.NoError(t, err)
 	require.Contains(t, out, "Secret body.")
 	require.True(t, strings.HasSuffix(out, "\n\ndo it"))
 
-	out, err = Expand(context.Background(), s, "")
+	out, err = Expand(context.Background(), s, "", nil)
 	require.NoError(t, err)
 	require.True(t, strings.HasSuffix(out, "</skill_content>"))
 }
@@ -146,7 +146,7 @@ func TestPathEscapes(t *testing.T) {
 	skill := filepath.Join(root, "skills", "pdf")
 	require.NoError(t, os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(skill, "link.txt")))
 	require.NoError(t, os.Symlink(outside, filepath.Join(skill, "linkdir")))
-	tool := Tool(ss)
+	tool := Tool(ss, nil)
 
 	for _, p := range []string{"../../../sibling.txt", "..", "/etc/passwd", filepath.Join(outside, "secret.txt"), "link.txt", "linkdir/secret.txt"} {
 		in, _ := json.Marshal(map[string]any{"name": "pdf", "path": p})
@@ -162,10 +162,10 @@ func TestUserSourceSymlinkEscape(t *testing.T) {
 	write(t, filepath.Join(outside, "secret.txt"), "top secret")
 	require.NoError(t, os.Symlink(outside, filepath.Join(target, "out")))
 	require.NoError(t, os.Symlink(target, filepath.Join(d, "linked")))
-	ss, warns := Discover([]Source{userSrc(d)})
+	ss, warns := Discover(context.Background(), []Source{userSrc(d)})
 	require.Empty(t, warns)
 
-	tool := Tool(ss)
+	tool := Tool(ss, nil)
 	_, err := run(t, tool, `{"name":"linked","path":"out/secret.txt"}`)
 	require.Error(t, err)
 	out, err := run(t, tool, `{"name":"linked","path":null}`)
@@ -182,7 +182,7 @@ func TestSkillDirSwappedToSymlink(t *testing.T) {
 	require.NoError(t, os.RemoveAll(skill))
 	require.NoError(t, os.Symlink(outside, skill))
 
-	tool := Tool(ss)
+	tool := Tool(ss, nil)
 	_, err := run(t, tool, `{"name":"pdf","path":null}`)
 	require.Error(t, err)
 	_, err = run(t, tool, `{"name":"pdf","path":"loot.txt"}`)
@@ -195,7 +195,7 @@ func TestNonRegularAndBinary(t *testing.T) {
 	require.NoError(t, syscall.Mkfifo(filepath.Join(skill, "fifo"), 0o644))
 	require.NoError(t, os.MkdirAll(filepath.Join(skill, "adir"), 0o755))
 	write(t, filepath.Join(skill, "bin.dat"), "a\x00b")
-	tool := Tool(ss)
+	tool := Tool(ss, nil)
 	for _, p := range []string{"fifo", "adir", "bin.dat", "missing"} {
 		_, err := run(t, tool, fmt.Sprintf(`{"name":"pdf","path":%q}`, p))
 		require.Error(t, err, p)
@@ -207,7 +207,7 @@ func TestTruncation(t *testing.T) {
 	skill := filepath.Join(root, "skills", "pdf")
 	write(t, filepath.Join(skill, "big.txt"), strings.Repeat("é", 100_000))
 	write(t, filepath.Join(skill, "huge.txt"), strings.Repeat("a", maxFileBytes+10))
-	tool := Tool(ss)
+	tool := Tool(ss, nil)
 
 	out, err := run(t, tool, `{"name":"pdf","path":"big.txt"}`)
 	require.NoError(t, err)
@@ -226,7 +226,7 @@ func TestResourceCap(t *testing.T) {
 	for i := range 150 {
 		write(t, filepath.Join(skill, "refs", fmt.Sprintf("f%03d.md", i)), "x")
 	}
-	out, err := run(t, Tool(ss), `{"name":"pdf","path":null}`)
+	out, err := run(t, Tool(ss, nil), `{"name":"pdf","path":null}`)
 	require.NoError(t, err)
 	require.Equal(t, 100, strings.Count(out, "<file>"))
 	require.Contains(t, out, "more than 100 files")
@@ -242,7 +242,7 @@ func TestUnreadableSubdirStillLoads(t *testing.T) {
 	require.NoError(t, os.Chmod(locked, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
 
-	out, err := run(t, Tool(ss), `{"name":"pdf","path":null}`)
+	out, err := run(t, Tool(ss, nil), `{"name":"pdf","path":null}`)
 	require.NoError(t, err)
 	require.Contains(t, out, "Body of pdf.")
 	require.Contains(t, out, "<file>scripts/run.sh</file>")

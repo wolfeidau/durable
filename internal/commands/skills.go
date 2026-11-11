@@ -32,6 +32,16 @@ func skillSources(cwd, home string) ([]skills.Source, error) {
 	return skillSourcesFor(resolved, home, uint32(os.Geteuid())), nil //nolint:gosec // uids fit in 32 bits
 }
 
+// workspaceSkillSources is skillSources for a repo session: the clone's skill directories, then the user's.
+// root is the workspace's path in the sandbox, which only the skill directory shown to the model uses.
+func workspaceSkillSources(root string, files skills.FilesFunc, home string) []skills.Source {
+	var srcs []skills.Source
+	for _, sub := range []string{".durable", ".agents"} {
+		srcs = append(srcs, skills.Source{Dir: sub + "/skills", Root: root, Files: files})
+	}
+	return append(srcs, userSkillSources(home)...)
+}
+
 func userSkillSources(home string) []skills.Source {
 	var srcs []skills.Source
 	for _, sub := range []string{".durable", ".agents"} {

@@ -2,12 +2,12 @@
 package skills
 
 import (
-	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -38,6 +38,8 @@ type Skill struct {
 	Dir string `json:"dir"`
 	// Hidden skills are for users to invoke only (disable-model-invocation).
 	Hidden bool `json:"hidden,omitempty"`
+	// Sandbox skills are read through the session's sandbox; Dir is then relative to the workspace and Root is its path there, for display only.
+	Sandbox bool `json:"sandbox,omitempty"`
 }
 
 // Source is a directory of skills to scan.
@@ -47,6 +49,8 @@ type Source struct {
 	// Root is the confinement boundary for a project source. Empty means a user
 	// source, where each skill's resolved directory is its own root.
 	Root string
+	// Files reads a sandbox source, where Dir is relative to the workspace and Root is the workspace's path there. Nil means the host.
+	Files FilesFunc
 }
 
 type candidate struct {
@@ -56,14 +60,14 @@ type candidate struct {
 
 // Discover scans the sources in precedence order, where the first skill of a name wins.
 // The warnings are safe to print.
-func Discover(sources []Source) ([]Skill, []string) {
+func Discover(ctx context.Context, sources []Source) ([]Skill, []string) {
 	var (
 		warns []string
 		found []candidate
 		seen  = map[string]string{}
 	)
 	for _, src := range sources {
-		entries, err := os.ReadDir(src.Dir)
+		entries, sbox, err := listSource(ctx, src)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
@@ -76,12 +80,11 @@ func Discover(sources []Source) ([]Skill, []string) {
 			if !e.IsDir() && e.Type()&fs.ModeSymlink == 0 {
 				continue
 			}
-			s, ws, ok := load(src, e.Name())
+			s, ws, ok, from := loadEntry(sbox, src, e.Name())
 			warns = append(warns, ws...)
 			if !ok {
 				continue
 			}
-			from := filepath.Join(src.Dir, e.Name())
 			if prev, dup := seen[s.Name]; dup {
 				warns = append(warns, fmt.Sprintf("skills: %s is shadowed by %s (both named %q)", from, prev, s.Name))
 				continue
@@ -105,6 +108,27 @@ func Discover(sources []Source) ([]Skill, []string) {
 		out = append(out, c.skill)
 	}
 	return out, warns
+}
+
+// listSource lists a source's directory, through the sandbox when it has one; sbox is nil for a host source.
+func listSource(ctx context.Context, src Source) (entries []fs.DirEntry, sbox fs.FS, err error) {
+	if src.Files == nil {
+		entries, err = os.ReadDir(src.Dir)
+		return entries, nil, err
+	}
+	sbox = src.Files(ctx)
+	entries, err = fs.ReadDir(sbox, src.Dir)
+	return entries, sbox, err
+}
+
+// loadEntry loads one candidate of a source, and reports where it was read from.
+func loadEntry(sbox fs.FS, src Source, name string) (Skill, []string, bool, string) {
+	if sbox != nil {
+		s, ws, ok := loadSandbox(sbox, src, name)
+		return s, ws, ok, path.Join(src.Dir, name)
+	}
+	s, ws, ok := load(src, name)
+	return s, ws, ok, filepath.Join(src.Dir, name)
 }
 
 // load reads one candidate directory. A directory without SKILL.md is not a skill and is silent.
@@ -138,6 +162,21 @@ func load(src Source, dirName string) (Skill, []string, bool) {
 
 	s, ws, ok := parse(string(data), dirName, path)
 	s.Root, s.Dir = root, rel
+	return s, ws, ok
+}
+
+// loadSandbox reads one candidate directory of a sandbox source; the read is confined by the worker.
+func loadSandbox(fsys fs.FS, src Source, dirName string) (Skill, []string, bool) {
+	dir := path.Join(src.Dir, dirName)
+	data, _, err := readFS(fsys, path.Join(dir, "SKILL.md"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return Skill{}, nil, false
+	}
+	if err != nil {
+		return Skill{}, []string{fmt.Sprintf("skills: skipped %s: %v", dir, err)}, false
+	}
+	s, ws, ok := parse(string(data), dirName, dir)
+	s.Root, s.Dir, s.Sandbox = src.Root, dir, true
 	return s, ws, ok
 }
 
@@ -272,38 +311,4 @@ func split(text string) (string, string, bool) {
 		fm.WriteByte('\n')
 		rest = after
 	}
-}
-
-// readConfined reads rel inside root through one handle, so a symlink or swap can't leave root.
-// It reports whether the file was cut at maxFileBytes.
-func readConfined(root, rel string) ([]byte, bool, error) {
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to open root: %w", err)
-	}
-	defer r.Close()
-	// O_NONBLOCK stops a FIFO from hanging the open.
-	f, err := r.OpenFile(rel, os.O_RDONLY|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to open %s: %w", rel, err)
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to stat %s: %w", rel, err)
-	}
-	if !info.Mode().IsRegular() {
-		return nil, false, fmt.Errorf("%s is not a regular file", rel)
-	}
-	b, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to read %s: %w", rel, err)
-	}
-	if bytes.IndexByte(b, 0) >= 0 {
-		return nil, false, fmt.Errorf("%s is a binary file", rel)
-	}
-	if len(b) > maxFileBytes {
-		return b[:maxFileBytes], true, nil
-	}
-	return b, false, nil
 }

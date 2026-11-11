@@ -86,6 +86,7 @@ func TestAssembleEmptySessionPinsUserContextNotProcessCWD(t *testing.T) {
 	require.NotContains(t, a.instructions.Text, "process cwd rules")
 	require.Len(t, a.skills.Skills, 1)
 	require.Equal(t, "mine", a.skills.Skills[0].Name)
+	require.False(t, a.skills.Skills[0].Sandbox, "an empty session has no clone to read project files from")
 }
 
 func TestSessionMetaWithoutWorkspaceIsDirectory(t *testing.T) {

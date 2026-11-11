@@ -160,8 +160,13 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A repo session's project files are in its clone, so they are read through the worker.
+	var workspace skills.FilesFunc
+	if cfg.Workspace == WorkspaceRepo && client != nil {
+		workspace = client.FS
+	}
 	pinned, err := pinInstructions(dir, existed, cfg.NoContext, func() (instructions, error) {
-		return discoverInstructions(cfg.CWD, home)
+		return discoverInstructions(ctx, cfg.CWD, home, workspace)
 	})
 	if err != nil {
 		releaseSandbox(!existed)
@@ -181,21 +186,14 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		return nil, err
 	}
 	toolset = append(toolset, pool.Tools(mcpPinned.Tools)...)
-	skillsPinned, err := pinSkills(dir, existed, cfg.NoContext, func() ([]skills.Skill, []string, error) {
-		srcs, err := skillSources(cfg.CWD, home)
-		if err != nil {
-			return nil, nil, err
-		}
-		found, warns := skills.Discover(srcs)
-		return found, warns, nil
-	})
+	skillsPinned, err := pinSkills(dir, existed, cfg.NoContext, discoverSkillsFunc(ctx, cfg.CWD, home, workspace, client))
 	if err != nil {
 		_ = pool.Close()
 		releaseSandbox(!existed)
 		return nil, err
 	}
 	// Added before the display wrapper and the gate so the read-only tool runs without prompting.
-	if t := skills.Tool(skillsPinned.Skills); t != nil {
+	if t := skills.Tool(skillsPinned.Skills, workspace); t != nil {
 		toolset = append(toolset, t)
 	}
 
@@ -245,6 +243,27 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		toolset:          toolset,
 		CompactionNotice: notice,
 	}, nil
+}
+
+// discoverSkillsFunc finds the skills a new session pins: the clone's through the worker for a repo session, else the working directory's.
+func discoverSkillsFunc(ctx context.Context, cwd, home string, workspace skills.FilesFunc, client *sandbox.Client) func() ([]skills.Skill, []string, error) {
+	return func() ([]skills.Skill, []string, error) {
+		var (
+			srcs []skills.Source
+			err  error
+		)
+		if workspace != nil {
+			root, err := client.Root(ctx)
+			if err != nil {
+				return nil, nil, err
+			}
+			srcs = workspaceSkillSources(root, workspace, home)
+		} else if srcs, err = skillSources(cwd, home); err != nil {
+			return nil, nil, err
+		}
+		found, warns := skills.Discover(ctx, srcs)
+		return found, warns, nil
+	}
 }
 
 func (c AssembleConfig) sessionMeta() SessionMeta {

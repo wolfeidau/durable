@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -97,7 +98,7 @@ func TestDiscoverPrecedenceAndShadow(t *testing.T) {
 	write(t, filepath.Join(b, "alpha", "SKILL.md"), skillMD("alpha", "alpha"))
 	write(t, filepath.Join(b, "not-a-skill", "README.md"), "x")
 
-	got, warns := Discover([]Source{userSrc(a), userSrc(filepath.Join(b, "missing")), userSrc(b)})
+	got, warns := Discover(context.Background(), []Source{userSrc(a), userSrc(filepath.Join(b, "missing")), userSrc(b)})
 	require.Len(t, got, 2)
 	require.Equal(t, "alpha", got[0].Name)
 	require.Equal(t, "from a", got[1].Description)
@@ -117,7 +118,7 @@ func TestDiscoverCap(t *testing.T) {
 		n := fmt.Sprintf("h%d", i)
 		write(t, filepath.Join(d, n, "SKILL.md"), "---\nname: "+n+"\ndescription: d\ndisable-model-invocation: true\n---\n")
 	}
-	got, warns := Discover([]Source{userSrc(d)})
+	got, warns := Discover(context.Background(), []Source{userSrc(d)})
 	visible, hidden := 0, 0
 	for _, s := range got {
 		if s.Hidden {
@@ -136,7 +137,7 @@ func TestDiscoverUserSymlink(t *testing.T) {
 	d, target := realDir(t), realDir(t)
 	write(t, filepath.Join(target, "SKILL.md"), skillMD("linked", "d"))
 	require.NoError(t, os.Symlink(target, filepath.Join(d, "linked")))
-	got, warns := Discover([]Source{userSrc(d)})
+	got, warns := Discover(context.Background(), []Source{userSrc(d)})
 	require.Empty(t, warns)
 	require.Equal(t, []Skill{{Name: "linked", Description: "d", Root: target, Dir: "."}}, got)
 }
@@ -145,7 +146,7 @@ func TestDiscoverProject(t *testing.T) {
 	root := realDir(t)
 	dir := filepath.Join(root, ".agents", "skills")
 	write(t, filepath.Join(dir, "pdf", "SKILL.md"), skillMD("pdf", "d"))
-	got, warns := Discover([]Source{{Dir: dir, Root: root}})
+	got, warns := Discover(context.Background(), []Source{{Dir: dir, Root: root}})
 	require.Empty(t, warns)
 	require.Equal(t, []Skill{{Name: "pdf", Description: "d", Root: root, Dir: filepath.Join(".agents", "skills", "pdf")}}, got)
 }
@@ -161,7 +162,7 @@ func TestDiscoverProjectSymlinkEscape(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "sneaky"), 0o755))
 	require.NoError(t, os.Symlink(filepath.Join(outside, "other.md"), filepath.Join(dir, "sneaky", "SKILL.md")))
 
-	got, warns := Discover([]Source{{Dir: dir, Root: root}})
+	got, warns := Discover(context.Background(), []Source{{Dir: dir, Root: root}})
 	require.Empty(t, got)
 	require.Len(t, warns, 2)
 }
@@ -173,7 +174,7 @@ func TestDiscoverIgnoresStrayFiles(t *testing.T) {
 	write(t, filepath.Join(dir, ".DS_Store"), "x")
 	write(t, filepath.Join(dir, "README.md"), "x")
 	for _, src := range []Source{{Dir: dir, Root: root}, userSrc(dir)} {
-		got, warns := Discover([]Source{src})
+		got, warns := Discover(context.Background(), []Source{src})
 		require.Empty(t, warns)
 		require.Len(t, got, 1)
 	}
@@ -182,7 +183,7 @@ func TestDiscoverIgnoresStrayFiles(t *testing.T) {
 	outside := realDir(t)
 	write(t, filepath.Join(outside, "f"), "x")
 	require.NoError(t, os.Symlink(filepath.Join(outside, "f"), filepath.Join(dir, "link")))
-	_, warns := Discover([]Source{{Dir: dir, Root: root}})
+	_, warns := Discover(context.Background(), []Source{{Dir: dir, Root: root}})
 	require.Len(t, warns, 1)
 }
 
@@ -192,7 +193,7 @@ func TestDiscoverRejectsBadSkillFiles(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(d, "dir", "SKILL.md"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(d, "fifo"), 0o755))
 	require.NoError(t, syscall.Mkfifo(filepath.Join(d, "fifo", "SKILL.md"), 0o644))
-	got, warns := Discover([]Source{userSrc(d)})
+	got, warns := Discover(context.Background(), []Source{userSrc(d)})
 	require.Empty(t, got)
 	require.Len(t, warns, 3)
 }
