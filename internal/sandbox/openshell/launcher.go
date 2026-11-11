@@ -115,6 +115,7 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 		Policy:        sandboxPolicy(s.Egress, s.Git),
 	}
 	if _, err := l.c.Sandboxes().Create(ctx, l.ws, s.Name, spec); err != nil {
+		l.forget(s.Git)
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
 	if err := l.waitReady(ctx, s.Name); err != nil {
@@ -263,6 +264,17 @@ func (l *Launcher) syncProviders(ctx context.Context, access []sandbox.GitAccess
 		l.synced[g.Provider] = sum
 	}
 	return nil
+}
+
+// forget drops what syncProviders cached for access, so a provider or profile deleted on the gateway is restored on the
+// next create instead of failing every create until a restart.
+func (l *Launcher) forget(access []sandbox.GitAccess) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, g := range access {
+		delete(l.synced, g.Provider)
+		delete(l.profiled, g.ProfileID)
+	}
 }
 
 // ensureProfile imports the credential-only profile for g once. The request rules live in each sandbox's policy, so

@@ -307,8 +307,9 @@ implementation. Whatever the host, the sandbox only sees placeholders.
   which would put the token in the process list, and a dedicated variable keeps the server from
   picking up a broad `GITHUB_TOKEN` or `GH_TOKEN` from the shell. `internal/creds.Resolve`
   takes the flag and variable names, and its errors never include the value or a command's stderr.
-- **Optional:** with no token for a host, repo sessions there can clone public repos but not push.
-  Empty sessions need no git host at all.
+- **Optional:** empty sessions need no git host at all. A repo session on a host with no token should
+  still clone public repos, but the launcher refuses repo access without a token today, so slice R
+  gives such a session a rule with no provider.
 - **One profile and one provider per host.** The profile, `durable-github`, holds the credential and no
   endpoints. The server imports it through the SDK when the gateway doesn't have it, and ensures the
   provider of the same name, which holds the token. Both live in the launcher's workspace. Each repo
@@ -351,6 +352,62 @@ OpenShell:
 - **`gateway.NewClient` rejects mTLS gateways,** which is the local default, so the launcher works
   around it.
 
+### Instructions and skills come from the workspace
+
+The project `AGENTS.md` and project skills live in the cloned repo, so the worker reads them once
+when the session is created, and the server pins them as it does today. An empty workspace has
+none. `~/.durable/AGENTS.md` and user skills stay on the server. Reading through the worker keeps
+the existing rules: symlinks that leave the repository are refused, and the content is untrusted.
+The spikes still read them from the host.
+
+### MCP servers run in the sandbox
+
+The server keeps the MCP client: discovery, the per-session pin, naming, caps, timeouts, approval and
+`ReplayNever` are the same as for a local session, and server hints still change nothing. The worker
+is only a pipe.
+
+**The sandbox is the trust boundary, not the MCP server.** The agent and the session's MCP servers
+share one sandbox, one user and one egress allowlist, so the agent can reach anything its MCP servers
+can: their credentials and their hosts. That is an accepted trade-off. What matters is what the
+sandbox can't do: touch the host, reach the server's API, or reach any host outside the allowlist.
+Giving each MCP server its own sandbox would separate its credentials and egress from the agent; see
+[open questions](#open-questions).
+
+- **stdio servers run beside the worker** through the `Stdio` RPC. The server wraps the stream in an
+  MCP transport. The process gets the worker's environment (without its token) plus the server's
+  configured `env`, including `${VAR}` values the host expanded. It runs in its own process group in
+  `/sandbox` when `useWorkspaceCwd` is set, otherwise in a temp folder. Ending the stream closes
+  stdin, then sends SIGTERM and SIGKILL after 2 seconds each, so closing a session or stopping the
+  sandbox ends its servers.
+- **HTTP servers run through a bridge.** `durable-worker mcp-http --url <url>` is started the same
+  way, with the headers in `DURABLE_MCP_HEADERS`, which it reads and then unsets. It connects to the
+  remote server, serves the same tools over stdio, and forwards calls, so the traffic leaves from the
+  sandbox. Headers go only to the URL's origin.
+- **Egress follows the config.** The first pin records the host and port of each HTTP server (443 or
+  80 by scheme) in `sandbox.json`, and create gives the sandbox one allow rule for those endpoints,
+  scoped to `/usr/local/bin/durable-worker`. A sandbox created with no policy has no egress, so
+  without HTTP servers nothing is added. Other hosts stay denied, for `bash` and for a stdio server's
+  own network use, until there is a per-session egress policy. The rule is not updated when
+  `mcp.json` changes, because the pin is written once.
+- **The rule reaches every process the worker starts.** OpenShell matches it against a process's
+  ancestors, and the worker starts every tool, so an approved `bash` call can reach the HTTP
+  servers' hosts too (`curl` from `bash` got a response from the configured host and was refused
+  elsewhere). With the headers also readable, the agent can call those servers directly, outside
+  MCP approval, through any approved `bash` command. This follows from the shared trust boundary
+  above; providers, or a sandbox per MCP server, would close it.
+- **`env` and headers are visible to the agent.** It runs as the same user, so it can read them.
+  OAuth and OpenShell providers are the way out later.
+- **Gateway behaviour the launcher depends on** (probed on OpenShell v0.1.7): a policy keeps the
+  default filesystem and process settings (user 1500, writable `/sandbox`), but drops the default
+  Landlock `best_effort`, so the launcher sets it again. The rule's binary is matched by exact path
+  against the process and its ancestors: a copy of `curl` started outside the worker was refused.
+  TLS works because the sandbox trusts OpenShell's CA through `SSL_CERT_FILE`, which Go honours.
+- **The sandbox's output is hostile input:** messages are capped at 4 MiB and stderr at 1 MiB per
+  connection, written to `mcp-<server>.log`.
+- **The base image has no `npx` or `uvx`.** Add them with `FROM durable-worker:dev`.
+- **Sessions created before this slice stay without MCP tools,** because their pin is `[]` and pins
+  never change. Their `sandbox.json` has no egress either.
+
 ## Slices
 
 Each slice is one PR. The spike branches are reference, not a base.
@@ -363,7 +420,7 @@ Each slice is one PR. The spike branches are reference, not a base.
 | **E. Empty sessions** (done) | Sandboxed sessions with an empty workspace: their key, `session.json` fields, create by `request_id`, and the UI's choice of workspace. The first sandboxed agent you can use, with no git host. Real-binary tests: a retried create returns the same session, and directory sessions unchanged | S |
 | **G. Git hosts and GitHub** (done) | The git host interface, the token flags and environment variables, one provider per host, per-session repo access in the sandbox policy, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
 | **R. Repo sessions** | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
-| **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation and profile template | G |
+| **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation | G |
 | **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
 | **M. MCP** (done) | MCP servers inside the sandbox: the `Stdio` RPC, the HTTP bridge, and egress for HTTP servers. Tests: a stdio server through the worker, the bridge against an HTTP server, the kill of the process group, and the launcher's policy | S |
 

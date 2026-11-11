@@ -252,3 +252,20 @@ func TestMissingTokenFuncIsConfiguration(t *testing.T) {
 	_, perr := newWithClient(rec, "", nil).Phase(t.Context(), "dt-a")
 	require.ErrorIs(t, perr, ErrNotFound)
 }
+
+func TestFailedCreateResyncsTheProviderNextTime(t *testing.T) {
+	rec := newRecorder()
+	token := "ghp_one"
+	l := newWithClient(rec, "", tokenFn(&token))
+	spec := sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: []sandbox.GitAccess{repoAccess(t, "github.com/octo/hello")}}
+	require.NoError(t, l.Create(t.Context(), spec))
+	require.Equal(t, 1, rec.ensures)
+
+	// The name is taken, so this create fails after the cached sync skipped the provider.
+	require.Error(t, l.Create(t.Context(), spec))
+	require.Equal(t, 1, rec.ensures)
+
+	spec.Name = "dt-b"
+	require.NoError(t, l.Create(t.Context(), spec))
+	require.Equal(t, 2, rec.ensures, "a provider deleted on the gateway is restored after a failed create")
+}
