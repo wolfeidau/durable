@@ -86,7 +86,7 @@ func newMemPool(t *testing.T, servers map[string]*memServer, cfg map[string]Serv
 		}
 	}
 	p := NewPool(cfg, Options{})
-	p.dial = func(name string, _ Server) (mcpsdk.Transport, func(), error) {
+	p.dial = func(_ context.Context, name string, _ Server) (mcpsdk.Transport, func(), error) {
 		m := servers[name]
 		ct, st := mcpsdk.NewInMemoryTransports()
 		ss, err := m.server.Connect(context.Background(), st, nil)

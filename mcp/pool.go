@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,6 +49,9 @@ type Options struct {
 	LogDir string
 	// Version is reported to servers as the client version.
 	Version string
+	// Dial, when set, opens the transport of every server instead of starting it here. cleanup runs once the
+	// session is gone, and the transport must outlive ctx.
+	Dial func(ctx context.Context, name string, s Server) (t mcpsdk.Transport, cleanup func(), err error)
 }
 
 // Pool owns one lazily connected session per configured server.
@@ -60,7 +62,7 @@ type Pool struct {
 	// live counts sessions whose cleanup has not run yet.
 	live sync.WaitGroup
 	// dial is a seam for tests. cleanup runs once the session is gone.
-	dial func(name string, s Server) (t mcpsdk.Transport, cleanup func(), err error)
+	dial func(ctx context.Context, name string, s Server) (t mcpsdk.Transport, cleanup func(), err error)
 }
 
 type conn struct {
@@ -75,19 +77,21 @@ func NewPool(servers map[string]Server, opts Options) *Pool {
 		p.conns[name] = &conn{}
 	}
 	p.dial = p.dialServer
+	if opts.Dial != nil {
+		p.dial = opts.Dial
+	}
 	return p
 }
 
 var unsafeName = regexp.MustCompile(`[^a-zA-Z0-9_-]`)
 
-func (p *Pool) dialServer(name string, s Server) (mcpsdk.Transport, func(), error) {
+func (p *Pool) dialServer(_ context.Context, name string, s Server) (mcpsdk.Transport, func(), error) {
 	if s.Type == typeHTTP {
-		u, err := url.Parse(s.URL)
+		t, err := httpTransport(s.URL, s.Headers)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse url of mcp server %q: %w", name, err)
+			return nil, nil, fmt.Errorf("failed to set up mcp server %q: %w", name, err)
 		}
-		client := &http.Client{Transport: headerTripper{headers: s.Headers, scheme: u.Scheme, host: u.Host, next: http.DefaultTransport}}
-		return &mcpsdk.StreamableClientTransport{Endpoint: s.URL, HTTPClient: client, DisableStandaloneSSE: true}, func() {}, nil
+		return t, func() {}, nil
 	}
 
 	dir := p.opts.Root
@@ -113,14 +117,10 @@ func (p *Pool) dialServer(name string, s Server) (mcpsdk.Transport, func(), erro
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cleanup := removeDir
 	if p.opts.LogDir != "" {
-		if err := os.MkdirAll(p.opts.LogDir, 0o700); err != nil {
-			removeDir()
-			return nil, nil, fmt.Errorf("failed to create MCP log directory: %w", err)
-		}
-		f, err := os.OpenFile(filepath.Join(p.opts.LogDir, "mcp-"+unsafeName.ReplaceAllString(name, "_")+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		f, err := OpenLog(p.opts.LogDir, name)
 		if err != nil {
 			removeDir()
-			return nil, nil, fmt.Errorf("failed to open MCP log file: %w", err)
+			return nil, nil, err
 		}
 		cmd.Stderr = f
 		cleanup = func() {
@@ -129,6 +129,18 @@ func (p *Pool) dialServer(name string, s Server) (mcpsdk.Transport, func(), erro
 		}
 	}
 	return &mcpsdk.CommandTransport{Command: cmd, TerminateDuration: terminateDuration}, cleanup, nil
+}
+
+// OpenLog opens the append-only log of a server's stderr in dir.
+func OpenLog(dir, server string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("failed to create MCP log directory: %w", err)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, "mcp-"+unsafeName.ReplaceAllString(server, "_")+".log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // the name is sanitised and stays inside dir
+	if err != nil {
+		return nil, fmt.Errorf("failed to open MCP log file: %w", err)
+	}
+	return f, nil
 }
 
 // headerTripper adds headers only for the configured origin, so a redirect cannot carry them elsewhere.
@@ -167,7 +179,7 @@ func (p *Pool) session(ctx context.Context, name string) (*mcpsdk.ClientSession,
 		return c.cs, nil
 	}
 
-	t, cleanup, err := p.dial(name, s)
+	t, cleanup, err := p.dial(ctx, name, s)
 	if err != nil {
 		return nil, err
 	}

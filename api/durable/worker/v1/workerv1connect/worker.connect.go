@@ -43,6 +43,8 @@ const (
 	ToolServiceCancelProcedure = "/durable.worker.v1.ToolService/Cancel"
 	// ToolServiceResultProcedure is the fully-qualified name of the ToolService's Result RPC.
 	ToolServiceResultProcedure = "/durable.worker.v1.ToolService/Result"
+	// ToolServiceStdioProcedure is the fully-qualified name of the ToolService's Stdio RPC.
+	ToolServiceStdioProcedure = "/durable.worker.v1.ToolService/Stdio"
 )
 
 // ToolServiceClient is a client for the durable.worker.v1.ToolService service.
@@ -59,6 +61,9 @@ type ToolServiceClient interface {
 	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
 	// Result returns the stored result of a finished call.
 	Result(context.Context, *connect.Request[v1.ResultRequest]) (*connect.Response[v1.ResultResponse], error)
+	// Stdio runs one process and pipes its stdin and output over the stream. The first request must be a start;
+	// ending the stream stops the process. It knows nothing of what the process speaks.
+	Stdio(context.Context) *connect.BidiStreamForClient[v1.StdioRequest, v1.StdioResponse]
 }
 
 // NewToolServiceClient constructs a client for the durable.worker.v1.ToolService service. By
@@ -102,6 +107,12 @@ func NewToolServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(toolServiceMethods.ByName("Result")),
 			connect.WithClientOptions(opts...),
 		),
+		stdio: connect.NewClient[v1.StdioRequest, v1.StdioResponse](
+			httpClient,
+			baseURL+ToolServiceStdioProcedure,
+			connect.WithSchema(toolServiceMethods.ByName("Stdio")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -112,6 +123,7 @@ type toolServiceClient struct {
 	execute   *connect.Client[v1.ExecuteRequest, v1.ExecuteResponse]
 	cancel    *connect.Client[v1.CancelRequest, v1.CancelResponse]
 	result    *connect.Client[v1.ResultRequest, v1.ResultResponse]
+	stdio     *connect.Client[v1.StdioRequest, v1.StdioResponse]
 }
 
 // Info calls durable.worker.v1.ToolService.Info.
@@ -139,6 +151,11 @@ func (c *toolServiceClient) Result(ctx context.Context, req *connect.Request[v1.
 	return c.result.CallUnary(ctx, req)
 }
 
+// Stdio calls durable.worker.v1.ToolService.Stdio.
+func (c *toolServiceClient) Stdio(ctx context.Context) *connect.BidiStreamForClient[v1.StdioRequest, v1.StdioResponse] {
+	return c.stdio.CallBidiStream(ctx)
+}
+
 // ToolServiceHandler is an implementation of the durable.worker.v1.ToolService service.
 type ToolServiceHandler interface {
 	// Info reports the worker's environment, without its token.
@@ -153,6 +170,9 @@ type ToolServiceHandler interface {
 	Cancel(context.Context, *connect.Request[v1.CancelRequest]) (*connect.Response[v1.CancelResponse], error)
 	// Result returns the stored result of a finished call.
 	Result(context.Context, *connect.Request[v1.ResultRequest]) (*connect.Response[v1.ResultResponse], error)
+	// Stdio runs one process and pipes its stdin and output over the stream. The first request must be a start;
+	// ending the stream stops the process. It knows nothing of what the process speaks.
+	Stdio(context.Context, *connect.BidiStream[v1.StdioRequest, v1.StdioResponse]) error
 }
 
 // NewToolServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -192,6 +212,12 @@ func NewToolServiceHandler(svc ToolServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(toolServiceMethods.ByName("Result")),
 		connect.WithHandlerOptions(opts...),
 	)
+	toolServiceStdioHandler := connect.NewBidiStreamHandler(
+		ToolServiceStdioProcedure,
+		svc.Stdio,
+		connect.WithSchema(toolServiceMethods.ByName("Stdio")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/durable.worker.v1.ToolService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ToolServiceInfoProcedure:
@@ -204,6 +230,8 @@ func NewToolServiceHandler(svc ToolServiceHandler, opts ...connect.HandlerOption
 			toolServiceCancelHandler.ServeHTTP(w, r)
 		case ToolServiceResultProcedure:
 			toolServiceResultHandler.ServeHTTP(w, r)
+		case ToolServiceStdioProcedure:
+			toolServiceStdioHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -231,4 +259,8 @@ func (UnimplementedToolServiceHandler) Cancel(context.Context, *connect.Request[
 
 func (UnimplementedToolServiceHandler) Result(context.Context, *connect.Request[v1.ResultRequest]) (*connect.Response[v1.ResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.Result is not implemented"))
+}
+
+func (UnimplementedToolServiceHandler) Stdio(context.Context, *connect.BidiStream[v1.StdioRequest, v1.StdioResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.Stdio is not implemented"))
 }

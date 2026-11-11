@@ -695,6 +695,270 @@ func (x *ResultResponse) GetIsError() bool {
 	return false
 }
 
+// StdioRequest starts the process, then carries its stdin. Closing the request side closes stdin.
+type StdioRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// event is the start, which must come first, or a piece of stdin.
+	//
+	// Types that are valid to be assigned to Event:
+	//
+	//	*StdioRequest_Start
+	//	*StdioRequest_Stdin
+	Event         isStdioRequest_Event `protobuf_oneof:"event"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StdioRequest) Reset() {
+	*x = StdioRequest{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StdioRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StdioRequest) ProtoMessage() {}
+
+func (x *StdioRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StdioRequest.ProtoReflect.Descriptor instead.
+func (*StdioRequest) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *StdioRequest) GetEvent() isStdioRequest_Event {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+func (x *StdioRequest) GetStart() *StdioStart {
+	if x != nil {
+		if x, ok := x.Event.(*StdioRequest_Start); ok {
+			return x.Start
+		}
+	}
+	return nil
+}
+
+func (x *StdioRequest) GetStdin() []byte {
+	if x != nil {
+		if x, ok := x.Event.(*StdioRequest_Stdin); ok {
+			return x.Stdin
+		}
+	}
+	return nil
+}
+
+type isStdioRequest_Event interface {
+	isStdioRequest_Event()
+}
+
+type StdioRequest_Start struct {
+	// start describes the process to run.
+	Start *StdioStart `protobuf:"bytes,1,opt,name=start,proto3,oneof"`
+}
+
+type StdioRequest_Stdin struct {
+	// stdin is bytes for the process's stdin.
+	Stdin []byte `protobuf:"bytes,2,opt,name=stdin,proto3,oneof"`
+}
+
+func (*StdioRequest_Start) isStdioRequest_Event() {}
+
+func (*StdioRequest_Stdin) isStdioRequest_Event() {}
+
+// StdioStart describes a process to run beside the worker.
+type StdioStart struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// command is the executable, looked up on the worker's PATH.
+	Command string `protobuf:"bytes,1,opt,name=command,proto3" json:"command,omitempty"`
+	// args are the command's arguments.
+	Args []string `protobuf:"bytes,2,rep,name=args,proto3" json:"args,omitempty"`
+	// env is added to the worker's environment, which has no token.
+	Env map[string]string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// workspace_cwd runs the process in the workspace root; otherwise it gets a temporary directory.
+	WorkspaceCwd  bool `protobuf:"varint,4,opt,name=workspace_cwd,json=workspaceCwd,proto3" json:"workspace_cwd,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StdioStart) Reset() {
+	*x = StdioStart{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StdioStart) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StdioStart) ProtoMessage() {}
+
+func (x *StdioStart) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StdioStart.ProtoReflect.Descriptor instead.
+func (*StdioStart) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *StdioStart) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *StdioStart) GetArgs() []string {
+	if x != nil {
+		return x.Args
+	}
+	return nil
+}
+
+func (x *StdioStart) GetEnv() map[string]string {
+	if x != nil {
+		return x.Env
+	}
+	return nil
+}
+
+func (x *StdioStart) GetWorkspaceCwd() bool {
+	if x != nil {
+		return x.WorkspaceCwd
+	}
+	return false
+}
+
+// StdioResponse is a piece of output, or the exit code that ends the stream.
+type StdioResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// event is output, or the exit code, which is sent last.
+	//
+	// Types that are valid to be assigned to Event:
+	//
+	//	*StdioResponse_Stdout
+	//	*StdioResponse_Stderr
+	//	*StdioResponse_ExitCode
+	Event         isStdioResponse_Event `protobuf_oneof:"event"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StdioResponse) Reset() {
+	*x = StdioResponse{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StdioResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StdioResponse) ProtoMessage() {}
+
+func (x *StdioResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StdioResponse.ProtoReflect.Descriptor instead.
+func (*StdioResponse) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *StdioResponse) GetEvent() isStdioResponse_Event {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+func (x *StdioResponse) GetStdout() []byte {
+	if x != nil {
+		if x, ok := x.Event.(*StdioResponse_Stdout); ok {
+			return x.Stdout
+		}
+	}
+	return nil
+}
+
+func (x *StdioResponse) GetStderr() []byte {
+	if x != nil {
+		if x, ok := x.Event.(*StdioResponse_Stderr); ok {
+			return x.Stderr
+		}
+	}
+	return nil
+}
+
+func (x *StdioResponse) GetExitCode() int32 {
+	if x != nil {
+		if x, ok := x.Event.(*StdioResponse_ExitCode); ok {
+			return x.ExitCode
+		}
+	}
+	return 0
+}
+
+type isStdioResponse_Event interface {
+	isStdioResponse_Event()
+}
+
+type StdioResponse_Stdout struct {
+	// stdout is bytes from the process's stdout.
+	Stdout []byte `protobuf:"bytes,1,opt,name=stdout,proto3,oneof"`
+}
+
+type StdioResponse_Stderr struct {
+	// stderr is bytes from the process's stderr.
+	Stderr []byte `protobuf:"bytes,2,opt,name=stderr,proto3,oneof"`
+}
+
+type StdioResponse_ExitCode struct {
+	// exit_code is the process's exit code, or -1 when a signal ended it.
+	ExitCode int32 `protobuf:"varint,3,opt,name=exit_code,json=exitCode,proto3,oneof"`
+}
+
+func (*StdioResponse_Stdout) isStdioResponse_Event() {}
+
+func (*StdioResponse_Stderr) isStdioResponse_Event() {}
+
+func (*StdioResponse_ExitCode) isStdioResponse_Event() {}
+
 var File_durable_worker_v1_worker_proto protoreflect.FileDescriptor
 
 const file_durable_worker_v1_worker_proto_rawDesc = "" +
@@ -737,13 +1001,32 @@ const file_durable_worker_v1_worker_proto_rawDesc = "" +
 	"\x0eResultResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12\x16\n" +
 	"\x06output\x18\x02 \x01(\tR\x06output\x12\x19\n" +
-	"\bis_error\x18\x03 \x01(\bR\aisError2\xa0\x03\n" +
+	"\bis_error\x18\x03 \x01(\bR\aisError\"f\n" +
+	"\fStdioRequest\x125\n" +
+	"\x05start\x18\x01 \x01(\v2\x1d.durable.worker.v1.StdioStartH\x00R\x05start\x12\x16\n" +
+	"\x05stdin\x18\x02 \x01(\fH\x00R\x05stdinB\a\n" +
+	"\x05event\"\xd1\x01\n" +
+	"\n" +
+	"StdioStart\x12\x18\n" +
+	"\acommand\x18\x01 \x01(\tR\acommand\x12\x12\n" +
+	"\x04args\x18\x02 \x03(\tR\x04args\x128\n" +
+	"\x03env\x18\x03 \x03(\v2&.durable.worker.v1.StdioStart.EnvEntryR\x03env\x12#\n" +
+	"\rworkspace_cwd\x18\x04 \x01(\bR\fworkspaceCwd\x1a6\n" +
+	"\bEnvEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"k\n" +
+	"\rStdioResponse\x12\x18\n" +
+	"\x06stdout\x18\x01 \x01(\fH\x00R\x06stdout\x12\x18\n" +
+	"\x06stderr\x18\x02 \x01(\fH\x00R\x06stderr\x12\x1d\n" +
+	"\texit_code\x18\x03 \x01(\x05H\x00R\bexitCodeB\a\n" +
+	"\x05event2\xf0\x03\n" +
 	"\vToolService\x12G\n" +
 	"\x04Info\x12\x1e.durable.worker.v1.InfoRequest\x1a\x1f.durable.worker.v1.InfoResponse\x12V\n" +
 	"\tListTools\x12#.durable.worker.v1.ListToolsRequest\x1a$.durable.worker.v1.ListToolsResponse\x12R\n" +
 	"\aExecute\x12!.durable.worker.v1.ExecuteRequest\x1a\".durable.worker.v1.ExecuteResponse0\x01\x12M\n" +
 	"\x06Cancel\x12 .durable.worker.v1.CancelRequest\x1a!.durable.worker.v1.CancelResponse\x12M\n" +
-	"\x06Result\x12 .durable.worker.v1.ResultRequest\x1a!.durable.worker.v1.ResultResponseB=Z;github.com/wolfeidau/durable/api/durable/worker/v1;workerv1b\x06proto3"
+	"\x06Result\x12 .durable.worker.v1.ResultRequest\x1a!.durable.worker.v1.ResultResponse\x12N\n" +
+	"\x05Stdio\x12\x1f.durable.worker.v1.StdioRequest\x1a .durable.worker.v1.StdioResponse(\x010\x01B=Z;github.com/wolfeidau/durable/api/durable/worker/v1;workerv1b\x06proto3"
 
 var (
 	file_durable_worker_v1_worker_proto_rawDescOnce sync.Once
@@ -757,7 +1040,7 @@ func file_durable_worker_v1_worker_proto_rawDescGZIP() []byte {
 	return file_durable_worker_v1_worker_proto_rawDescData
 }
 
-var file_durable_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_durable_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_durable_worker_v1_worker_proto_goTypes = []any{
 	(*InfoRequest)(nil),       // 0: durable.worker.v1.InfoRequest
 	(*InfoResponse)(nil),      // 1: durable.worker.v1.InfoResponse
@@ -771,27 +1054,35 @@ var file_durable_worker_v1_worker_proto_goTypes = []any{
 	(*CancelResponse)(nil),    // 9: durable.worker.v1.CancelResponse
 	(*ResultRequest)(nil),     // 10: durable.worker.v1.ResultRequest
 	(*ResultResponse)(nil),    // 11: durable.worker.v1.ResultResponse
-	nil,                       // 12: durable.worker.v1.InfoResponse.EnvEntry
+	(*StdioRequest)(nil),      // 12: durable.worker.v1.StdioRequest
+	(*StdioStart)(nil),        // 13: durable.worker.v1.StdioStart
+	(*StdioResponse)(nil),     // 14: durable.worker.v1.StdioResponse
+	nil,                       // 15: durable.worker.v1.InfoResponse.EnvEntry
+	nil,                       // 16: durable.worker.v1.StdioStart.EnvEntry
 }
 var file_durable_worker_v1_worker_proto_depIdxs = []int32{
-	12, // 0: durable.worker.v1.InfoResponse.env:type_name -> durable.worker.v1.InfoResponse.EnvEntry
+	15, // 0: durable.worker.v1.InfoResponse.env:type_name -> durable.worker.v1.InfoResponse.EnvEntry
 	3,  // 1: durable.worker.v1.ListToolsResponse.tools:type_name -> durable.worker.v1.ToolInfo
 	7,  // 2: durable.worker.v1.ExecuteResponse.result:type_name -> durable.worker.v1.ExecuteResult
-	0,  // 3: durable.worker.v1.ToolService.Info:input_type -> durable.worker.v1.InfoRequest
-	2,  // 4: durable.worker.v1.ToolService.ListTools:input_type -> durable.worker.v1.ListToolsRequest
-	5,  // 5: durable.worker.v1.ToolService.Execute:input_type -> durable.worker.v1.ExecuteRequest
-	8,  // 6: durable.worker.v1.ToolService.Cancel:input_type -> durable.worker.v1.CancelRequest
-	10, // 7: durable.worker.v1.ToolService.Result:input_type -> durable.worker.v1.ResultRequest
-	1,  // 8: durable.worker.v1.ToolService.Info:output_type -> durable.worker.v1.InfoResponse
-	4,  // 9: durable.worker.v1.ToolService.ListTools:output_type -> durable.worker.v1.ListToolsResponse
-	6,  // 10: durable.worker.v1.ToolService.Execute:output_type -> durable.worker.v1.ExecuteResponse
-	9,  // 11: durable.worker.v1.ToolService.Cancel:output_type -> durable.worker.v1.CancelResponse
-	11, // 12: durable.worker.v1.ToolService.Result:output_type -> durable.worker.v1.ResultResponse
-	8,  // [8:13] is the sub-list for method output_type
-	3,  // [3:8] is the sub-list for method input_type
-	3,  // [3:3] is the sub-list for extension type_name
-	3,  // [3:3] is the sub-list for extension extendee
-	0,  // [0:3] is the sub-list for field type_name
+	13, // 3: durable.worker.v1.StdioRequest.start:type_name -> durable.worker.v1.StdioStart
+	16, // 4: durable.worker.v1.StdioStart.env:type_name -> durable.worker.v1.StdioStart.EnvEntry
+	0,  // 5: durable.worker.v1.ToolService.Info:input_type -> durable.worker.v1.InfoRequest
+	2,  // 6: durable.worker.v1.ToolService.ListTools:input_type -> durable.worker.v1.ListToolsRequest
+	5,  // 7: durable.worker.v1.ToolService.Execute:input_type -> durable.worker.v1.ExecuteRequest
+	8,  // 8: durable.worker.v1.ToolService.Cancel:input_type -> durable.worker.v1.CancelRequest
+	10, // 9: durable.worker.v1.ToolService.Result:input_type -> durable.worker.v1.ResultRequest
+	12, // 10: durable.worker.v1.ToolService.Stdio:input_type -> durable.worker.v1.StdioRequest
+	1,  // 11: durable.worker.v1.ToolService.Info:output_type -> durable.worker.v1.InfoResponse
+	4,  // 12: durable.worker.v1.ToolService.ListTools:output_type -> durable.worker.v1.ListToolsResponse
+	6,  // 13: durable.worker.v1.ToolService.Execute:output_type -> durable.worker.v1.ExecuteResponse
+	9,  // 14: durable.worker.v1.ToolService.Cancel:output_type -> durable.worker.v1.CancelResponse
+	11, // 15: durable.worker.v1.ToolService.Result:output_type -> durable.worker.v1.ResultResponse
+	14, // 16: durable.worker.v1.ToolService.Stdio:output_type -> durable.worker.v1.StdioResponse
+	11, // [11:17] is the sub-list for method output_type
+	5,  // [5:11] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_durable_worker_v1_worker_proto_init() }
@@ -803,13 +1094,22 @@ func file_durable_worker_v1_worker_proto_init() {
 		(*ExecuteResponse_Delta)(nil),
 		(*ExecuteResponse_Result)(nil),
 	}
+	file_durable_worker_v1_worker_proto_msgTypes[12].OneofWrappers = []any{
+		(*StdioRequest_Start)(nil),
+		(*StdioRequest_Stdin)(nil),
+	}
+	file_durable_worker_v1_worker_proto_msgTypes[14].OneofWrappers = []any{
+		(*StdioResponse_Stdout)(nil),
+		(*StdioResponse_Stderr)(nil),
+		(*StdioResponse_ExitCode)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_worker_v1_worker_proto_rawDesc), len(file_durable_worker_v1_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -156,11 +156,11 @@ func TestDiscoverSkipsFailingServer(t *testing.T) {
 		"bad":  {Type: typeStdio, Command: "x"},
 	})
 	dial := p.dial
-	p.dial = func(name string, s Server) (mcpsdk.Transport, func(), error) {
+	p.dial = func(ctx context.Context, name string, s Server) (mcpsdk.Transport, func(), error) {
 		if name == "bad" {
 			return nil, nil, os.ErrNotExist
 		}
-		return dial(name, s)
+		return dial(ctx, name, s)
 	}
 
 	pinned, warnings := p.Discover(context.Background())
@@ -354,7 +354,7 @@ func TestDialRejectsUnparsableURL(t *testing.T) {
 func headerClient(t *testing.T, url string) *http.Client {
 	t.Helper()
 	p := NewPool(nil, Options{})
-	tr, cleanup, err := p.dialServer("h", Server{Type: typeHTTP, URL: url, Headers: map[string]string{"X-Token": "s3cret"}})
+	tr, cleanup, err := p.dialServer(context.Background(), "h", Server{Type: typeHTTP, URL: url, Headers: map[string]string{"X-Token": "s3cret"}})
 	require.NoError(t, err)
 	cleanup()
 	return tr.(*mcpsdk.StreamableClientTransport).HTTPClient

@@ -150,6 +150,7 @@ hook that runs its input, for example through `eval`, is a host escape. This is 
 | `Execute(call_id, name, input, stream_output)` | Server stream: output deltas, then the result. A known call ID returns its result without running again |
 | `Result(call_id)` | The result of a finished call, for recovery |
 | `Cancel(call_id)` | Stops a running call |
+| `Stdio` | Bidirectional stream that runs one process and pipes its stdin and output. The first request starts it, and ending the stream kills its process group. It runs MCP servers and knows nothing of MCP |
 
 - **A dropped connection doesn't stop a call.** The server recovers the result with `Result`. User
   cancel and lease loss send `Cancel`.
@@ -260,7 +261,7 @@ offered.
   exist keep working whatever the flag, because the pin wins, including directory sessions with a
   `sandbox.json`.
 - **No host directory, so no project context.** An empty session pins the user's
-  `~/.durable/AGENTS.md` and user skills only, and starts no MCP servers. Project files come from
+  `~/.durable/AGENTS.md` and user skills only. Project files come from
   the workspace in slice I. Its hooks run in a temp folder with an empty `cwd`.
 - **Both kinds persist.** Either workspace survives stop and start, and is lost only when the
   session is deleted.
@@ -342,12 +343,51 @@ The spikes still read them from the host.
 
 ### MCP servers run in the sandbox
 
-stdio MCP servers start inside the sandbox, beside the worker, and their credentials come from
-OpenShell providers. The tool list stays pinned per session. Not yet spiked.
+The server keeps the MCP client: discovery, the per-session pin, naming, caps, timeouts, approval and
+`ReplayNever` are the same as for a local session, and server hints still change nothing. The worker
+is only a pipe.
 
-Until then, a sandboxed session pins no MCP tools, because servers from `~/.durable/mcp.json` would
-start on the host and give the model tools that reach around the sandbox. The pin is per session, so
-a session created before slice M stays without MCP tools.
+**The sandbox is the trust boundary, not the MCP server.** The agent and the session's MCP servers
+share one sandbox, one user and one egress allowlist, so the agent can reach anything its MCP servers
+can: their credentials and their hosts. That is an accepted trade-off. What matters is what the
+sandbox can't do: touch the host, reach the server's API, or reach any host outside the allowlist.
+Giving each MCP server its own sandbox would separate its credentials and egress from the agent; see
+[open questions](#open-questions).
+
+- **stdio servers run beside the worker** through the `Stdio` RPC. The server wraps the stream in an
+  MCP transport. The process gets the worker's environment (without its token) plus the server's
+  configured `env`, including `${VAR}` values the host expanded. It runs in its own process group in
+  `/sandbox` when `useWorkspaceCwd` is set, otherwise in a temp folder. Ending the stream closes
+  stdin, then sends SIGTERM and SIGKILL after 2 seconds each, so closing a session or stopping the
+  sandbox ends its servers.
+- **HTTP servers run through a bridge.** `durable-worker mcp-http --url <url>` is started the same
+  way, with the headers in `DURABLE_MCP_HEADERS`, which it reads and then unsets. It connects to the
+  remote server, serves the same tools over stdio, and forwards calls, so the traffic leaves from the
+  sandbox. Headers go only to the URL's origin.
+- **Egress follows the config.** The first pin records the host and port of each HTTP server (443 or
+  80 by scheme) in `sandbox.json`, and create gives the sandbox one allow rule for those endpoints,
+  scoped to `/usr/local/bin/durable-worker`. A sandbox created with no policy has no egress, so
+  without HTTP servers nothing is added. Other hosts stay denied, for `bash` and for a stdio server's
+  own network use, until there is a per-session egress policy. The rule is not updated when
+  `mcp.json` changes, because the pin is written once.
+- **The rule reaches every process the worker starts.** OpenShell matches it against a process's
+  ancestors, and the worker starts every tool, so an approved `bash` call can reach the HTTP
+  servers' hosts too (`curl` from `bash` got a response from the configured host and was refused
+  elsewhere). With the headers also readable, the agent can call those servers directly, outside
+  MCP approval, through any approved `bash` command. This follows from the shared trust boundary
+  above; providers, or a sandbox per MCP server, would close it.
+- **`env` and headers are visible to the agent.** It runs as the same user, so it can read them.
+  OAuth and OpenShell providers are the way out later.
+- **Gateway behaviour the launcher depends on** (probed on OpenShell v0.1.7): a policy keeps the
+  default filesystem and process settings (user 1500, writable `/sandbox`), but drops the default
+  Landlock `best_effort`, so the launcher sets it again. The rule's binary is matched by exact path
+  against the process and its ancestors: a copy of `curl` started outside the worker was refused.
+  TLS works because the sandbox trusts OpenShell's CA through `SSL_CERT_FILE`, which Go honours.
+- **The sandbox's output is hostile input:** messages are capped at 4 MiB and stderr at 1 MiB per
+  connection, written to `mcp-<server>.log`.
+- **The base image has no `npx` or `uvx`.** Add them with `FROM durable-worker:dev`.
+- **Sessions created before this slice stay without MCP tools,** because their pin is `[]` and pins
+  never change. Their `sandbox.json` has no egress either.
 
 ## Slices
 
@@ -363,7 +403,7 @@ Each slice is one PR. The spike branches are reference, not a base.
 | **R. Repo sessions** | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
 | **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation and profile template | G |
 | **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
-| **M. MCP** | stdio MCP servers inside the sandbox | S |
+| **M. MCP** (done) | MCP servers inside the sandbox: the `Stdio` RPC, the HTTP bridge, and egress for HTTP servers. Tests: a stdio server through the worker, the bridge against an HTTP server, the kill of the process group, and the launcher's policy | S |
 
 ## Open questions
 
@@ -379,4 +419,7 @@ Each slice is one PR. The spike branches are reference, not a base.
   matters only at create. See [one sandbox per session](#one-sandbox-per-session).
 - **Later:** one sandbox per session, or one per repository shared across sessions?
 - **Later:** a per-session egress policy beyond GitHub, and how a person approves a new rule.
+- **Later:** run each MCP server in its own sandbox, so its credentials and egress aren't shared
+  with the agent. Today they share the session's sandbox; see
+  [MCP servers run in the sandbox](#mcp-servers-run-in-the-sandbox).
 - **Later:** a cancelled call's result takes about 2 s to be stored. Find out why before it matters.

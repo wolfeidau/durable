@@ -1,0 +1,4 @@
+# The images build from Go sources only; worktrees and web dependencies would make the context hundreds of MB.
+.git
+.claude
+web/node_modules

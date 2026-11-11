@@ -18,6 +18,9 @@ service ToolService {
   rpc Cancel(CancelRequest) returns (CancelResponse);
   // Result returns the stored result of a finished call.
   rpc Result(ResultRequest) returns (ResultResponse);
+  // Stdio runs one process and pipes its stdin and output over the stream. The first request must be a start;
+  // ending the stream stops the process. It knows nothing of what the process speaks.
+  rpc Stdio(stream StdioRequest) returns (stream StdioResponse);
 }
 
 // InfoRequest asks for the worker's environment.
@@ -110,4 +113,40 @@ message ResultResponse {
   string output = 2;
   // is_error is set when the tool returned an error.
   bool is_error = 3;
+}
+
+// StdioRequest starts the process, then carries its stdin. Closing the request side closes stdin.
+message StdioRequest {
+  // event is the start, which must come first, or a piece of stdin.
+  oneof event {
+    // start describes the process to run.
+    StdioStart start = 1;
+    // stdin is bytes for the process's stdin.
+    bytes stdin = 2;
+  }
+}
+
+// StdioStart describes a process to run beside the worker.
+message StdioStart {
+  // command is the executable, looked up on the worker's PATH.
+  string command = 1;
+  // args are the command's arguments.
+  repeated string args = 2;
+  // env is added to the worker's environment, which has no token.
+  map<string, string> env = 3;
+  // workspace_cwd runs the process in the workspace root; otherwise it gets a temporary directory.
+  bool workspace_cwd = 4;
+}
+
+// StdioResponse is a piece of output, or the exit code that ends the stream.
+message StdioResponse {
+  // event is output, or the exit code, which is sent last.
+  oneof event {
+    // stdout is bytes from the process's stdout.
+    bytes stdout = 1;
+    // stderr is bytes from the process's stderr.
+    bytes stderr = 2;
+    // exit_code is the process's exit code, or -1 when a signal ended it.
+    int32 exit_code = 3;
+  }
 }

@@ -32,6 +32,31 @@ func TestCreatePassesTokenInEnvironmentOnly(t *testing.T) {
 	require.Equal(t, []string{"/usr/local/bin/durable-worker", "--addr", "127.0.0.1:8080", "--root", "/sandbox"}, sb.Spec.Command)
 	require.Equal(t, map[string]string{worker.TokenEnv: "s3cret"}, sb.Spec.Environment)
 	require.NotContains(t, fmt.Sprint(sb.Spec.Command), "s3cret")
+	require.Nil(t, sb.Spec.Policy, "no egress means no policy, which leaves the sandbox without egress")
+}
+
+func TestCreateAllowsEgressToTheWorkerBinaryOnly(t *testing.T) {
+	fc := fake.NewClient()
+	egress := []sandbox.Endpoint{{Host: "mcp.example.com", Port: 443}, {Host: "plain.example.com", Port: 80}}
+
+	require.NoError(t, newWithClient(fc, "").Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t", Egress: egress}))
+
+	sb, err := fc.Sandboxes().Get(t.Context(), "default", "dt-a")
+	require.NoError(t, err)
+	p := sb.Spec.Policy
+	require.NotNil(t, p)
+	// Dropping Landlock would leave the sandbox unconfined, and the filesystem and process defaults must stay with the gateway.
+	require.Equal(t, &types.LandlockPolicy{Compatibility: "best_effort"}, p.Landlock)
+	require.Nil(t, p.Filesystem)
+	require.Nil(t, p.Process)
+	require.Equal(t, map[string]types.NetworkPolicyRule{"durable-mcp": {
+		Name: "durable-mcp",
+		Endpoints: []types.PolicyNetworkEndpoint{
+			{Host: "mcp.example.com", Port: 443},
+			{Host: "plain.example.com", Port: 80},
+		},
+		Binaries: []types.PolicyNetworkBinary{{Path: "/usr/local/bin/durable-worker"}},
+	}}, p.NetworkPolicies)
 }
 
 func TestCreateUsesConfiguredWorkspace(t *testing.T) {

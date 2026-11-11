@@ -17,9 +17,9 @@ func TestSharedStopsOnlyAfterTheLastRelease(t *testing.T) {
 	require.NoError(t, err)
 
 	// An idle close that releases after a reopen has ensured the sandbox must not stop it under the new session.
-	_, oldRelease, err := sandbox.Open(t.Context(), b, pin, false)
+	_, _, oldRelease, err := sandbox.Open(t.Context(), b, pin, false)
 	require.NoError(t, err)
-	_, newRelease, err := sandbox.Open(t.Context(), b, pin, false)
+	_, _, newRelease, err := sandbox.Open(t.Context(), b, pin, false)
 	require.NoError(t, err)
 
 	require.NoError(t, oldRelease(false))
@@ -40,11 +40,11 @@ func TestSharedFailedEnsureIsNotAUser(t *testing.T) {
 	require.NoError(t, err)
 
 	f.FailEnsure(errors.New("boom"))
-	_, _, err = sandbox.Open(t.Context(), b, pin, false)
+	_, _, _, err = sandbox.Open(t.Context(), b, pin, false)
 	require.Error(t, err)
 	f.FailEnsure(nil)
 
-	_, release, err := sandbox.Open(t.Context(), b, pin, false)
+	_, _, release, err := sandbox.Open(t.Context(), b, pin, false)
 	require.NoError(t, err)
 	require.NoError(t, release(false))
 	_, stops, _ := f.Counts()
@@ -57,9 +57,9 @@ func TestSharedDeletesOnlyAfterTheLastUser(t *testing.T) {
 	pin, err := sandbox.WritePin(t.TempDir(), "img:1")
 	require.NoError(t, err)
 
-	_, other, err := sandbox.Open(t.Context(), b, pin, false)
+	_, _, other, err := sandbox.Open(t.Context(), b, pin, false)
 	require.NoError(t, err)
-	_, release, err := sandbox.Open(t.Context(), b, pin, true)
+	_, _, release, err := sandbox.Open(t.Context(), b, pin, true)
 	require.NoError(t, err)
 
 	// A discard while another session holds the sandbox must not delete it under that session.

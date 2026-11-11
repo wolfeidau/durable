@@ -21,10 +21,11 @@ const (
 	// WorkerPort is the port the worker listens on inside the sandbox.
 	WorkerPort = 8080
 	// WorkerBinary is where the worker image installs the worker.
-	WorkerBinary = "/usr/local/bin/durable-worker"
+	WorkerBinary = sandbox.WorkerBinary
 	// Root is the workspace the worker's tools are confined to.
 	Root = "/sandbox"
 
+	egressRule       = "durable-mcp"
 	defaultWorkspace = "default"
 	deleteTimeout    = 2 * time.Minute
 	stopPollInterval = 500 * time.Millisecond
@@ -90,6 +91,7 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 		// A worker that exits leaves the sandbox in Error. On OpenShell v0.1.7 OnFailure crash-loops in Starting,
 		// where the sandbox can be neither stopped nor deleted.
 		RestartPolicy: v1.SandboxRestartNever,
+		Policy:        egressPolicy(s.Egress),
 	}
 	if _, err := l.c.Sandboxes().Create(ctx, l.ws, s.Name, spec); err != nil {
 		return fmt.Errorf("failed to create sandbox: %w", err)
@@ -103,6 +105,25 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 		return err
 	}
 	return nil
+}
+
+// egressPolicy lets the worker binary, which runs the MCP bridge, reach the endpoints. Without a policy the sandbox has
+// no egress at all. Giving one drops the gateway's default Landlock setting but keeps its filesystem and process
+// defaults, so only Landlock is restated.
+func egressPolicy(egress []sandbox.Endpoint) *types.SandboxPolicy {
+	if len(egress) == 0 {
+		return nil
+	}
+	endpoints := make([]types.PolicyNetworkEndpoint, 0, len(egress))
+	for _, e := range egress {
+		endpoints = append(endpoints, types.PolicyNetworkEndpoint{Host: e.Host, Port: e.Port})
+	}
+	return &types.SandboxPolicy{
+		Landlock: &types.LandlockPolicy{Compatibility: "best_effort"},
+		NetworkPolicies: map[string]types.NetworkPolicyRule{
+			egressRule: {Name: egressRule, Endpoints: endpoints, Binaries: []types.PolicyNetworkBinary{{Path: WorkerBinary}}},
+		},
+	}
 }
 
 // Ensure creates the sandbox when it is missing, else starts it.
