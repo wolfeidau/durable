@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/githost"
 )
 
 // DefaultIdleTimeout is how long an unused session stays open.
@@ -108,9 +111,12 @@ func (r *Registry) Acquire(ctx context.Context, id string) (*Session, func(), er
 }
 
 // createSpec makes open create the session instead of requiring it to exist.
-// workspace is commands.WorkspaceEmpty, where id names the session, or empty for a directory session at cwd.
+// workspace is commands.WorkspaceEmpty or commands.WorkspaceRepo, where id names the session, or empty for a directory session at cwd.
 type createSpec struct {
 	workspace, cwd, name, id string
+	// repo and branch are what a repo session clones.
+	repo   githost.Repo
+	branch string
 	// led is set by acquire when this caller opened the session, not one that joined it.
 	led bool
 }
@@ -120,11 +126,23 @@ func (r *Registry) Sandboxed() bool {
 	return r.cfg.Sandbox != nil && r.cfg.Sandbox.Image != ""
 }
 
+// ParseRepo parses raw with the first configured git host that accepts it. The error never quotes raw, which may hold a credential.
+func (r *Registry) ParseRepo(raw string) (githost.Repo, error) {
+	if r.cfg.Sandbox != nil {
+		for _, kind := range slices.Sorted(maps.Keys(r.cfg.Sandbox.GitHosts)) {
+			if repo, err := r.cfg.Sandbox.GitHosts[kind].ParseRepo(raw); err == nil {
+				return repo, nil
+			}
+		}
+	}
+	return githost.Repo{}, errors.New("not a repository on a supported git host")
+}
+
 // Create returns the session for the spec, creating and opening it if it doesn't exist.
 // created is false for an existing session, which is returned as it is.
 func (r *Registry) Create(ctx context.Context, spec createSpec) (meta commands.SessionMeta, created bool, err error) {
 	var dir string
-	if spec.workspace == commands.WorkspaceEmpty {
+	if spec.workspace != "" {
 		dir, err = SessionDir(r.cfg.Home, spec.id)
 		if err != nil {
 			return commands.SessionMeta{}, false, err
@@ -274,6 +292,7 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 	}
 	if spec != nil {
 		ac.CWD, ac.Session, ac.Workspace, ac.SessionID = spec.cwd, spec.name, spec.workspace, spec.id
+		ac.Repo, ac.Branch = spec.repo, spec.branch
 		ac.Provider, ac.Protocol, ac.Model = r.cfg.Provider, r.cfg.Protocol, r.cfg.Model
 	} else {
 		meta, err := commands.ReadSessionMeta(dir)
@@ -283,6 +302,8 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		// No provider fields: route.matches rejects a flag that differs from the session's pin.
 		ac.CWD, ac.Session, ac.ExistingOnly = meta.CWD, meta.Name, true
 		ac.Workspace, ac.SessionID = meta.Workspace, filepath.Base(dir)
+		// Only the branch: the pin holds the clone URL, so a reopen needs no git host, even without --sandbox-image.
+		ac.Branch = meta.Branch
 	}
 	asm, err := r.cfg.assemble(ctx, ac)
 	if err != nil {

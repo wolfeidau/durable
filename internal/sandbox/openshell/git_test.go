@@ -10,6 +10,7 @@ import (
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wolfeidau/durable/internal/githost"
 	"github.com/wolfeidau/durable/internal/githost/github"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/worker"
@@ -153,6 +154,47 @@ func TestCreateWithGitAndEgressKeepsBothRules(t *testing.T) {
 	require.Len(t, git.Binaries, 2)
 	require.Equal(t, []string{"durable-github"}, sb.Spec.Providers)
 	require.Equal(t, "1", sb.Spec.Environment["GIT_CONFIG_COUNT"])
+}
+
+func TestAnonymousGitAccessNeedsNoProviderOrBinding(t *testing.T) {
+	rec := newRecorder()
+	l := newWithClient(rec, "", nil)
+	access := githost.Anonymous(repoAccess(t, "github.com/octo/hello"))
+
+	require.NoError(t, l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: []sandbox.GitAccess{access}}))
+
+	sb, err := rec.Sandboxes().Get(t.Context(), "default", "dt-a")
+	require.NoError(t, err)
+	require.Empty(t, sb.Spec.Providers)
+	require.Equal(t, map[string]string{worker.TokenEnv: "wt"}, sb.Spec.Environment)
+	git := sb.Spec.Policy.NetworkPolicies["durable-git"]
+	require.Len(t, git.Endpoints, 1)
+	require.Nil(t, git.Endpoints[0].CredentialBinding)
+	require.Len(t, git.Endpoints[0].Rules, 6)
+	require.Len(t, git.Binaries, 2)
+	require.Zero(t, rec.ensures)
+	require.Zero(t, rec.imports)
+}
+
+func TestMixedAnonymousAndCredentialedAccessStaySeparate(t *testing.T) {
+	rec := newRecorder()
+	token := "ghp_one"
+	l := newWithClient(rec, "", tokenFn(&token))
+	spec := sandbox.Spec{
+		Name: "dt-a", Image: "img", Token: "wt",
+		Git: []sandbox.GitAccess{githost.Anonymous(repoAccess(t, "github.com/octo/one")), repoAccess(t, "github.com/octo/two")},
+	}
+
+	require.NoError(t, l.Create(t.Context(), spec))
+
+	sb, err := rec.Sandboxes().Get(t.Context(), "default", "dt-a")
+	require.NoError(t, err)
+	require.Equal(t, []string{"durable-github"}, sb.Spec.Providers)
+	git := sb.Spec.Policy.NetworkPolicies["durable-git"]
+	require.Len(t, git.Endpoints, 2)
+	require.Nil(t, git.Endpoints[0].CredentialBinding)
+	require.Equal(t, &types.NetworkCredentialBinding{Provider: "durable-github"}, git.Endpoints[1].CredentialBinding)
+	require.Equal(t, 1, rec.ensures)
 }
 
 func TestGitEnvNumbersKeysInSortedOrder(t *testing.T) {

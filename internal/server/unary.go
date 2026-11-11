@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strings"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -87,7 +89,7 @@ func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.
 	}
 	out := &v1.ListSessionsResponse{Warnings: warnings}
 	for _, m := range metas {
-		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt), Workspace: workspaceOf(m)}
+		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt), Workspace: workspaceOf(m), Repo: m.Repo, Branch: m.Branch}
 		st, err := durable.ReadStatus(ctx, filepath.Join(s.home, ".durable", "sessions", m.ID, "session.sqlite"))
 		if err != nil {
 			// The warning is returned to the client, so it isn't logged here.
@@ -110,7 +112,7 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 	switch req.Msg.GetWorkspace() {
 	case v1.Workspace_WORKSPACE_UNSPECIFIED, v1.Workspace_WORKSPACE_DIRECTORY:
 		if s.reg.Sandboxed() {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty sessions: start it without --sandbox-image for directory sessions"))
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty and repo sessions: start it without --sandbox-image for directory sessions"))
 		}
 		cwd := req.Msg.GetCwd()
 		if !filepath.IsAbs(cwd) {
@@ -140,13 +142,21 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image"))
 		}
 		spec = createSpec{workspace: commands.WorkspaceEmpty, name: name, id: commands.EmptySessionID(req.Msg.GetRequestId())}
+	case v1.Workspace_WORKSPACE_REPO:
+		var err error
+		if spec, err = s.repoSpec(req.Msg); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unknown workspace"))
 	}
 	meta, created, err := s.reg.Create(ctx, spec)
 	if err != nil {
-		var se *sandbox.Error
-		if errors.Is(err, errCreate) && !errors.As(err, &se) {
+		var (
+			se *sandbox.Error
+			ce *commands.CloneError
+		)
+		if errors.Is(err, errCreate) && !errors.As(err, &se) && !errors.As(err, &ce) {
 			// The detail can echo a credential reference, so only the log gets it.
 			s.logger.ErrorContext(ctx, "request failed", slog.String("op", "create session"), slog.Any("error", err))
 			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("server can't create sessions: see its log"))
@@ -154,24 +164,67 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 		return nil, s.publicErr(ctx, "create session", err)
 	}
 	return connect.NewResponse(&v1.CreateSessionResponse{
-		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt), Workspace: workspaceOf(meta)},
+		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt), Workspace: workspaceOf(meta), Repo: meta.Repo, Branch: meta.Branch},
 		Created: created,
 	}), nil
 }
 
-func workspaceOf(m commands.SessionMeta) v1.Workspace {
-	if m.Workspace == commands.WorkspaceEmpty {
-		return v1.Workspace_WORKSPACE_EMPTY
+// repoSpec validates a repo create. Its errors are fixed text, because the input may hold a credential.
+func (s sessionService) repoSpec(msg *v1.CreateSessionRequest) (createSpec, error) {
+	if !s.reg.Sandboxed() {
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("repo sessions need a sandbox: start the server with --sandbox-image"))
 	}
-	return v1.Workspace_WORKSPACE_DIRECTORY
+	if msg.GetCwd() != "" || msg.GetRequestId() != "" {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("a repo workspace takes no cwd or request_id"))
+	}
+	repo, err := s.reg.ParseRepo(msg.GetRepo())
+	if err != nil {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	branch := msg.GetBranch()
+	if branch == "" {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("branch is required for a repo workspace"))
+	}
+	if !validBranch(branch) {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("branch is not a valid branch name"))
+	}
+	name := msg.GetName()
+	if name == "" {
+		name = "default"
+	}
+	return createSpec{
+		workspace: commands.WorkspaceRepo, name: name, repo: repo, branch: branch,
+		id: commands.RepoSessionID(repo.String(), branch, name),
+	}, nil
+}
+
+var branchRE = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,200}$`)
+
+// validBranch accepts a conservative subset of git ref names, so a branch can't be read as an option or a revision expression.
+func validBranch(b string) bool {
+	return branchRE.MatchString(b) &&
+		!strings.HasPrefix(b, "-") && !strings.HasPrefix(b, "/") &&
+		!strings.Contains(b, "..") && !strings.Contains(b, "//") && !strings.Contains(b, "@{") &&
+		!strings.HasSuffix(b, "/") && !strings.HasSuffix(b, ".") && !strings.HasSuffix(b, ".lock")
+}
+
+func workspaceOf(m commands.SessionMeta) v1.Workspace {
+	switch m.Workspace {
+	case commands.WorkspaceEmpty:
+		return v1.Workspace_WORKSPACE_EMPTY
+	case commands.WorkspaceRepo:
+		return v1.Workspace_WORKSPACE_REPO
+	default:
+		return v1.Workspace_WORKSPACE_DIRECTORY
+	}
 }
 
 func (s sessionService) GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error) {
-	kind := v1.Workspace_WORKSPACE_DIRECTORY
+	kinds := []v1.Workspace{v1.Workspace_WORKSPACE_DIRECTORY}
 	if s.reg.Sandboxed() {
-		kind = v1.Workspace_WORKSPACE_EMPTY
+		kinds = []v1.Workspace{v1.Workspace_WORKSPACE_EMPTY, v1.Workspace_WORKSPACE_REPO}
 	}
-	return connect.NewResponse(&v1.GetServerInfoResponse{Workspaces: []v1.Workspace{kind}}), nil
+	return connect.NewResponse(&v1.GetServerInfoResponse{Workspaces: kinds}), nil
 }
 
 // leaseLost marks the session lost and returns Unavailable for an ErrLeaseLost, or nil for any other error.
@@ -207,7 +260,11 @@ func (s sessionService) publicErr(ctx context.Context, op string, err error) err
 	}
 	if errors.Is(err, commands.ErrEmptyNeedsSandbox) {
 		s.logger.ErrorContext(ctx, "request failed", slog.String("op", op), slog.Any("error", err))
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this empty session has no sandbox pin: see the server log"))
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this session has no sandbox pin: see the server log"))
+	}
+	// Msg is sanitised git output, safe for the client.
+	if cloneErr, ok := errors.AsType[*commands.CloneError](err); ok {
+		return connect.NewError(connect.CodeFailedPrecondition, cloneErr)
 	}
 	var ce *connect.Error
 	if errors.As(err, &ce) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

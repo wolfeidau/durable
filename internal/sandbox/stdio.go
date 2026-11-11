@@ -21,6 +21,8 @@ const (
 	stdioChunk = 64 << 10
 	// closeWait covers the worker's stdin-close, SIGTERM and SIGKILL steps before the stream is cut.
 	closeWait = 6 * time.Second
+	// runStderrCap bounds the stderr Run keeps.
+	runStderrCap = 8 << 10
 )
 
 // StdioSpec is a process to run beside the worker.
@@ -49,6 +51,44 @@ func (c *Client) Stdio(ctx context.Context, spec StdioSpec, stderr io.Writer) (i
 	s := &stdioConn{stream: stream, cancel: cancel, pr: pr, done: make(chan struct{})}
 	go s.receive(pw, stderr)
 	return s, nil
+}
+
+// Run runs spec on the worker with no stdin until it exits, and returns its exit code and the end of its stderr. The
+// last bytes are kept, not the first, because a command's error comes last. If ctx ends first the stream is cut and the
+// worker kills the process group.
+func (c *Client) Run(ctx context.Context, spec StdioSpec) (exitCode int, stderr []byte, err error) {
+	sctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stream := c.rpc.Stdio(sctx)
+	defer func() { _ = stream.CloseResponse() }()
+	start := &workerv1.StdioRequest{Event: &workerv1.StdioRequest_Start{Start: &workerv1.StdioStart{
+		Command: spec.Command, Args: spec.Args, Env: spec.Env, WorkspaceCwd: spec.WorkspaceCwd,
+	}}}
+	if err := stream.Send(start); err != nil {
+		return 0, nil, fmt.Errorf("failed to start %q on the worker: %w", spec.Command, err)
+	}
+	// The request side stays open: the worker treats its end as the end of the process.
+	for {
+		msg, err := stream.Receive()
+		if err != nil {
+			if ctx.Err() != nil {
+				return 0, nil, ctx.Err()
+			}
+			if errors.Is(err, io.EOF) {
+				err = errors.New("worker stream ended without an exit code")
+			}
+			return 0, nil, fmt.Errorf("failed to run %q on the worker: %w", spec.Command, err)
+		}
+		switch ev := msg.Event.(type) {
+		case *workerv1.StdioResponse_Stderr:
+			stderr = append(stderr, ev.Stderr...)
+			if len(stderr) > runStderrCap {
+				stderr = append([]byte(nil), stderr[len(stderr)-runStderrCap:]...)
+			}
+		case *workerv1.StdioResponse_ExitCode:
+			return int(ev.ExitCode), stderr, nil
+		}
+	}
 }
 
 type stdioConn struct {

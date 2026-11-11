@@ -156,6 +156,7 @@ func (*Host) Access(repo githost.Repo) sandbox.GitAccess {
 		Endpoint:      sandbox.Endpoint{Host: hostname, Port: 443},
 		Rules:         rules,
 		Binaries:      []string{"/usr/bin/git", "/usr/lib/git-core/git-remote-https"},
+		CloneURL:      "https://" + hostname + "/" + repo.Owner + "/" + repo.Name + ".git",
 		GitConfig: map[string]string{
 			"credential.https://" + hostname + ".helper": `!f() { echo username=x-access-token; echo "password=$` + CredentialEnv + `"; }; f`,
 		},

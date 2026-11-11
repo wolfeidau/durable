@@ -124,3 +124,12 @@ func TestServeProviderFlagsDoNotApplyToExistingSessions(t *testing.T) {
 	c := newClient(startEnv(t, home, apiEnv(api), "--api-token", "dummy", "--provider", "openrouter", "--model", "x"))
 	require.Equal(t, "DONE", waitDone(t, c, got.GetSession().GetId()).GetResult())
 }
+
+func (c apiClient) createRepo(t *testing.T, repo, branch string) (*v1.CreateSessionResponse, error) {
+	t.Helper()
+	resp, err := c.CreateSession(t.Context(), authed(c, &v1.CreateSessionRequest{Workspace: v1.Workspace_WORKSPACE_REPO, Repo: repo, Branch: branch}))
+	if err != nil {
+		return nil, err
+	}
+	return resp.Msg, nil
+}

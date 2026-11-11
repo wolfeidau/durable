@@ -19,11 +19,12 @@ service SessionService {
   // ListSessions lists the sessions under the server's home, without opening any.
   rpc ListSessions(ListSessionsRequest) returns (ListSessionsResponse);
   // CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
-  // by request_id for an empty one.
+  // by request_id for an empty one, by repo, branch and name for a repo one. A repo session clones its branch before
+  // this returns, and a failed clone returns FAILED_PRECONDITION with git's last line.
   // A server that can't create sessions, for example a missing provider key, returns
   // FAILED_PRECONDITION and logs the detail.
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
-  // GetServerInfo reports which workspace kinds CreateSession accepts.
+  // GetServerInfo reports which workspace kinds CreateSession accepts: EMPTY and REPO for a sandboxed server, else DIRECTORY.
   rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
 }
 
@@ -34,6 +35,8 @@ enum Workspace {
   WORKSPACE_DIRECTORY = 1;
   // EMPTY is an empty sandbox workspace with no host directory.
   WORKSPACE_EMPTY = 2;
+  // REPO is a sandbox workspace holding a clone of a git repository branch.
+  WORKSPACE_REPO = 3;
 }
 
 message GetServerInfoRequest {}
@@ -53,6 +56,10 @@ message CreateSessionRequest {
   // request_id is required for an empty workspace and must be a random value of at least 16 characters; a retry with the
   // same one returns the same session.
   string request_id = 4;
+  // repo is required for a repo workspace: a URL or github.com/owner/name.
+  string repo = 5;
+  // branch is required for a repo workspace.
+  string branch = 6;
 }
 
 message CreateSessionResponse {
@@ -81,6 +88,9 @@ message SessionInfo {
   // unfinished_submissions counts queued plus running submissions; it may lag while another process writes.
   int32 unfinished_submissions = 6;
   Workspace workspace = 7;
+  // repo is the canonical repository, such as github.com/owner/name, for a repo workspace.
+  string repo = 8;
+  string branch = 9;
 }
 
 message SubmitRequest {

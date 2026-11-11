@@ -30,7 +30,8 @@ export const listSessions = SessionService.method.listSessions;
 
 /**
  * CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
- * by request_id for an empty one.
+ * by request_id for an empty one, by repo, branch and name for a repo one. A repo session clones its branch before
+ * this returns, and a failed clone returns FAILED_PRECONDITION with git's last line.
  * A server that can't create sessions, for example a missing provider key, returns
  * FAILED_PRECONDITION and logs the detail.
  *
@@ -39,7 +40,7 @@ export const listSessions = SessionService.method.listSessions;
 export const createSession = SessionService.method.createSession;
 
 /**
- * GetServerInfo reports which workspace kinds CreateSession accepts.
+ * GetServerInfo reports which workspace kinds CreateSession accepts: EMPTY and REPO for a sandboxed server, else DIRECTORY.
  *
  * @generated from rpc durable.v1.SessionService.GetServerInfo
  */

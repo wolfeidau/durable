@@ -2,7 +2,13 @@ package sandbox_test
 
 import (
 	"bytes"
+	"context"
 	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -54,4 +60,55 @@ func TestClientStdioReadEndsWhenProcessExits(t *testing.T) {
 	got, err := io.ReadAll(rwc)
 	require.NoError(t, err)
 	require.Equal(t, "bye\n", string(got))
+}
+
+func TestClientRunReportsExitCodeAndStderr(t *testing.T) {
+	c := openFake(t)
+
+	code, stderr, err := c.Run(t.Context(), sandbox.StdioSpec{Command: "sh", Args: []string{"-c", "echo fine"}})
+	require.NoError(t, err)
+	require.Zero(t, code)
+	require.Empty(t, stderr)
+
+	code, stderr, err = c.Run(t.Context(), sandbox.StdioSpec{Command: "sh", Args: []string{"-c", "echo boom >&2; exit 3"}})
+	require.NoError(t, err)
+	require.Equal(t, 3, code)
+	require.Equal(t, "boom\n", string(stderr))
+}
+
+func TestClientRunKeepsTheEndOfStderr(t *testing.T) {
+	c := openFake(t)
+	script := "head -c 20000 /dev/zero | tr '\\0' a >&2; echo >&2; echo last >&2"
+
+	code, stderr, err := c.Run(t.Context(), sandbox.StdioSpec{Command: "sh", Args: []string{"-c", script}})
+
+	require.NoError(t, err)
+	require.Zero(t, code)
+	require.Len(t, stderr, 8<<10)
+	require.True(t, strings.HasSuffix(string(stderr), "\nlast\n"))
+}
+
+func TestClientRunCancelKillsTheProcess(t *testing.T) {
+	c := openFake(t)
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := c.Run(ctx, sandbox.StdioSpec{Command: "sh", Args: []string{"-c", "echo $$ > " + pidFile + "; exec sleep 30"}})
+		done <- err
+	}()
+	var pid int
+	require.Eventually(t, func() bool {
+		b, err := os.ReadFile(pidFile)
+		if err != nil {
+			return false
+		}
+		pid, err = strconv.Atoi(strings.TrimSpace(string(b)))
+		return err == nil
+	}, 10*time.Second, 20*time.Millisecond)
+
+	cancel()
+
+	require.ErrorIs(t, <-done, context.Canceled)
+	require.Eventually(t, func() bool { return syscall.Kill(pid, 0) != nil }, 10*time.Second, 50*time.Millisecond)
 }

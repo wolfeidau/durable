@@ -31,6 +31,8 @@ const (
 	Workspace_WORKSPACE_DIRECTORY Workspace = 1
 	// EMPTY is an empty sandbox workspace with no host directory.
 	Workspace_WORKSPACE_EMPTY Workspace = 2
+	// REPO is a sandbox workspace holding a clone of a git repository branch.
+	Workspace_WORKSPACE_REPO Workspace = 3
 )
 
 // Enum value maps for Workspace.
@@ -39,11 +41,13 @@ var (
 		0: "WORKSPACE_UNSPECIFIED",
 		1: "WORKSPACE_DIRECTORY",
 		2: "WORKSPACE_EMPTY",
+		3: "WORKSPACE_REPO",
 	}
 	Workspace_value = map[string]int32{
 		"WORKSPACE_UNSPECIFIED": 0,
 		"WORKSPACE_DIRECTORY":   1,
 		"WORKSPACE_EMPTY":       2,
+		"WORKSPACE_REPO":        3,
 	}
 )
 
@@ -453,7 +457,11 @@ type CreateSessionRequest struct {
 	Workspace Workspace `protobuf:"varint,3,opt,name=workspace,proto3,enum=durable.v1.Workspace" json:"workspace,omitempty"`
 	// request_id is required for an empty workspace and must be a random value of at least 16 characters; a retry with the
 	// same one returns the same session.
-	RequestId     string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RequestId string `protobuf:"bytes,4,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// repo is required for a repo workspace: a URL or github.com/owner/name.
+	Repo string `protobuf:"bytes,5,opt,name=repo,proto3" json:"repo,omitempty"`
+	// branch is required for a repo workspace.
+	Branch        string `protobuf:"bytes,6,opt,name=branch,proto3" json:"branch,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -512,6 +520,20 @@ func (x *CreateSessionRequest) GetWorkspace() Workspace {
 func (x *CreateSessionRequest) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
+	}
+	return ""
+}
+
+func (x *CreateSessionRequest) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *CreateSessionRequest) GetBranch() string {
+	if x != nil {
+		return x.Branch
 	}
 	return ""
 }
@@ -671,8 +693,11 @@ type SessionInfo struct {
 	// unfinished_submissions counts queued plus running submissions; it may lag while another process writes.
 	UnfinishedSubmissions int32     `protobuf:"varint,6,opt,name=unfinished_submissions,json=unfinishedSubmissions,proto3" json:"unfinished_submissions,omitempty"`
 	Workspace             Workspace `protobuf:"varint,7,opt,name=workspace,proto3,enum=durable.v1.Workspace" json:"workspace,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// repo is the canonical repository, such as github.com/owner/name, for a repo workspace.
+	Repo          string `protobuf:"bytes,8,opt,name=repo,proto3" json:"repo,omitempty"`
+	Branch        string `protobuf:"bytes,9,opt,name=branch,proto3" json:"branch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SessionInfo) Reset() {
@@ -752,6 +777,20 @@ func (x *SessionInfo) GetWorkspace() Workspace {
 		return x.Workspace
 	}
 	return Workspace_WORKSPACE_UNSPECIFIED
+}
+
+func (x *SessionInfo) GetRepo() string {
+	if x != nil {
+		return x.Repo
+	}
+	return ""
+}
+
+func (x *SessionInfo) GetBranch() string {
+	if x != nil {
+		return x.Branch
+	}
+	return ""
 }
 
 type SubmitRequest struct {
@@ -1896,20 +1935,22 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\x15GetServerInfoResponse\x125\n" +
 	"\n" +
 	"workspaces\x18\x01 \x03(\x0e2\x15.durable.v1.WorkspaceR\n" +
-	"workspaces\"\x90\x01\n" +
+	"workspaces\"\xbc\x01\n" +
 	"\x14CreateSessionRequest\x12\x10\n" +
 	"\x03cwd\x18\x01 \x01(\tR\x03cwd\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x123\n" +
 	"\tworkspace\x18\x03 \x01(\x0e2\x15.durable.v1.WorkspaceR\tworkspace\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x04 \x01(\tR\trequestId\"d\n" +
+	"request_id\x18\x04 \x01(\tR\trequestId\x12\x12\n" +
+	"\x04repo\x18\x05 \x01(\tR\x04repo\x12\x16\n" +
+	"\x06branch\x18\x06 \x01(\tR\x06branch\"d\n" +
 	"\x15CreateSessionResponse\x121\n" +
 	"\asession\x18\x01 \x01(\v2\x17.durable.v1.SessionInfoR\asession\x12\x18\n" +
 	"\acreated\x18\x02 \x01(\bR\acreated\"\x15\n" +
 	"\x13ListSessionsRequest\"g\n" +
 	"\x14ListSessionsResponse\x123\n" +
 	"\bsessions\x18\x01 \x03(\v2\x17.durable.v1.SessionInfoR\bsessions\x12\x1a\n" +
-	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"\x97\x02\n" +
+	"\bwarnings\x18\x02 \x03(\tR\bwarnings\"\xc3\x02\n" +
 	"\vSessionInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x10\n" +
 	"\x03cwd\x18\x02 \x01(\tR\x03cwd\x12\x12\n" +
@@ -1918,7 +1959,9 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"created_at\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x12+\n" +
 	"\x11pending_approvals\x18\x05 \x01(\x05R\x10pendingApprovals\x125\n" +
 	"\x16unfinished_submissions\x18\x06 \x01(\x05R\x15unfinishedSubmissions\x123\n" +
-	"\tworkspace\x18\a \x01(\x0e2\x15.durable.v1.WorkspaceR\tworkspace\"a\n" +
+	"\tworkspace\x18\a \x01(\x0e2\x15.durable.v1.WorkspaceR\tworkspace\x12\x12\n" +
+	"\x04repo\x18\b \x01(\tR\x04repo\x12\x16\n" +
+	"\x06branch\x18\t \x01(\tR\x06branch\"a\n" +
 	"\rSubmitRequest\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x1d\n" +
@@ -2021,11 +2064,12 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"request_id\x18\x0e \x01(\tR\trequestId\"@\n" +
 	"\rEpochMismatch\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\tR\x05epoch\x12\x19\n" +
-	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*T\n" +
+	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*h\n" +
 	"\tWorkspace\x12\x19\n" +
 	"\x15WORKSPACE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13WORKSPACE_DIRECTORY\x10\x01\x12\x13\n" +
-	"\x0fWORKSPACE_EMPTY\x10\x02*n\n" +
+	"\x0fWORKSPACE_EMPTY\x10\x02\x12\x12\n" +
+	"\x0eWORKSPACE_REPO\x10\x03*n\n" +
 	"\tDeltaKind\x12\x1a\n" +
 	"\x16DELTA_KIND_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10DELTA_KIND_RESET\x10\x01\x12\x13\n" +

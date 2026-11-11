@@ -19,6 +19,8 @@ import (
 	v1 "github.com/wolfeidau/durable/api/durable/v1"
 	"github.com/wolfeidau/durable/api/durable/v1/durablev1connect"
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/githost"
+	"github.com/wolfeidau/durable/internal/githost/githosttest"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/sandbox/sandboxtest"
 )
@@ -43,6 +45,7 @@ func (b *lockedBuffer) String() string {
 type sandboxEnv struct {
 	*registryEnv
 	fake   *sandboxtest.Fake
+	host   *githosttest.Host
 	reg    *Registry
 	client durablev1connect.SessionServiceClient
 	log    *lockedBuffer
@@ -52,7 +55,11 @@ func newSandboxEnv(t *testing.T) *sandboxEnv {
 	t.Helper()
 	e := newEnv(t)
 	f := sandboxtest.New(t)
-	e.cfg.Sandbox = &commands.SandboxConfig{Backend: f, Image: "img:1"}
+	h := githosttest.New(t)
+	e.cfg.Sandbox = &commands.SandboxConfig{
+		Backend: f, Image: "img:1",
+		GitHosts: map[string]githost.Host{"github": h}, GitTokens: map[string]bool{"github": true},
+	}
 	e.cfg.IdleTimeout = 100 * time.Millisecond
 	log := &lockedBuffer{}
 	logger := slog.New(slog.NewTextHandler(log, nil))
@@ -62,7 +69,7 @@ func newSandboxEnv(t *testing.T) *sandboxEnv {
 	ts.Config.Handler = New(Config{Home: e.home, Token: testToken, Addr: ts.Listener.Addr().String(), Registry: r, Logger: logger}).Handler()
 	ts.Start()
 	t.Cleanup(ts.Close)
-	return &sandboxEnv{registryEnv: e, fake: f, reg: r, client: durablev1connect.NewSessionServiceClient(http.DefaultClient, ts.URL), log: log}
+	return &sandboxEnv{registryEnv: e, fake: f, host: h, reg: r, client: durablev1connect.NewSessionServiceClient(http.DefaultClient, ts.URL), log: log}
 }
 
 func (e *sandboxEnv) createSession(t *testing.T) (*connect.Response[v1.CreateSessionResponse], error) {
@@ -209,7 +216,7 @@ func TestEmptyCreateOnPlainServerIsRefused(t *testing.T) {
 
 func TestGetServerInfoOnSandboxedServer(t *testing.T) {
 	e := newSandboxEnv(t)
-	require.Equal(t, []v1.Workspace{v1.Workspace_WORKSPACE_EMPTY}, e.info(t).Msg.Workspaces)
+	require.Equal(t, []v1.Workspace{v1.Workspace_WORKSPACE_EMPTY, v1.Workspace_WORKSPACE_REPO}, e.info(t).Msg.Workspaces)
 }
 
 func TestEmptySessionReopensAfterIdleClose(t *testing.T) {
@@ -344,5 +351,5 @@ func TestEmptySessionWithoutPinReopensAsFailedPrecondition(t *testing.T) {
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	var ce *connect.Error
 	require.ErrorAs(t, err, &ce)
-	require.Equal(t, "this empty session has no sandbox pin: see the server log", ce.Message())
+	require.Equal(t, "this session has no sandbox pin: see the server log", ce.Message())
 }
