@@ -31,6 +31,29 @@ type Spec struct {
 	Token string
 	// Egress is where the sandbox may connect, scoped to the worker binary.
 	Egress []Endpoint
+	// Git is the repository access the sandbox gets through its host's provider.
+	Git []GitAccess
+}
+
+// GitAccess is a sandbox's access to one repository on a git host, as neutral data a backend turns into policy.
+type GitAccess struct {
+	Kind string `json:"kind"`
+	// Provider and ProfileID name the backend's credential holder for the host, and CredentialEnv is the variable the sandbox sees.
+	Provider      string   `json:"provider"`
+	ProfileID     string   `json:"profile_id"`
+	CredentialEnv string   `json:"credential_env"`
+	Endpoint      Endpoint `json:"endpoint"`
+	// Rules are the only requests allowed to Endpoint.
+	Rules    []HTTPRule `json:"rules"`
+	Binaries []string   `json:"binaries"`
+	// GitConfig is passed to the client through GIT_CONFIG_* variables.
+	GitConfig map[string]string `json:"git_config,omitempty"`
+}
+
+// HTTPRule allows one method and path pattern.
+type HTTPRule struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
 }
 
 // Endpoint is a host and port a sandbox may reach.
@@ -67,6 +90,8 @@ type Pin struct {
 	Token string `json:"token"`
 	// Egress is fixed at the first pin, so a recreated sandbox gets the same rule. Pins from before it have none.
 	Egress []Endpoint `json:"egress,omitempty"`
+	// Git is fixed at the first pin, like Egress.
+	Git []GitAccess `json:"git,omitempty"`
 }
 
 // Spec returns the pin as a sandbox spec.
@@ -93,6 +118,11 @@ func ReadPin(dir string) (p Pin, ok bool, err error) {
 // WritePin pins image and egress for the session in dir with a fresh random name and token. The first writer wins, and
 // every caller gets the winner's pin back.
 func WritePin(dir, image string, egress ...Endpoint) (Pin, error) {
+	return WritePinGit(dir, image, egress, nil)
+}
+
+// WritePinGit is WritePin with repository access, which is fixed at the first pin too.
+func WritePinGit(dir, image string, egress []Endpoint, repos []GitAccess) (Pin, error) {
 	if p, ok, err := ReadPin(dir); ok || err != nil {
 		return p, err
 	}
@@ -105,7 +135,7 @@ func WritePin(dir, image string, egress ...Endpoint) (Pin, error) {
 		return Pin{}, err
 	}
 	// The name is random, not derived from the session, so homes never collide; "ds-" plus 16 hex fits OpenShell's name limit.
-	data, err := json.Marshal(Pin{Name: "ds-" + name, Image: image, Token: token, Egress: egress})
+	data, err := json.Marshal(Pin{Name: "ds-" + name, Image: image, Token: token, Egress: egress, Git: repos})
 	if err != nil {
 		return Pin{}, fmt.Errorf("failed to encode sandbox pin: %w", err)
 	}

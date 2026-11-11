@@ -21,7 +21,7 @@ func seed(fc *fake.Client, phase types.SandboxPhase) {
 
 func TestCreatePassesTokenInEnvironmentOnly(t *testing.T) {
 	fc := fake.NewClient()
-	l := newWithClient(fc, "")
+	l := newWithClient(fc, "", nil)
 
 	require.NoError(t, l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img:1", Token: "s3cret"}))
 
@@ -39,7 +39,7 @@ func TestCreateAllowsEgressToTheWorkerBinaryOnly(t *testing.T) {
 	fc := fake.NewClient()
 	egress := []sandbox.Endpoint{{Host: "mcp.example.com", Port: 443}, {Host: "plain.example.com", Port: 80}}
 
-	require.NoError(t, newWithClient(fc, "").Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t", Egress: egress}))
+	require.NoError(t, newWithClient(fc, "", nil).Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t", Egress: egress}))
 
 	sb, err := fc.Sandboxes().Get(t.Context(), "default", "dt-a")
 	require.NoError(t, err)
@@ -61,7 +61,7 @@ func TestCreateAllowsEgressToTheWorkerBinaryOnly(t *testing.T) {
 
 func TestCreateUsesConfiguredWorkspace(t *testing.T) {
 	fc := fake.NewClient()
-	require.NoError(t, newWithClient(fc, "team").Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"}))
+	require.NoError(t, newWithClient(fc, "team", nil).Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"}))
 
 	_, err := fc.Sandboxes().Get(t.Context(), "team", "dt-a")
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestStartByPhase(t *testing.T) {
 		t.Run(string(tc.phase), func(t *testing.T) {
 			fc := fake.NewClient()
 			seed(fc, tc.phase)
-			l := newWithClient(fc, "")
+			l := newWithClient(fc, "", nil)
 
 			err := l.Start(t.Context(), "dt-a")
 			phase, perr := l.Phase(t.Context(), "dt-a")
@@ -102,14 +102,14 @@ func TestStartByPhase(t *testing.T) {
 }
 
 func TestStartMissingIsNotFound(t *testing.T) {
-	err := newWithClient(fake.NewClient(), "").Start(t.Context(), "dt-none")
+	err := newWithClient(fake.NewClient(), "", nil).Start(t.Context(), "dt-none")
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestStopStopsAndMissingIsNoOp(t *testing.T) {
 	fc := fake.NewClient()
 	seed(fc, types.SandboxReady)
-	l := newWithClient(fc, "")
+	l := newWithClient(fc, "", nil)
 
 	require.NoError(t, l.Stop(t.Context(), "dt-a"))
 	phase, err := l.Phase(t.Context(), "dt-a")
@@ -122,7 +122,7 @@ func TestStopStopsAndMissingIsNoOp(t *testing.T) {
 func TestDeleteMissingIsNoOp(t *testing.T) {
 	fc := fake.NewClient()
 	seed(fc, types.SandboxReady)
-	l := newWithClient(fc, "")
+	l := newWithClient(fc, "", nil)
 
 	require.NoError(t, l.Delete(t.Context(), "dt-a"))
 	require.NoError(t, l.Delete(t.Context(), "dt-a"))
@@ -131,13 +131,13 @@ func TestDeleteMissingIsNoOp(t *testing.T) {
 }
 
 func TestPhaseMissingIsErrNotFound(t *testing.T) {
-	_, err := newWithClient(fake.NewClient(), "").Phase(t.Context(), "dt-none")
+	_, err := newWithClient(fake.NewClient(), "", nil).Phase(t.Context(), "dt-none")
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestClosedGatewayIsUnavailable(t *testing.T) {
 	fc := fake.NewClient()
-	l := newWithClient(fc, "")
+	l := newWithClient(fc, "", nil)
 	require.NoError(t, l.Close())
 
 	err := l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"})
@@ -188,7 +188,7 @@ func (s waitSandboxes) WaitReady(ctx context.Context, ws, name string, _ ...v1.W
 }
 
 func TestCreateRequiresNameImageAndToken(t *testing.T) {
-	l := newWithClient(fake.NewClient(), "")
+	l := newWithClient(fake.NewClient(), "", nil)
 	for _, s := range []sandbox.Spec{
 		{Image: "img", Token: "t"},
 		{Name: "dt-a", Token: "t"},
@@ -200,7 +200,7 @@ func TestCreateRequiresNameImageAndToken(t *testing.T) {
 
 func TestCreateNeverRestartsTheWorker(t *testing.T) {
 	fc := fake.NewClient()
-	require.NoError(t, newWithClient(fc, "").Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"}))
+	require.NoError(t, newWithClient(fc, "", nil).Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"}))
 
 	sb, err := fc.Sandboxes().Get(t.Context(), "default", "dt-a")
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ func TestCreateNeverRestartsTheWorker(t *testing.T) {
 
 func TestCreateWithExitedWorkerFailsAndDeletes(t *testing.T) {
 	c := waitClient{Client: fake.NewClient(), phase: types.SandboxCompleted}
-	l := newWithClient(c, "")
+	l := newWithClient(c, "", nil)
 
 	err := l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"})
 	require.ErrorContains(t, err, "worker exited")
@@ -220,7 +220,7 @@ func TestCreateWithExitedWorkerFailsAndDeletes(t *testing.T) {
 
 func TestCreateThatNeverGetsReadyDeletes(t *testing.T) {
 	c := waitClient{Client: fake.NewClient(), err: &types.StatusError{Code: types.ErrorDeadlineExceeded, Message: "slow"}}
-	l := newWithClient(c, "")
+	l := newWithClient(c, "", nil)
 
 	err := l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"})
 	require.True(t, IsUnavailable(err))
@@ -232,7 +232,7 @@ func TestStartWithExitedWorkerFails(t *testing.T) {
 	c := waitClient{Client: fake.NewClient(), phase: types.SandboxCompleted}
 	seed(c.Client, types.SandboxStarting)
 
-	err := newWithClient(c, "").Start(t.Context(), "dt-a")
+	err := newWithClient(c, "", nil).Start(t.Context(), "dt-a")
 	require.ErrorContains(t, err, "worker exited")
 	require.False(t, IsUnavailable(err))
 }

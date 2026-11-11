@@ -23,10 +23,15 @@ const gatewayEnv = "DURABLE_TEST_OPENSHELL"
 
 func gatewayLauncher(t *testing.T) *Launcher {
 	t.Helper()
+	return gatewayLauncherWith(t, Config{})
+}
+
+func gatewayLauncherWith(t *testing.T, cfg Config) *Launcher {
+	t.Helper()
 	if os.Getenv(gatewayEnv) != "1" {
 		t.Skipf("set %s=1 to run against a gateway", gatewayEnv)
 	}
-	l, err := New(Config{})
+	l, err := New(cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close() })
 	return l

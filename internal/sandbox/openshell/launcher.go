@@ -3,10 +3,14 @@ package openshell
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strconv"
+	"sync"
 	"time"
 
 	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
@@ -26,6 +30,7 @@ const (
 	Root = "/sandbox"
 
 	egressRule       = "durable-mcp"
+	gitRule          = "durable-git"
 	defaultWorkspace = "default"
 	deleteTimeout    = 2 * time.Minute
 	stopPollInterval = 500 * time.Millisecond
@@ -40,12 +45,22 @@ type Config struct {
 	Gateway string
 	// Workspace is the OpenShell workspace sandboxes live in; empty means "default".
 	Workspace string
+	// Tokens returns the current token for a git host kind. It is called whenever a sandbox with repository access is
+	// created or started, so a rotated token takes effect without a restart.
+	Tokens map[string]func(ctx context.Context) (string, error)
 }
 
 // Launcher manages worker sandboxes on one gateway.
 type Launcher struct {
-	c  v1.ClientInterface
-	ws string
+	c      v1.ClientInterface
+	ws     string
+	tokens map[string]func(ctx context.Context) (string, error)
+
+	// mu guards synced and profiled, and serialises provider updates.
+	mu sync.Mutex
+	// synced holds the hash of the token last set per provider, never the token.
+	synced   map[string][sha256.Size]byte
+	profiled map[string]bool
 }
 
 // New connects to the gateway.
@@ -65,14 +80,14 @@ func New(cfg Config) (*Launcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gateway client: %w", err)
 	}
-	return newWithClient(c, cfg.Workspace), nil
+	return newWithClient(c, cfg.Workspace, cfg.Tokens), nil
 }
 
-func newWithClient(c v1.ClientInterface, workspace string) *Launcher {
+func newWithClient(c v1.ClientInterface, workspace string, tokens map[string]func(ctx context.Context) (string, error)) *Launcher {
 	if workspace == "" {
 		workspace = defaultWorkspace
 	}
-	return &Launcher{c: c, ws: workspace}
+	return &Launcher{c: c, ws: workspace, tokens: tokens, synced: map[string][sha256.Size]byte{}, profiled: map[string]bool{}}
 }
 
 // Close releases the gateway connection.
@@ -84,16 +99,23 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 	if s.Name == "" || s.Image == "" || s.Token == "" {
 		return errors.New("sandbox name, image and worker token are required")
 	}
+	if err := l.syncProviders(ctx, s.Git); err != nil {
+		return err
+	}
+	env := map[string]string{worker.TokenEnv: s.Token}
+	maps.Copy(env, gitEnv(s.Git))
 	spec := &v1.SandboxSpec{
-		Environment: map[string]string{worker.TokenEnv: s.Token},
+		Environment: env,
+		Providers:   gitProviders(s.Git),
 		Template:    &v1.SandboxTemplate{Image: s.Image},
 		Command:     []string{WorkerBinary, "--addr", "127.0.0.1:" + strconv.Itoa(WorkerPort), "--root", Root},
 		// A worker that exits leaves the sandbox in Error. On OpenShell v0.1.7 OnFailure crash-loops in Starting,
 		// where the sandbox can be neither stopped nor deleted.
 		RestartPolicy: v1.SandboxRestartNever,
-		Policy:        egressPolicy(s.Egress),
+		Policy:        sandboxPolicy(s.Egress, s.Git),
 	}
 	if _, err := l.c.Sandboxes().Create(ctx, l.ws, s.Name, spec); err != nil {
+		l.forget(s.Git)
 		return fmt.Errorf("failed to create sandbox: %w", err)
 	}
 	if err := l.waitReady(ctx, s.Name); err != nil {
@@ -107,23 +129,197 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 	return nil
 }
 
-// egressPolicy lets the worker binary, which runs the MCP bridge, reach the endpoints. Without a policy the sandbox has
-// no egress at all. Giving one drops the gateway's default Landlock setting but keeps its filesystem and process
-// defaults, so only Landlock is restated.
-func egressPolicy(egress []sandbox.Endpoint) *types.SandboxPolicy {
-	if len(egress) == 0 {
+// sandboxPolicy lets the worker binary, which runs the MCP bridge, reach the egress endpoints, and the repository
+// clients reach only what access allows. Without a policy the sandbox has no egress at all. Giving one drops the
+// gateway's default Landlock setting but keeps its filesystem and process defaults, so only Landlock is restated.
+func sandboxPolicy(egress []sandbox.Endpoint, access []sandbox.GitAccess) *types.SandboxPolicy {
+	if len(egress) == 0 && len(access) == 0 {
 		return nil
 	}
-	endpoints := make([]types.PolicyNetworkEndpoint, 0, len(egress))
-	for _, e := range egress {
-		endpoints = append(endpoints, types.PolicyNetworkEndpoint{Host: e.Host, Port: e.Port})
+	rules := map[string]types.NetworkPolicyRule{}
+	if len(egress) > 0 {
+		endpoints := make([]types.PolicyNetworkEndpoint, 0, len(egress))
+		for _, e := range egress {
+			endpoints = append(endpoints, types.PolicyNetworkEndpoint{Host: e.Host, Port: e.Port})
+		}
+		rules[egressRule] = types.NetworkPolicyRule{Name: egressRule, Endpoints: endpoints, Binaries: []types.PolicyNetworkBinary{{Path: WorkerBinary}}}
+	}
+	if len(access) > 0 {
+		rules[gitRule] = gitPolicyRule(access)
 	}
 	return &types.SandboxPolicy{
-		Landlock: &types.LandlockPolicy{Compatibility: "best_effort"},
-		NetworkPolicies: map[string]types.NetworkPolicyRule{
-			egressRule: {Name: egressRule, Endpoints: endpoints, Binaries: []types.PolicyNetworkBinary{{Path: WorkerBinary}}},
+		Landlock:        &types.LandlockPolicy{Compatibility: "best_effort"},
+		NetworkPolicies: rules,
+	}
+}
+
+// gitPolicyRule merges accesses to the same provider and endpoint into one endpoint, because the gateway matches an
+// endpoint once. The binding is what gives the sandbox the provider's credential placeholder.
+func gitPolicyRule(access []sandbox.GitAccess) types.NetworkPolicyRule {
+	type key struct {
+		provider, host string
+		port           uint32
+	}
+	var (
+		order     []key
+		endpoints = map[key]*types.PolicyNetworkEndpoint{}
+		seen      = map[key]map[sandbox.HTTPRule]bool{}
+		binaries  []types.PolicyNetworkBinary
+	)
+	for _, g := range access {
+		k := key{g.Provider, g.Endpoint.Host, g.Endpoint.Port}
+		ep := endpoints[k]
+		if ep == nil {
+			ep = &types.PolicyNetworkEndpoint{
+				Host: g.Endpoint.Host, Port: g.Endpoint.Port, Protocol: "rest", Enforcement: types.NetworkEnforcementModeEnforce,
+				CredentialBinding: &types.NetworkCredentialBinding{Provider: g.Provider},
+			}
+			endpoints[k] = ep
+			seen[k] = map[sandbox.HTTPRule]bool{}
+			order = append(order, k)
+		}
+		for _, r := range g.Rules {
+			if !seen[k][r] {
+				seen[k][r] = true
+				ep.Rules = append(ep.Rules, types.L7Rule{Allow: &types.L7Allow{Method: r.Method, Path: r.Path}})
+			}
+		}
+		for _, b := range g.Binaries {
+			if !slices.Contains(binaries, types.PolicyNetworkBinary{Path: b}) {
+				binaries = append(binaries, types.PolicyNetworkBinary{Path: b})
+			}
+		}
+	}
+	rule := types.NetworkPolicyRule{Name: gitRule, Binaries: binaries}
+	for _, k := range order {
+		rule.Endpoints = append(rule.Endpoints, *endpoints[k])
+	}
+	return rule
+}
+
+// gitProviders returns the providers the sandbox needs, sorted and unique.
+func gitProviders(access []sandbox.GitAccess) []string {
+	var names []string
+	for _, g := range access {
+		names = append(names, g.Provider)
+	}
+	slices.Sort(names)
+	return slices.Compact(names)
+}
+
+// gitEnv numbers the git client's config entries in key order so the environment is the same on every create.
+func gitEnv(access []sandbox.GitAccess) map[string]string {
+	conf := map[string]string{}
+	for _, g := range access {
+		maps.Copy(conf, g.GitConfig)
+	}
+	if len(conf) == 0 {
+		return nil
+	}
+	env := map[string]string{"GIT_CONFIG_COUNT": strconv.Itoa(len(conf))}
+	for i, k := range slices.Sorted(maps.Keys(conf)) {
+		env["GIT_CONFIG_KEY_"+strconv.Itoa(i)] = k
+		env["GIT_CONFIG_VALUE_"+strconv.Itoa(i)] = conf[k]
+	}
+	return env
+}
+
+// syncProviders makes sure each provider the sandbox uses has its profile and the host's current token. The gateway
+// is only told when the token's hash differs from the last one this launcher set, so most opens make no update.
+func (l *Launcher) syncProviders(ctx context.Context, access []sandbox.GitAccess) error {
+	if len(access) == 0 {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	done := map[string]bool{}
+	for _, g := range access {
+		if done[g.Provider] {
+			continue
+		}
+		done[g.Provider] = true
+		tokenFn := l.tokens[g.Kind]
+		if tokenFn == nil {
+			return fmt.Errorf("no %s token is configured for this server", g.Kind)
+		}
+		if err := l.ensureProfile(ctx, g); err != nil {
+			return err
+		}
+		token, err := tokenFn(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to get %s token: %w", g.Kind, err)
+		}
+		sum := sha256.Sum256([]byte(token))
+		if last, ok := l.synced[g.Provider]; ok && last == sum {
+			continue
+		}
+		_, err = l.c.Providers().Ensure(ctx, l.ws, &types.Provider{
+			Name: g.Provider,
+			Type: g.ProfileID,
+			Spec: types.ProviderSpec{ProfileWorkspace: l.ws, Credentials: map[string]string{g.CredentialEnv: token}},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to set %s provider: %w", g.Kind, err)
+		}
+		l.synced[g.Provider] = sum
+	}
+	return nil
+}
+
+// forget drops what syncProviders cached for access, so a provider or profile deleted on the gateway is restored on the
+// next create instead of failing every create until a restart.
+func (l *Launcher) forget(access []sandbox.GitAccess) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, g := range access {
+		delete(l.synced, g.Provider)
+		delete(l.profiled, g.ProfileID)
+	}
+}
+
+// ensureProfile imports the credential-only profile for g once. The request rules live in each sandbox's policy, so
+// the profile has no endpoints.
+func (l *Launcher) ensureProfile(ctx context.Context, g sandbox.GitAccess) error {
+	if l.profiled[g.ProfileID] {
+		return nil
+	}
+	item := types.ProfileImportItem{
+		Source: "durable",
+		Profile: types.ProviderProfile{
+			ID:          g.ProfileID,
+			DisplayName: "durable " + g.Kind + " token",
+			Category:    types.ProfileCategorySourceControl,
+			Credentials: []types.ProfileCredential{{
+				Name: g.CredentialEnv, EnvVars: []string{g.CredentialEnv}, Required: true, Secret: true,
+				AuthStyle: "bearer", HeaderName: "authorization",
+			}},
 		},
 	}
+	existing, err := l.c.Providers().Profiles().Get(ctx, l.ws, g.ProfileID)
+	switch {
+	case err == nil && sameCredentials(existing.Credentials, item.Profile.Credentials):
+	case err == nil:
+		// An older or hand-made profile would silently keep its own credential definition.
+		if _, err := l.c.Providers().Profiles().Update(ctx, l.ws, g.ProfileID, existing.ResourceVersion, item); err != nil {
+			return fmt.Errorf("failed to update %s profile: %w", g.Kind, err)
+		}
+	case v1.IsNotFound(err):
+		if _, err := l.c.Providers().Profiles().Import(ctx, l.ws, []types.ProfileImportItem{item}); err != nil {
+			return fmt.Errorf("failed to import %s profile: %w", g.Kind, err)
+		}
+	default:
+		return fmt.Errorf("failed to get %s profile: %w", g.Kind, err)
+	}
+	l.profiled[g.ProfileID] = true
+	return nil
+}
+
+// sameCredentials compares the fields durable sets, except Secret, which the gateway (v0.1.7) reads back as false.
+func sameCredentials(got, want []types.ProfileCredential) bool {
+	return slices.EqualFunc(got, want, func(a, b types.ProfileCredential) bool {
+		return a.Name == b.Name && slices.Equal(a.EnvVars, b.EnvVars) && a.Required == b.Required &&
+			a.AuthStyle == b.AuthStyle && a.HeaderName == b.HeaderName
+	})
 }
 
 // Ensure creates the sandbox when it is missing, else starts it.
@@ -132,6 +328,10 @@ func (l *Launcher) Ensure(ctx context.Context, s sandbox.Spec) error {
 		if errors.Is(err, ErrNotFound) {
 			return l.Create(ctx, s)
 		}
+		return err
+	}
+	// Start takes only a name, so the provider's token is refreshed here.
+	if err := l.syncProviders(ctx, s.Git); err != nil {
 		return err
 	}
 	return l.Start(ctx, s.Name)

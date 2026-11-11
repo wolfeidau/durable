@@ -37,6 +37,8 @@ type serveCmd struct {
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
 	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker). Existing sessions keep their pin."`
+	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference or gh. Only github is supported; without the flag, github reads DURABLE_GITHUB_TOKEN. Needs --sandbox-image."`
+	GitHubAPIURL          string        `name:"github-api-url" env:"DURABLE_GITHUB_API_URL" hidden:"" help:"GitHub API base URL, for tests."`
 }
 
 type cli struct {
@@ -63,6 +65,14 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("failed to find home directory: %w", err)
 	}
 
+	gitSources, err := gitHostSources(c.GitHostTokens)
+	if err != nil {
+		return err
+	}
+	if len(gitSources) > 0 && c.SandboxImage == "" {
+		return errors.New("a git host token needs --sandbox-image, because repositories are only reachable from a sandbox")
+	}
+
 	// Only the lock holder writes and removes server.json, so a second server can't break discovery.
 	lock, err := lockHome(filepath.Join(home, ".durable"))
 	if err != nil {
@@ -74,6 +84,10 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	apiToken, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
 	if err != nil {
 		return fmt.Errorf("failed to resolve API token: %w", err)
+	}
+
+	if err := checkGitHosts(ctx, logger, gitSources, c.GitHubAPIURL); err != nil {
+		return err
 	}
 
 	token, err := loadOrCreateToken(filepath.Join(home, ".durable", tokenFile))
@@ -100,7 +114,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
 	// Closed after the registry, whose sessions stop their sandboxes through it.
-	backend := &lazyBackend{}
+	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources)}
 	defer backend.Close()
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
