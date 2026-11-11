@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
@@ -78,14 +81,16 @@ func TestGatewayRepoSessionClonesPublicRepo(t *testing.T) {
 }
 
 func TestGatewayRepoSessionPushes(t *testing.T) {
-	_, home, l := gatewayHome(t)
 	repo := os.Getenv("DURABLE_TEST_GITHUB_REPO")
 	if os.Getenv("DURABLE_TEST_OPENSHELL_GITHUB") != "1" || repo == "" {
 		t.Skip("set DURABLE_TEST_OPENSHELL_GITHUB=1 and DURABLE_TEST_GITHUB_REPO=<owner>/<repo> to push to GitHub")
 	}
-	// The temporary HOME hides gh's keychain on macOS, so the token is read here and passed in the environment.
+	// Read before gatewayHome sets a temporary HOME, which hides gh's keychain on macOS; the server gets it in its environment.
 	token, err := creds.Resolve(t.Context(), creds.Source{Flag: "test", Value: "gh"})
 	require.NoError(t, err)
+	_, home, l := gatewayHome(t)
+	// Registered before sessionPin, so it runs after the sandbox is deleted; the provider holds the real token.
+	t.Cleanup(func() { deleteGitProvider(t) })
 	suffix := make([]byte, 4)
 	_, err = rand.Read(suffix)
 	require.NoError(t, err)
@@ -113,4 +118,17 @@ func TestGatewayRepoSessionPushes(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, out, "rc=0")
 	require.NotContains(t, out, token)
+}
+
+// deleteGitProvider removes the provider, then its profile. The gateway refuses both while a sandbox still uses them, and
+// sandbox deletion is asynchronous, so it retries.
+func deleteGitProvider(t *testing.T) {
+	t.Helper()
+	for _, args := range [][]string{{"provider", "delete", "durable-github"}, {"profile", "delete", "durable-github"}} {
+		require.Eventually(t, func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			return exec.CommandContext(ctx, "openshell", args...).Run() == nil
+		}, 2*time.Minute, 2*time.Second, "openshell %v", args)
+	}
 }
