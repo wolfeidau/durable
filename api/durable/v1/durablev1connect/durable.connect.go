@@ -67,11 +67,12 @@ type SessionServiceClient interface {
 	// ListSessions lists the sessions under the server's home, without opening any.
 	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
 	// CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
-	// by request_id for an empty one.
+	// by request_id for an empty one, by repo, branch and name for a repo one. A repo session clones its branch before
+	// this returns, and a failed clone returns FAILED_PRECONDITION with git's last line.
 	// A server that can't create sessions, for example a missing provider key, returns
 	// FAILED_PRECONDITION and logs the detail.
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
-	// GetServerInfo reports which workspace kinds CreateSession accepts.
+	// GetServerInfo reports which workspace kinds CreateSession accepts: EMPTY and REPO for a sandboxed server, else DIRECTORY.
 	GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error)
 }
 
@@ -190,11 +191,12 @@ type SessionServiceHandler interface {
 	// ListSessions lists the sessions under the server's home, without opening any.
 	ListSessions(context.Context, *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error)
 	// CreateSession creates a session or returns the existing one: by cwd and name for a directory session,
-	// by request_id for an empty one.
+	// by request_id for an empty one, by repo, branch and name for a repo one. A repo session clones its branch before
+	// this returns, and a failed clone returns FAILED_PRECONDITION with git's last line.
 	// A server that can't create sessions, for example a missing provider key, returns
 	// FAILED_PRECONDITION and logs the detail.
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
-	// GetServerInfo reports which workspace kinds CreateSession accepts.
+	// GetServerInfo reports which workspace kinds CreateSession accepts: EMPTY and REPO for a sandboxed server, else DIRECTORY.
 	GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error)
 }
 

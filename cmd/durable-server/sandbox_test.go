@@ -60,7 +60,7 @@ func TestSandboxImageWithoutGatewayFailsCreateGenerically(t *testing.T) {
 	r := startEnv(t, home, env, "--api-token", "dummy", "--sandbox-image", "durable-worker:dev")
 
 	c := newClient(r)
-	require.Equal(t, []v1.Workspace{v1.Workspace_WORKSPACE_EMPTY}, c.workspaces(t))
+	require.Equal(t, []v1.Workspace{v1.Workspace_WORKSPACE_EMPTY, v1.Workspace_WORKSPACE_REPO}, c.workspaces(t))
 
 	_, err := c.createEmpty(t, "", "req-0123456789abcdef")
 

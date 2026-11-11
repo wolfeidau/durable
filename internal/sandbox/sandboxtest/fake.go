@@ -33,6 +33,7 @@ type Fake struct {
 
 	mu         sync.Mutex
 	phase      map[string]string
+	roots      map[string]string
 	specs      []sandbox.Spec
 	ensures    int
 	stops      int
@@ -47,7 +48,7 @@ var _ sandbox.Backend = (*Fake)(nil)
 // New returns a Fake whose workers are cleaned up with t.
 func New(t *testing.T) *Fake {
 	t.Helper()
-	return &Fake{t: t, phase: map[string]string{}}
+	return &Fake{t: t, phase: map[string]string{}, roots: map[string]string{}}
 }
 
 // FailEnsure makes Ensure return err until it is called with nil.
@@ -112,19 +113,34 @@ func (f *Fake) Delete(_ context.Context, name string) error {
 	defer f.mu.Unlock()
 	f.deletes++
 	delete(f.phase, name)
+	// A deleted sandbox loses its filesystem; a stopped one keeps it.
+	delete(f.roots, name)
 	return nil
 }
 
-func (f *Fake) Connect(_ context.Context, _, token string) (*sandbox.Client, io.Closer, error) {
+// Root returns the workspace root of the named sandbox's worker, creating it on first use.
+func (f *Fake) Root(name string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if r, ok := f.roots[name]; ok {
+		return r
+	}
+	r := f.t.TempDir()
+	f.roots[name] = r
+	return r
+}
+
+func (f *Fake) Connect(_ context.Context, name, token string) (*sandbox.Client, io.Closer, error) {
 	f.mu.Lock()
 	err := f.connectErr
 	f.mu.Unlock()
 	if err != nil {
 		return nil, nil, err
 	}
-	all, err := tools.All(f.t.TempDir(), f.t.TempDir())
+	root := f.Root(name)
+	all, err := tools.All(root, f.t.TempDir())
 	require.NoError(f.t, err)
-	h, err := worker.Handler(worker.Config{Tools: all, Root: f.t.TempDir(), Token: token})
+	h, err := worker.Handler(worker.Config{Tools: all, Root: root, Token: token})
 	require.NoError(f.t, err)
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/Stdio") {

@@ -18,6 +18,7 @@ import (
 	"github.com/wolfeidau/durable/compaction"
 	"github.com/wolfeidau/durable/hooks"
 	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/githost"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/mcp"
 	"github.com/wolfeidau/durable/skills"
@@ -30,24 +31,31 @@ var ErrNoSession = errors.New("session does not exist")
 // ErrSandboxed is returned by Assemble for a sandboxed session when the caller has no sandbox support.
 var ErrSandboxed = errors.New("this session runs in a sandbox; open it with durable-server")
 
-// ErrEmptyNeedsSandbox is returned by Assemble for an empty session that has no sandbox.
-var ErrEmptyNeedsSandbox = errors.New("an empty session needs a sandbox")
+// ErrEmptyNeedsSandbox is returned by Assemble for an empty or repo session that has no sandbox.
+var ErrEmptyNeedsSandbox = errors.New("an empty or repo session needs a sandbox")
 
 // SandboxConfig lets Assemble run a session's built-in tools in a sandbox.
 type SandboxConfig struct {
 	Backend sandbox.Backend
 	// Image is the worker image for new sessions; empty keeps new sessions local. A session that already has a sandbox keeps its pin.
 	Image string
+	// GitHosts are the hosts a repo session can live on, by kind.
+	GitHosts map[string]githost.Host
+	// GitTokens is true for each host kind the server holds a token for; a repo on any other host is cloned anonymously.
+	GitTokens map[string]bool
 }
 
 // AssembleConfig is everything Assemble needs to build a session's options without a terminal.
 type AssembleConfig struct {
 	CWD     string
 	Session string
-	// Workspace is WorkspaceEmpty for a session with no host directory, or empty for a directory session.
+	// Workspace is WorkspaceEmpty or WorkspaceRepo for a session with no host directory, or empty for a directory session.
 	Workspace string
-	// SessionID is the empty session's directory name, from EmptySessionID.
+	// SessionID is the empty or repo session's directory name, from EmptySessionID or RepoSessionID.
 	SessionID string
+	// Repo and Branch are what a repo session clones.
+	Repo   githost.Repo
+	Branch string
 	// Home is where user config is read from; empty means the user's home directory.
 	Home string
 
@@ -115,7 +123,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if cfg.ExistingOnly && !existed {
 		return nil, ErrNoSession
 	}
-	if err := createSessionDir(dir, SessionMeta{CWD: cfg.CWD, Name: cfg.Session, Workspace: cfg.Workspace, CreatedAt: time.Now().UTC()}); err != nil {
+	if err := createSessionDir(dir, cfg.sessionMeta()); err != nil {
 		return nil, err
 	}
 	useSandbox, err := cfg.checkSandboxed(dir, existed)
@@ -239,8 +247,16 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}, nil
 }
 
+func (c AssembleConfig) sessionMeta() SessionMeta {
+	meta := SessionMeta{CWD: c.CWD, Name: c.Session, Workspace: c.Workspace, CreatedAt: time.Now().UTC()}
+	if c.Workspace == WorkspaceRepo {
+		meta.Repo, meta.Branch = c.Repo.String(), c.Branch
+	}
+	return meta
+}
+
 func (c AssembleConfig) sessionPath() (string, error) {
-	if c.Workspace != WorkspaceEmpty {
+	if c.Workspace == "" {
 		return SessionPath(c.CWD, c.Session)
 	}
 	home, err := c.homeDir()
@@ -272,7 +288,7 @@ func (c AssembleConfig) checkSandboxed(dir string, existed bool) (bool, error) {
 		return false, ErrSandboxed
 	}
 	sandboxed := ok || c.Sandbox != nil && !existed && c.Sandbox.Image != ""
-	if c.Workspace == WorkspaceEmpty && !sandboxed {
+	if c.Workspace != "" && !sandboxed {
 		return false, ErrEmptyNeedsSandbox
 	}
 	return sandboxed, nil
@@ -290,19 +306,45 @@ func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, f
 		return toolset, nil, func(bool) {}, nil
 	}
 	// Pinned before the sandbox is created, so a failed create leaves its token on disk for the retry.
-	pin, err := sandbox.WritePin(dir, c.Sandbox.Image, mcpEgress(servers)...)
+	pin, ok, err := sandbox.ReadPin(dir)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if !ok {
+		var access []sandbox.GitAccess
+		if c.Workspace == WorkspaceRepo {
+			a, err := c.repoAccess()
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			access = []sandbox.GitAccess{a}
+		}
+		// The access is fixed here, so a reopen keeps it even if the server's tokens changed.
+		if pin, err = sandbox.WritePinGit(dir, c.Sandbox.Image, mcpEgress(servers), access); err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	toolset, client, release, err := sandbox.Open(ctx, c.Sandbox.Backend, pin, fresh)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to open sandbox: %w", err)
 	}
-	return toolset, client, func(discard bool) {
+	releaseSandbox := func(discard bool) {
 		if err := release(discard); err != nil && c.Logger != nil {
 			c.Logger.ErrorContext(ctx, "failed to release sandbox", slog.String("sandbox", pin.Name), slog.Any("error", err))
 		}
-	}, nil
+	}
+	if c.Workspace == WorkspaceRepo {
+		if len(pin.Git) == 0 {
+			releaseSandbox(fresh)
+			return nil, nil, nil, errors.New("repo session pin has no repository")
+		}
+		// A new sandbox is discarded so the retry clones afresh; the pin stays.
+		if err := ensureClone(ctx, client, pin.Git[0].CloneURL, c.Branch); err != nil {
+			releaseSandbox(fresh)
+			return nil, nil, nil, err
+		}
+	}
+	return toolset, client, releaseSandbox, nil
 }
 
 func chainObservers(first, second func(durable.Event)) func(durable.Event) {

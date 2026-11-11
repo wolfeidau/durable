@@ -199,7 +199,8 @@ Persisting results would add a store the agent can write to, for a case the harn
   [NVIDIA/OpenShell#4910](https://github.com/NVIDIA/OpenShell/issues/4910)). Open recovers it with
   a stop, then a start. Any other `Error`, such as `MainProcessFailed`, is configuration.
 - **`durable-server sandbox-delete <session-id>`** deletes the sandbox and keeps `sandbox.json`, so
-  the next open creates a fresh, empty sandbox with the same pin. It is the escape hatch when
+  the next open creates a fresh, empty sandbox with the same pin, and a repo session clones its
+  branch again on that open. It is the escape hatch when
   OpenShell can't recover a sandbox. It takes the server lock, so it is refused while `serve` runs.
 - **Never restart the worker.** A worker that exits leaves the sandbox in `Error`, which is a
   configuration failure, and a failed create deletes its sandbox, so no sandbox is left with a token
@@ -225,9 +226,9 @@ durable-server --sandbox-image durable-worker:dev
 - `--sandbox-image <ref>` runs the built-in tools of new sessions in an OpenShell sandbox from the
   image. Existing sessions keep their pin. The server connects to the gateway on first use, so
   without the flag and without sandboxed sessions it never contacts one.
-- A server with the flag creates only empty sessions: `CreateSession` takes `workspace: EMPTY` and a
-  `request_id`, and refuses a directory with `FAILED_PRECONDITION`. Without the flag it refuses an
-  empty workspace the same way. `GetServerInfo` lists the kinds the server accepts.
+- A server with the flag creates empty and repo sessions: `CreateSession` takes `workspace: EMPTY` and a
+  `request_id`, or `workspace: REPO` with a `repo` and `branch`, and refuses a directory with
+  `FAILED_PRECONDITION`. Without the flag it refuses both the same way. `GetServerInfo` lists the kinds the server accepts.
 - `--git-host-token <kind>=<source>` gives the server a git host token; see [git host tokens](#git-host-tokens).
 - `durable-server sandbox-delete <session-id>` deletes a session's sandbox; see above.
 - `mise run test:openshell` runs the gateway tests.
@@ -246,7 +247,14 @@ durable-server --sandbox-image durable-worker:dev --git-host-token github=op://<
 - At startup the server resolves each token and checks it with `GET /user`, then logs the login, the
   token's kind and its scopes, never the token. A bad token fails startup. The server reads the source again
   whenever it creates or starts a repo sandbox, so a rotated token takes effect without a restart.
-- Nothing sets a session's repo access yet: repo sessions arrive in slice R.
+- A repo session on a host with no token gets anonymous access; see [repo sessions](#a-sandboxed-sessions-workspace-is-empty-or-a-repo).
+
+A repo session, created through the API:
+
+```sh
+# workspace REPO, repo github.com/owner/name, branch main; the UI form has the same fields
+durable-server --sandbox-image durable-worker:dev --git-host-token github=gh
+```
 
 ### A sandboxed session's workspace is empty or a repo
 
@@ -257,10 +265,10 @@ offered.
 
 | | Empty (scratch) | Repo |
 |---|---|---|
-| Workspace | An empty `/sandbox` | A clone of a repo URL and branch, made at create |
+| Workspace | An empty `/sandbox` | A clone of a repo URL and branch, made on open whenever the workspace is empty |
 | Work comes back through | Tool results only | `git push` |
 | Needs a git host | No | Yes, through its [integration](#git-hosts-are-pluggable) |
-| Session key | A hash of the client's `request_id` | A hash of the canonical repo URL, the branch and the name |
+| Session key | A hash of the client's `request_id` | `sha256("repo\0" + repo + "\0" + branch + "\0" + name)`, with the canonical repo |
 | `session.json` | `workspace: "empty"` | `workspace: "repo"`, `repo`, `branch` |
 | `ListSessions` shows | The name | `repo@branch` |
 
@@ -272,7 +280,17 @@ offered.
   index to scan and no crash window between making the session and recording the ID. A directory
   key starts with `/`, so the two kinds can't share a preimage. A retry returns the existing
   session whatever name it sends.
-- **A sandboxed server creates only empty sessions** until repo sessions land. Sessions that already
+- **The repo is a text field:** a URL or `github.com/owner/name`, parsed by the git host and stored in
+  its canonical form. The branch is required, and the name defaults to `default`. The UI prefills `main`.
+- **The clone runs on open whenever the workspace is empty,** so it happens at create and again after
+  `sandbox-delete`. A workspace that has files is never cloned over. The clone is synchronous inside
+  `CreateSession`. A failed clone returns `FAILED_PRECONDITION` with git's last output line, cleaned of
+  control characters and capped at 200 bytes. A new session's sandbox is deleted, so a retry clones
+  afresh; the pin and `session.json` stay.
+- **No token means anonymous access.** The session's access has a rule with no provider, so it clones
+  public repos only and `git push` fails. Repo access is fixed at create, so a token added later
+  doesn't upgrade an existing session. `git push` needs no approval prompt of its own.
+- **Sessions that already
   exist keep working whatever the flag, because the pin wins, including directory sessions with a
   `sandbox.json`.
 - **No host directory, so no project context.** An empty session pins the user's
@@ -308,8 +326,8 @@ implementation. Whatever the host, the sandbox only sees placeholders.
   picking up a broad `GITHUB_TOKEN` or `GH_TOKEN` from the shell. `internal/creds.Resolve`
   takes the flag and variable names, and its errors never include the value or a command's stderr.
 - **Optional:** empty sessions need no git host at all. A repo session on a host with no token should
-  still clone public repos, but the launcher refuses repo access without a token today, so slice R
-  gives such a session a rule with no provider.
+  still clone public repos, so its access has a rule with no provider and the launcher creates no
+  provider or credential binding for it.
 - **One profile and one provider per host.** The profile, `durable-github`, holds the credential and no
   endpoints. The server imports it through the SDK when the gateway doesn't have it, and ensures the
   provider of the same name, which holds the token. Both live in the launcher's workspace. Each repo
@@ -419,7 +437,7 @@ Each slice is one PR. The spike branches are reference, not a base.
 | **S. Server wiring** (done) | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the `UNAVAILABLE` and `FAILED_PRECONDITION` errors, `durable-server sandbox-delete`, and the hooks note. Real-binary tests for the flag: approval, a call in the sandbox, stop on idle and start on reopen | L |
 | **E. Empty sessions** (done) | Sandboxed sessions with an empty workspace: their key, `session.json` fields, create by `request_id`, and the UI's choice of workspace. The first sandboxed agent you can use, with no git host. Real-binary tests: a retried create returns the same session, and directory sessions unchanged | S |
 | **G. Git hosts and GitHub** (done) | The git host interface, the token flags and environment variables, one provider per host, per-session repo access in the sandbox policy, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
-| **R. Repo sessions** | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
+| **R. Repo sessions** (done) | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
 | **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation | G |
 | **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
 | **M. MCP** (done) | MCP servers inside the sandbox: the `Stdio` RPC, the HTTP bridge, and egress for HTTP servers. Tests: a stdio server through the worker, the bridge against an HTTP server, the kill of the process group, and the launcher's policy | S |

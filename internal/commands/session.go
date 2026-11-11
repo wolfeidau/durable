@@ -17,6 +17,9 @@ const sessionMetaFile = "session.json"
 // WorkspaceEmpty marks a session with no host directory; its tools run in an empty sandbox workspace.
 const WorkspaceEmpty = "empty"
 
+// WorkspaceRepo marks a session with no host directory whose sandbox workspace is a clone of a repository branch.
+const WorkspaceRepo = "repo"
+
 // SessionMeta names a session, because its directory is a one-way hash.
 type SessionMeta struct {
 	CWD       string    `json:"cwd"`
@@ -24,6 +27,9 @@ type SessionMeta struct {
 	CreatedAt time.Time `json:"created_at"`
 	// Workspace is empty for a directory session.
 	Workspace string `json:"workspace,omitempty"`
+	// Repo is the canonical repository and Branch the branch cloned, for a repo session.
+	Repo   string `json:"repo,omitempty"`
+	Branch string `json:"branch,omitempty"`
 	// ID is the session directory name, the id the API uses.
 	ID string `json:"-"`
 }
@@ -105,6 +111,13 @@ func ReadSessionMeta(dir string) (SessionMeta, error) {
 // A directory key starts with "/", so the two kinds can't share a preimage.
 func EmptySessionID(requestID string) string {
 	sum := sha256.Sum256([]byte("empty\x00" + requestID))
+	return hex.EncodeToString(sum[:])[:16]
+}
+
+// RepoSessionID derives a repo session's directory name from its canonical repo, branch and name, so a retry lands on the same session.
+// The "repo" prefix keeps it apart from the other kinds' preimages.
+func RepoSessionID(repo, branch, name string) string {
+	sum := sha256.Sum256([]byte("repo\x00" + repo + "\x00" + branch + "\x00" + name))
 	return hex.EncodeToString(sum[:])[:16]
 }
 

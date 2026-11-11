@@ -1,36 +1,61 @@
 import { describe, expect, test } from "bun:test";
 import { Workspace } from "./gen/durable/v1/durable_pb";
-import { buildRequest, canCreate, emptyOnly, RequestIds } from "./newSession";
+import { buildRequest, canCreate, defaultBranch, modesFor, RequestIds } from "./newSession";
+
+const base = { mode: "directory" as const, cwd: "", name: "", repo: "", branch: defaultBranch };
 
 describe("new session request", () => {
   test("empty mode sends the empty workspace and a request id, without a cwd", () => {
-    expect(buildRequest({ cwd: "/ignored", name: " n " }, true, "req-1")).toEqual({
+    expect(buildRequest({ ...base, mode: "empty", cwd: "/ignored", name: " n " }, "req-1")).toEqual({
       cwd: "",
       name: "n",
       workspace: Workspace.EMPTY,
       requestId: "req-1",
+      repo: "",
+      branch: "",
     });
   });
 
-  test("directory mode is unchanged", () => {
-    expect(buildRequest({ cwd: " /work ", name: "" }, false, "req-1")).toEqual({
+  test("directory mode sends only the cwd and name", () => {
+    expect(buildRequest({ ...base, cwd: " /work ", repo: "ignored" }, "req-1")).toEqual({
       cwd: "/work",
       name: "",
       workspace: Workspace.DIRECTORY,
       requestId: "",
+      repo: "",
+      branch: "",
     });
   });
 
-  test("empty mode needs no cwd, directory mode does", () => {
-    expect(canCreate({ cwd: " ", name: "" }, true)).toBe(true);
-    expect(canCreate({ cwd: " ", name: "" }, false)).toBe(false);
-    expect(canCreate({ cwd: "/a", name: "" }, false)).toBe(true);
+  test("repo mode sends the repo and branch with no request id", () => {
+    const form = { ...base, mode: "repo" as const, repo: " github.com/o/n ", branch: " dev ", name: "x" };
+    expect(buildRequest(form, "req-1")).toEqual({
+      cwd: "",
+      name: "x",
+      workspace: Workspace.REPO,
+      requestId: "",
+      repo: "github.com/o/n",
+      branch: "dev",
+    });
   });
 
-  test("the server's kinds pick the mode", () => {
-    expect(emptyOnly([Workspace.EMPTY])).toBe(true);
-    expect(emptyOnly([Workspace.DIRECTORY])).toBe(false);
-    expect(emptyOnly([])).toBe(false);
+  test("the branch defaults to main", () => {
+    expect(defaultBranch).toBe("main");
+  });
+
+  test("each mode needs its own fields", () => {
+    expect(canCreate({ ...base, mode: "empty" })).toBe(true);
+    expect(canCreate({ ...base, cwd: " " })).toBe(false);
+    expect(canCreate({ ...base, cwd: "/a" })).toBe(true);
+    expect(canCreate({ ...base, mode: "repo", repo: "github.com/o/n" })).toBe(true);
+    expect(canCreate({ ...base, mode: "repo", repo: " " })).toBe(false);
+    expect(canCreate({ ...base, mode: "repo", repo: "github.com/o/n", branch: " " })).toBe(false);
+  });
+
+  test("the server's kinds pick the modes", () => {
+    expect(modesFor([Workspace.EMPTY, Workspace.REPO])).toEqual(["empty", "repo"]);
+    expect(modesFor([Workspace.DIRECTORY])).toEqual(["directory"]);
+    expect(modesFor([])).toEqual([]);
   });
 });
 

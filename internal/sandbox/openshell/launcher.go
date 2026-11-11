@@ -172,7 +172,10 @@ func gitPolicyRule(access []sandbox.GitAccess) types.NetworkPolicyRule {
 		if ep == nil {
 			ep = &types.PolicyNetworkEndpoint{
 				Host: g.Endpoint.Host, Port: g.Endpoint.Port, Protocol: "rest", Enforcement: types.NetworkEnforcementModeEnforce,
-				CredentialBinding: &types.NetworkCredentialBinding{Provider: g.Provider},
+			}
+			// An anonymous access has no provider, so it reaches public repositories only.
+			if g.Provider != "" {
+				ep.CredentialBinding = &types.NetworkCredentialBinding{Provider: g.Provider}
 			}
 			endpoints[k] = ep
 			seen[k] = map[sandbox.HTTPRule]bool{}
@@ -201,7 +204,9 @@ func gitPolicyRule(access []sandbox.GitAccess) types.NetworkPolicyRule {
 func gitProviders(access []sandbox.GitAccess) []string {
 	var names []string
 	for _, g := range access {
-		names = append(names, g.Provider)
+		if g.Provider != "" {
+			names = append(names, g.Provider)
+		}
 	}
 	slices.Sort(names)
 	return slices.Compact(names)
@@ -227,14 +232,11 @@ func gitEnv(access []sandbox.GitAccess) map[string]string {
 // syncProviders makes sure each provider the sandbox uses has its profile and the host's current token. The gateway
 // is only told when the token's hash differs from the last one this launcher set, so most opens make no update.
 func (l *Launcher) syncProviders(ctx context.Context, access []sandbox.GitAccess) error {
-	if len(access) == 0 {
-		return nil
-	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	done := map[string]bool{}
 	for _, g := range access {
-		if done[g.Provider] {
+		if g.Provider == "" || done[g.Provider] {
 			continue
 		}
 		done[g.Provider] = true

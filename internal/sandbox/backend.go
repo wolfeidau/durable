@@ -46,6 +46,8 @@ type GitAccess struct {
 	// Rules are the only requests allowed to Endpoint.
 	Rules    []HTTPRule `json:"rules"`
 	Binaries []string   `json:"binaries"`
+	// CloneURL is where a repo session clones from.
+	CloneURL string `json:"clone_url"`
 	// GitConfig is passed to the client through GIT_CONFIG_* variables.
 	GitConfig map[string]string `json:"git_config,omitempty"`
 }

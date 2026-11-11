@@ -21,6 +21,8 @@ import (
 
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/githost"
+	"github.com/wolfeidau/durable/internal/githost/github"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/server"
 )
@@ -116,6 +118,12 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	// Closed after the registry, whose sessions stop their sandboxes through it.
 	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources)}
 	defer backend.Close()
+	sandboxCfg := &commands.SandboxConfig{Backend: sandbox.Shared(backend), Image: c.SandboxImage}
+	if c.SandboxImage != "" {
+		sandboxCfg.GitHosts = map[string]githost.Host{github.Kind: github.New(c.GitHubAPIURL)}
+		_, hasToken := gitSources[github.Kind]
+		sandboxCfg.GitTokens = map[string]bool{github.Kind: hasToken}
+	}
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
 		Home:        home,
@@ -125,7 +133,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		Provider:    c.Provider,
 		Protocol:    c.Protocol,
 		Model:       c.Model,
-		Sandbox:     &commands.SandboxConfig{Backend: sandbox.Shared(backend), Image: c.SandboxImage},
+		Sandbox:     sandboxCfg,
 		Logger:      logger,
 	})
 	defer registry.Close()

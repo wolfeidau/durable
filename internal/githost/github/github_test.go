@@ -103,6 +103,7 @@ func TestAccess(t *testing.T) {
 	require.Equal(t, "GITHUB_TOKEN", got.CredentialEnv)
 	require.Equal(t, sandbox.Endpoint{Host: "github.com", Port: 443}, got.Endpoint)
 	require.Equal(t, []string{"/usr/bin/git", "/usr/lib/git-core/git-remote-https"}, got.Binaries)
+	require.Equal(t, "https://github.com/octo/hello.git", got.CloneURL)
 	require.Equal(t, []sandbox.HTTPRule{
 		{Method: "GET", Path: "/octo/hello.git/info/refs*"},
 		{Method: "POST", Path: "/octo/hello.git/git-upload-pack"},

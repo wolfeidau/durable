@@ -4,7 +4,9 @@ import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { createSession, getServerInfo, listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { Workspace, type SessionInfo } from "./gen/durable/v1/durable_pb";
-import { buildRequest, canCreate, emptyOnly, RequestIds } from "./newSession";
+import { buildRequest, canCreate, defaultBranch, modesFor, RequestIds, type Mode } from "./newSession";
+
+const modeLabels: Record<Mode, string> = { directory: "Directory", empty: "Empty workspace", repo: "Repository" };
 
 const cwdKey = "durable.lastCwd";
 
@@ -51,18 +53,22 @@ function sorted(sessions: SessionInfo[]): SessionInfo[] {
 function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): ReactElement {
   const [cwd, setCwd] = useState(lastCwd);
   const [name, setName] = useState("");
+  const [repo, setRepo] = useState("");
+  const [branch, setBranch] = useState(defaultBranch);
+  const [chosen, setChosen] = useState<Mode | undefined>();
   const create = useMutation(createSession);
   const info = useQuery(getServerInfo, {}, { staleTime: Infinity });
   const requestIds = useRef(new RequestIds());
-  const empty = emptyOnly(info.data?.workspaces ?? []);
+  const modes = modesFor(info.data?.workspaces ?? []);
+  const mode = chosen && modes.includes(chosen) ? chosen : (modes[0] ?? "directory");
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const form = { cwd, name };
-    const res = await create.mutateAsync(buildRequest(form, empty, requestIds.current.get())).catch(() => undefined);
+    const form = { mode, cwd, name, repo, branch };
+    const res = await create.mutateAsync(buildRequest(form, requestIds.current.get())).catch(() => undefined);
     if (!res?.session) return;
     requestIds.current.succeeded();
-    if (!empty) rememberCwd(cwd.trim());
+    if (mode === "directory") rememberCwd(cwd.trim());
     setName("");
     onCreated(res.session.id);
   };
@@ -73,24 +79,58 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
   return (
     <form className="new-session" onSubmit={(e) => void submit(e)}>
       <h2>New session</h2>
-      {empty ? (
-        <p className="muted">Empty workspace</p>
-      ) : (
+      {modes.length > 1 && (
+        <label>
+          Workspace
+          <select value={mode} onChange={(e) => setChosen(e.target.value as Mode)}>
+            {modes.map((m) => (
+              <option key={m} value={m}>
+                {modeLabels[m]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {mode === "directory" && (
         <label>
           Working directory
           <input value={cwd} placeholder="/absolute/path" onChange={(e) => setCwd(e.target.value)} />
         </label>
       )}
+      {mode === "empty" && modes.length === 1 && <p className="muted">Empty workspace</p>}
+      {mode === "repo" && (
+        <>
+          <label>
+            Repository
+            <input value={repo} placeholder="github.com/owner/name" onChange={(e) => setRepo(e.target.value)} />
+          </label>
+          <label>
+            Branch
+            <input value={branch} onChange={(e) => setBranch(e.target.value)} />
+          </label>
+        </>
+      )}
       <label>
         Name (optional)
         <input value={name} onChange={(e) => setName(e.target.value)} />
       </label>
-      <button type="submit" disabled={!canCreate({ cwd, name }, empty) || create.isPending}>
+      <button type="submit" disabled={!canCreate({ mode, cwd, name, repo, branch }) || create.isPending}>
         Create
       </button>
       {create.error && <p className="error">{ConnectError.from(create.error).rawMessage}</p>}
     </form>
   );
+}
+
+function where(s: SessionInfo): string {
+  switch (s.workspace) {
+    case Workspace.EMPTY:
+      return "empty workspace";
+    case Workspace.REPO:
+      return `${s.repo}@${s.branch}`;
+    default:
+      return s.cwd;
+  }
 }
 
 export function SessionList({ onSelect }: { onSelect: (id: string) => void }): ReactElement {
@@ -121,7 +161,7 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
               }}
             >
               <span className="session-name">{s.name || s.id}</span>
-              <span className="session-cwd">{s.workspace === Workspace.EMPTY ? "empty workspace" : s.cwd}</span>
+              <span className="session-cwd">{where(s)}</span>
               <span className="session-meta">
                 {s.pendingApprovals > 0 && <span className="badge attention">{s.pendingApprovals} waiting for approval</span>}
                 {s.unfinishedSubmissions > 0 && <span className="badge working">working</span>}
