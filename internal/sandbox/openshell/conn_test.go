@@ -93,7 +93,7 @@ func newForwarded(t *testing.T, addr string) (*Launcher, *forwarder) {
 	t.Helper()
 	f := &forwarder{}
 	f.addr.Store(addr)
-	return newWithClient(forwardingClient{Client: fake.NewClient(), tcp: f}, ""), f
+	return newWithClient(forwardingClient{Client: fake.NewClient(), tcp: f}, "", nil), f
 }
 
 func TestConnectReachesWorker(t *testing.T) {

@@ -37,6 +37,31 @@ func TestWritePinWritesOnceWithMode0600(t *testing.T) {
 	require.Equal(t, first, read)
 }
 
+func TestPinRoundTripsGitAccessAndOmitsItWhenEmpty(t *testing.T) {
+	access := []sandbox.GitAccess{{
+		Kind: "github", Provider: "durable-github", ProfileID: "durable-github", CredentialEnv: "GITHUB_TOKEN",
+		Endpoint: sandbox.Endpoint{Host: "github.com", Port: 443},
+		Rules:    []sandbox.HTTPRule{{Method: "GET", Path: "/o/n.git/info/refs*"}},
+		Binaries: []string{"/usr/bin/git"},
+	}}
+	dir := t.TempDir()
+	pin, err := sandbox.WritePinGit(dir, "img", nil, access)
+	require.NoError(t, err)
+	require.Equal(t, access, pin.Git)
+	require.Equal(t, access, pin.Spec().Git)
+	read, ok, err := sandbox.ReadPin(dir)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, access, read.Git)
+
+	plain := t.TempDir()
+	_, err = sandbox.WritePin(plain, "img")
+	require.NoError(t, err)
+	b, err := os.ReadFile(filepath.Join(plain, sandbox.PinFile))
+	require.NoError(t, err)
+	require.NotContains(t, string(b), `"git"`)
+}
+
 func TestWritePinNamesDiffer(t *testing.T) {
 	a, err := sandbox.WritePin(t.TempDir(), "img")
 	require.NoError(t, err)

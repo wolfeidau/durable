@@ -25,6 +25,9 @@ func (e errGateway) Unwrap() error { return e.err }
 
 // lazyBackend connects to the OpenShell gateway on first use, so a server with no sandboxed sessions never contacts it.
 type lazyBackend struct {
+	// tokens resolve each git host's token on demand.
+	tokens map[string]func(ctx context.Context) (string, error)
+
 	mu sync.Mutex
 	l  *openshell.Launcher
 }
@@ -36,7 +39,7 @@ func (b *lazyBackend) launcher() (*openshell.Launcher, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.l == nil {
-		l, err := openshell.New(openshell.Config{})
+		l, err := openshell.New(openshell.Config{Tokens: b.tokens})
 		if err != nil {
 			return nil, errGateway{err}
 		}

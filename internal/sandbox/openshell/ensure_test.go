@@ -14,7 +14,7 @@ import (
 
 func TestEnsureCreatesMissingAndStartsStopped(t *testing.T) {
 	fc := fake.NewClient()
-	l := newWithClient(fc, "")
+	l := newWithClient(fc, "", nil)
 	spec := sandbox.Spec{Name: "dt-a", Image: "img", Token: "t"}
 
 	require.NoError(t, l.Ensure(t.Context(), spec))
@@ -44,7 +44,7 @@ func seedError(fc *fake.Client, reason string) {
 func TestStartRecoversStartFailedWithStopThenStart(t *testing.T) {
 	fc := fake.NewClient()
 	seedError(fc, "StartFailed")
-	l := newWithClient(fc, "")
+	l := newWithClient(fc, "", nil)
 
 	require.NoError(t, l.Start(t.Context(), "dt-a"))
 	phase, err := l.Phase(t.Context(), "dt-a")
@@ -55,7 +55,7 @@ func TestStartRecoversStartFailedWithStopThenStart(t *testing.T) {
 func TestStartOtherErrorReasonStaysAnError(t *testing.T) {
 	fc := fake.NewClient()
 	seedError(fc, "MainProcessFailed")
-	l := newWithClient(fc, "")
+	l := newWithClient(fc, "", nil)
 
 	require.ErrorContains(t, l.Start(t.Context(), "dt-a"), "phase Error")
 	phase, err := l.Phase(t.Context(), "dt-a")
@@ -96,7 +96,7 @@ func TestStartFailedRecoveryWaitsThroughALaggingError(t *testing.T) {
 	fc := fake.NewClient()
 	seedError(fc, "StartFailed")
 	lag := 0
-	l := newWithClient(lagClient{Client: fc, lag: &lag}, "")
+	l := newWithClient(lagClient{Client: fc, lag: &lag}, "", nil)
 
 	require.NoError(t, l.Start(t.Context(), "dt-a"))
 	require.Zero(t, lag, "the recovery polled through the lagging Error")

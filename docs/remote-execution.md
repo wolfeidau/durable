@@ -80,13 +80,11 @@ worker binary links none of it.
   gateway's authenticated gRPC connection. It is the `http.Transport`'s dial function. Its stream
   context must not be the dial's context, which ends when the dial returns.
 - **Lifecycle:** `Sandboxes()` `Create`, `WaitReady`, `Stop`, `Start`, `WaitStopped`, `Delete`.
-- **Credentials:** `Providers()` creates a provider from a value.
+- **Credentials:** `Providers()` creates a provider from a value, and `Providers().Profiles()` imports the profile it
+  uses.
 - **Client:** `gateway.NewClient` rejects a gateway in mTLS mode, which is the local default. The
   launcher passes `WithAuth(v1.NoAuth())` and `WithTLS` with the gateway directory's `mtls/` files,
   which skips that check. Raise it with OpenShell.
-- **Still the CLI:** importing a provider profile with L7 rules (`openshell profile import`), because
-  the SDK's profile endpoints can't carry them. The server needs the `openshell` binary for that one
-  step until the SDK can.
 - **Not used:** the SDK's file upload, which isn't implemented, and uploads through `exec`, which
   allocate a terminal and needed four workarounds. The workspace arrives by `git clone` instead.
 
@@ -230,8 +228,25 @@ durable-server --sandbox-image durable-worker:dev
 - A server with the flag creates only empty sessions: `CreateSession` takes `workspace: EMPTY` and a
   `request_id`, and refuses a directory with `FAILED_PRECONDITION`. Without the flag it refuses an
   empty workspace the same way. `GetServerInfo` lists the kinds the server accepts.
+- `--git-host-token <kind>=<source>` gives the server a git host token; see [git host tokens](#git-host-tokens).
 - `durable-server sandbox-delete <session-id>` deletes a session's sandbox; see above.
 - `mise run test:openshell` runs the gateway tests.
+
+#### Git host tokens
+
+```sh
+durable-server --sandbox-image durable-worker:dev --git-host-token github=op://<vault>/<item>/<field>
+```
+
+- `--git-host-token github=<source>` is repeatable, one per host kind. The source is an `op://`
+  reference or `gh`, which runs `gh auth token`. Without the flag, `DURABLE_GITHUB_TOKEN` is read if it
+  is set. `GITHUB_TOKEN` and `GH_TOKEN` are never read. A token without `--sandbox-image` is an error.
+- Use a fine-grained token with contents read and write on the repos durable should reach. A classic
+  or `gh` token usually reaches every repo you can.
+- At startup the server resolves each token and checks it with `GET /user`, then logs the login, the
+  token's kind and its scopes, never the token. A bad token fails startup. The server reads the source again
+  whenever it creates or starts a repo sandbox, so a rotated token takes effect without a restart.
+- Nothing sets a session's repo access yet: repo sessions arrive in slice R.
 
 ### A sandboxed session's workspace is empty or a repo
 
@@ -278,8 +293,8 @@ interface, which runs only on the server and produces data for the launcher:
 |---|---|
 | Parse and canonicalise a repo URL, including a self-hosted host | `github.com/<owner>/<name>` |
 | Check a token at startup, and report its type and scope | `GET /user`, and the `X-OAuth-Scopes` header |
-| The OpenShell profile, with request rules scoped to one repo | git smart-HTTP paths for that repo |
-| Egress policy entries, per binary | `github.com:443` for `git` |
+| Request rules scoped to one repo, as neutral data | git smart-HTTP paths for that repo |
+| Egress policy entries, per binary | `github.com:443` for `git` and `git-remote-https` |
 | Git configuration inside the sandbox | A credential helper with user `x-access-token` |
 
 GitLab, Bitbucket, Gitea or Forgejo, and self-hosted GitHub Enterprise or GitLab each add one
@@ -290,22 +305,26 @@ implementation. Whatever the host, the sandbox only sees placeholders.
   environment variable per host, such as `DURABLE_GITHUB_TOKEN`. A self-hosted instance also names its
   address, for example `--git-host github-enterprise=ghe.example.com`. There's no plain token flag,
   which would put the token in the process list, and a dedicated variable keeps the server from
-  picking up a broad `GITHUB_TOKEN` or `GH_TOKEN` from the shell. `internal/creds` names the
-  `--api-token` flags in its errors and reads no environment variable, so it's generalised to take the
-  flag and variable names first.
+  picking up a broad `GITHUB_TOKEN` or `GH_TOKEN` from the shell. `internal/creds.Resolve`
+  takes the flag and variable names, and its errors never include the value or a command's stderr.
 - **Optional:** with no token for a host, repo sessions there can clone public repos but not push.
   Empty sessions need no git host at all.
-- **One provider per host, a profile per session.** The server keeps a single OpenShell provider for
-  each host's token, so the gateway holds one copy. Each repo session gets its own profile and policy,
-  named from the session ID, that narrow the provider to the session's repo, for `git` only.
+- **One profile and one provider per host.** The profile, `durable-github`, holds the credential and no
+  endpoints. The server imports it through the SDK when the gateway doesn't have it, and ensures the
+  provider of the same name, which holds the token. Both live in the launcher's workspace. Each repo
+  session's policy has a `durable-git` rule whose endpoint lists only that repo's smart-HTTP paths, for
+  `git` and `git-remote-https` only, and binds the provider with `CredentialBinding`. Without the
+  binding the sandbox gets no placeholder and auth fails. The sandbox lists the provider, and sees
+  only a placeholder in `GITHUB_TOKEN`. Several repos merge into one endpoint.
 - **Two layers of scope.** The token is the ceiling: its repos and permissions, chosen when it's
   created. No session's policy can exceed it.
 - **Rotation:** the server reads each token from its source at startup and again on each sandbox
   create or start, and updates the provider's credential in place whenever the value changes, so a
   rotated token takes effect without a restart. Whether a running sandbox picks up the update before its next start is
   untested. After a token expires, pushes fail until it's rotated.
-- **Cleanup:** deleting a session deletes its sandbox, then its profile. The gateway refuses to
-  delete a profile while its sandbox still exists, so the server waits for the sandbox to go first.
+- **Cleanup:** deleting a session deletes its sandbox. The provider and profile are shared, so they
+  stay. To remove them, delete the provider, then the profile, once no sandbox uses them, for example
+  `openshell provider delete durable-github` and then `openshell profile delete durable-github`.
 
 #### GitHub
 
@@ -324,70 +343,13 @@ implementation. Whatever the host, the sandbox only sees placeholders.
 
 #### What each integration needs from OpenShell
 
-The gateway has no built-in profiles, so durable ships a profile template for each git host and
-imports it per session. Two gaps make that harder than it should be, and are worth raising with
+The gateway has no built-in profiles, so the server imports one credential-only profile per host, and
+ensures one provider that holds the token, both through the SDK. The request rules live in each
+sandbox's policy, so no CLI and no per-session profile are needed. One gap is worth raising with
 OpenShell:
 
-- **Profile import with request (L7) rules isn't in the Go SDK,** so the server shells out to
-  `openshell profile import` for it.
 - **`gateway.NewClient` rejects mTLS gateways,** which is the local default, so the launcher works
   around it.
-
-### Instructions and skills come from the workspace
-
-The project `AGENTS.md` and project skills live in the cloned repo, so the worker reads them once
-when the session is created, and the server pins them as it does today. An empty workspace has
-none. `~/.durable/AGENTS.md` and user skills stay on the server. Reading through the worker keeps
-the existing rules: symlinks that leave the repository are refused, and the content is untrusted.
-The spikes still read them from the host.
-
-### MCP servers run in the sandbox
-
-The server keeps the MCP client: discovery, the per-session pin, naming, caps, timeouts, approval and
-`ReplayNever` are the same as for a local session, and server hints still change nothing. The worker
-is only a pipe.
-
-**The sandbox is the trust boundary, not the MCP server.** The agent and the session's MCP servers
-share one sandbox, one user and one egress allowlist, so the agent can reach anything its MCP servers
-can: their credentials and their hosts. That is an accepted trade-off. What matters is what the
-sandbox can't do: touch the host, reach the server's API, or reach any host outside the allowlist.
-Giving each MCP server its own sandbox would separate its credentials and egress from the agent; see
-[open questions](#open-questions).
-
-- **stdio servers run beside the worker** through the `Stdio` RPC. The server wraps the stream in an
-  MCP transport. The process gets the worker's environment (without its token) plus the server's
-  configured `env`, including `${VAR}` values the host expanded. It runs in its own process group in
-  `/sandbox` when `useWorkspaceCwd` is set, otherwise in a temp folder. Ending the stream closes
-  stdin, then sends SIGTERM and SIGKILL after 2 seconds each, so closing a session or stopping the
-  sandbox ends its servers.
-- **HTTP servers run through a bridge.** `durable-worker mcp-http --url <url>` is started the same
-  way, with the headers in `DURABLE_MCP_HEADERS`, which it reads and then unsets. It connects to the
-  remote server, serves the same tools over stdio, and forwards calls, so the traffic leaves from the
-  sandbox. Headers go only to the URL's origin.
-- **Egress follows the config.** The first pin records the host and port of each HTTP server (443 or
-  80 by scheme) in `sandbox.json`, and create gives the sandbox one allow rule for those endpoints,
-  scoped to `/usr/local/bin/durable-worker`. A sandbox created with no policy has no egress, so
-  without HTTP servers nothing is added. Other hosts stay denied, for `bash` and for a stdio server's
-  own network use, until there is a per-session egress policy. The rule is not updated when
-  `mcp.json` changes, because the pin is written once.
-- **The rule reaches every process the worker starts.** OpenShell matches it against a process's
-  ancestors, and the worker starts every tool, so an approved `bash` call can reach the HTTP
-  servers' hosts too (`curl` from `bash` got a response from the configured host and was refused
-  elsewhere). With the headers also readable, the agent can call those servers directly, outside
-  MCP approval, through any approved `bash` command. This follows from the shared trust boundary
-  above; providers, or a sandbox per MCP server, would close it.
-- **`env` and headers are visible to the agent.** It runs as the same user, so it can read them.
-  OAuth and OpenShell providers are the way out later.
-- **Gateway behaviour the launcher depends on** (probed on OpenShell v0.1.7): a policy keeps the
-  default filesystem and process settings (user 1500, writable `/sandbox`), but drops the default
-  Landlock `best_effort`, so the launcher sets it again. The rule's binary is matched by exact path
-  against the process and its ancestors: a copy of `curl` started outside the worker was refused.
-  TLS works because the sandbox trusts OpenShell's CA through `SSL_CERT_FILE`, which Go honours.
-- **The sandbox's output is hostile input:** messages are capped at 4 MiB and stderr at 1 MiB per
-  connection, written to `mcp-<server>.log`.
-- **The base image has no `npx` or `uvx`.** Add them with `FROM durable-worker:dev`.
-- **Sessions created before this slice stay without MCP tools,** because their pin is `[]` and pins
-  never change. Their `sandbox.json` has no egress either.
 
 ## Slices
 
@@ -395,11 +357,11 @@ Each slice is one PR. The spike branches are reference, not a base.
 
 | Slice | Scope | Depends on |
 |---|---|---|
-| **W. Worker** | `worker.proto`, `internal/worker`, `cmd/durable-worker`, the remote `Tool` adapter with the fixed table, and the local subprocess launcher. The exported delta helpers. Tests run without OpenShell: deltas, cancel, recovery, and a worker that lies about metadata | |
-| **L. OpenShell launcher** | The SDK client with the mTLS workaround, the lifecycle, the TCP dial, and the worker image build. Tests against a gateway are skipped without one | W |
+| **W. Worker** (done) | `worker.proto`, `internal/worker`, `cmd/durable-worker`, the remote `Tool` adapter with the fixed table, and the local subprocess launcher. The exported delta helpers. Tests run without OpenShell: deltas, cancel, recovery, and a worker that lies about metadata | |
+| **L. OpenShell launcher** (done) | The SDK client with the mTLS workaround, the lifecycle, the TCP dial, and the worker image build. Tests against a gateway are skipped without one | W |
 | **S. Server wiring** (done) | `serve --sandbox-image`, `sandbox.json`, the tool source in `Assemble`, stop on idle, the `UNAVAILABLE` and `FAILED_PRECONDITION` errors, `durable-server sandbox-delete`, and the hooks note. Real-binary tests for the flag: approval, a call in the sandbox, stop on idle and start on reopen | L |
 | **E. Empty sessions** (done) | Sandboxed sessions with an empty workspace: their key, `session.json` fields, create by `request_id`, and the UI's choice of workspace. The first sandboxed agent you can use, with no git host. Real-binary tests: a retried create returns the same session, and directory sessions unchanged | S |
-| **G. Git hosts and GitHub** | The git host interface, the token flags and environment variables, one provider per host, per-session profile and policy, cleanup, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
+| **G. Git hosts and GitHub** (done) | The git host interface, the token flags and environment variables, one provider per host, per-session repo access in the sandbox policy, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
 | **R. Repo sessions** | `CreateSession` with a repo and branch through the git host interface, the clone at create, repo session identity, and the repo picker. Real-binary tests: an idempotent create, and a clone and push | E, G |
 | **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation and profile template | G |
 | **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
@@ -407,16 +369,18 @@ Each slice is one PR. The spike branches are reference, not a base.
 
 ## Open questions
 
-- **Before G:** should `git push` go through durable's approval flow? Today the policy allows it
-  without a prompt.
-- **Before G:** will OpenShell add profile import with request rules to the Go SDK, and mTLS support
-  to `gateway.NewClient`? Until then the server needs the `openshell` binary for profiles.
+- **Resolved in G, `git push`:** it is allowed without an approval prompt. The limits are the token's
+  scope and the session's per-repo rule in its sandbox policy.
+- **Resolved in G, profile import:** the `openshell` CLI isn't needed. The profile has no endpoints, so
+  the Go SDK imports it, and the request rules live in the sandbox policy. mTLS support in
+  `gateway.NewClient` is still missing; see [the launcher](#the-openshell-launcher-uses-the-go-sdk).
 - **Resolved in S, gateway restart:** a restart leaves sandboxes in `Error` with reason
   `StartFailed`, which open recovers with a stop and a start. See
   [#90](https://github.com/wolfeidau/durable/issues/90) and
   [NVIDIA/OpenShell#4910](https://github.com/NVIDIA/OpenShell/issues/4910).
 - **Resolved in S, local image pinning:** `sandbox.json` pins the reference as given, and the image
   matters only at create. See [one sandbox per session](#one-sandbox-per-session).
+- **Later:** does a running sandbox pick up a rotated provider credential before its next start?
 - **Later:** one sandbox per session, or one per repository shared across sessions?
 - **Later:** a per-session egress policy beyond GitHub, and how a person approves a new rule.
 - **Later:** run each MCP server in its own sandbox, so its credentials and egress aren't shared
