@@ -20,6 +20,7 @@ type recorder struct {
 	*fake.Client
 	profiles map[string]types.ProviderProfile
 	imports  int
+	updates  int
 	ensures  int
 }
 
@@ -54,6 +55,12 @@ func (p recordingProfiles) Get(_ context.Context, ws, id string) (*types.Provide
 		return nil, &types.StatusError{Code: types.ErrorNotFound, Message: "no such profile"}
 	}
 	return &pr, nil
+}
+
+func (p recordingProfiles) Update(_ context.Context, ws, id string, _ uint64, item types.ProfileImportItem) (*types.UpdateResult, error) {
+	p.r.updates++
+	p.r.profiles[ws+"/"+id] = item.Profile
+	return &types.UpdateResult{Updated: true}, nil
 }
 
 func (p recordingProfiles) Import(_ context.Context, ws string, items []types.ProfileImportItem) (*types.ImportResult, error) {
@@ -268,4 +275,19 @@ func TestFailedCreateResyncsTheProviderNextTime(t *testing.T) {
 	spec.Name = "dt-b"
 	require.NoError(t, l.Create(t.Context(), spec))
 	require.Equal(t, 2, rec.ensures, "a provider deleted on the gateway is restored after a failed create")
+}
+
+func TestStaleProfileIsUpdatedAndAMatchingOneIsKept(t *testing.T) {
+	rec := newRecorder()
+	rec.profiles["default/durable-github"] = types.ProviderProfile{ID: "durable-github", Credentials: []types.ProfileCredential{{Name: "GITHUB_TOKEN", AuthStyle: "basic"}}}
+	token := "ghp_one"
+	spec := sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: []sandbox.GitAccess{repoAccess(t, "github.com/octo/hello")}}
+	require.NoError(t, newWithClient(rec, "", tokenFn(&token)).Create(t.Context(), spec))
+	require.Equal(t, 1, rec.updates, "a profile with another credential definition is replaced")
+	require.Zero(t, rec.imports)
+	require.Equal(t, "bearer", rec.profiles["default/durable-github"].Credentials[0].AuthStyle)
+
+	spec.Name = "dt-b"
+	require.NoError(t, newWithClient(rec, "", tokenFn(&token)).Create(t.Context(), spec))
+	require.Equal(t, 1, rec.updates, "a matching profile is left alone")
 }

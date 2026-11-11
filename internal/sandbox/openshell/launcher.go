@@ -283,15 +283,7 @@ func (l *Launcher) ensureProfile(ctx context.Context, g sandbox.GitAccess) error
 	if l.profiled[g.ProfileID] {
 		return nil
 	}
-	_, err := l.c.Providers().Profiles().Get(ctx, l.ws, g.ProfileID)
-	if err == nil {
-		l.profiled[g.ProfileID] = true
-		return nil
-	}
-	if !v1.IsNotFound(err) {
-		return fmt.Errorf("failed to get %s profile: %w", g.Kind, err)
-	}
-	_, err = l.c.Providers().Profiles().Import(ctx, l.ws, []types.ProfileImportItem{{
+	item := types.ProfileImportItem{
 		Source: "durable",
 		Profile: types.ProviderProfile{
 			ID:          g.ProfileID,
@@ -302,12 +294,32 @@ func (l *Launcher) ensureProfile(ctx context.Context, g sandbox.GitAccess) error
 				AuthStyle: "bearer", HeaderName: "authorization",
 			}},
 		},
-	}})
-	if err != nil {
-		return fmt.Errorf("failed to import %s profile: %w", g.Kind, err)
+	}
+	existing, err := l.c.Providers().Profiles().Get(ctx, l.ws, g.ProfileID)
+	switch {
+	case err == nil && sameCredentials(existing.Credentials, item.Profile.Credentials):
+	case err == nil:
+		// An older or hand-made profile would silently keep its own credential definition.
+		if _, err := l.c.Providers().Profiles().Update(ctx, l.ws, g.ProfileID, existing.ResourceVersion, item); err != nil {
+			return fmt.Errorf("failed to update %s profile: %w", g.Kind, err)
+		}
+	case v1.IsNotFound(err):
+		if _, err := l.c.Providers().Profiles().Import(ctx, l.ws, []types.ProfileImportItem{item}); err != nil {
+			return fmt.Errorf("failed to import %s profile: %w", g.Kind, err)
+		}
+	default:
+		return fmt.Errorf("failed to get %s profile: %w", g.Kind, err)
 	}
 	l.profiled[g.ProfileID] = true
 	return nil
+}
+
+// sameCredentials compares the fields durable sets, except Secret, which the gateway (v0.1.7) reads back as false.
+func sameCredentials(got, want []types.ProfileCredential) bool {
+	return slices.EqualFunc(got, want, func(a, b types.ProfileCredential) bool {
+		return a.Name == b.Name && slices.Equal(a.EnvVars, b.EnvVars) && a.Required == b.Required &&
+			a.AuthStyle == b.AuthStyle && a.HeaderName == b.HeaderName
+	})
 }
 
 // Ensure creates the sandbox when it is missing, else starts it.

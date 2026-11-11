@@ -49,16 +49,16 @@ func New(apiBase string) *Host {
 
 func (*Host) Kind() string { return Kind }
 
-// ParseRepo accepts the usual clone URLs and returns the repository in lower case.
+// ParseRepo returns the repository in lower case. Errors never quote raw, whose user info may hold a token.
 func (*Host) ParseRepo(raw string) (githost.Repo, error) {
 	path, ok := repoPath(strings.TrimSpace(raw))
 	if !ok {
-		return githost.Repo{}, fmt.Errorf("not a %s repository: %q", hostname, raw)
+		return githost.Repo{}, fmt.Errorf("not a %s repository URL", hostname)
 	}
 	path = strings.TrimSuffix(path, ".git")
 	owner, name, ok := strings.Cut(path, "/")
 	if !ok || strings.Contains(name, "/") || !ownerRE.MatchString(owner) || !nameRE.MatchString(name) || name == "." || name == ".." {
-		return githost.Repo{}, fmt.Errorf("not a valid %s repository: %q", hostname, raw)
+		return githost.Repo{}, fmt.Errorf("not a valid %s owner/name", hostname)
 	}
 	return githost.Repo{Host: hostname, Owner: strings.ToLower(owner), Name: strings.ToLower(name)}, nil
 }

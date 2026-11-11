@@ -41,6 +41,8 @@ func TestParseRepoRejects(t *testing.T) {
 		"https://github.com/o/n#frag",
 		"https://user@github.com/o/n",
 		"https://user:pw@github.com/o/n",
+		"https://x-access-token:pw@github.com/o/n.git",
+		"https://pw@github.com/o/n",
 		"ssh://root@github.com/o/n",
 		"ssh://github.com/o/n",
 		"http://github.com/o/n",
@@ -55,6 +57,7 @@ func TestParseRepoRejects(t *testing.T) {
 	} {
 		_, err := New("").ParseRepo(raw)
 		require.Error(t, err, raw)
+		require.NotContains(t, err.Error(), "pw", "an error must not quote the input")
 	}
 }
 
