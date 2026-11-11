@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +43,7 @@ type Fake struct {
 	ensureErr  error
 	connectErr error
 	stdios     int
+	missing    []string
 }
 
 var _ sandbox.Backend = (*Fake)(nil)
@@ -56,6 +59,13 @@ func (f *Fake) FailEnsure(err error) { f.mu.Lock(); f.ensureErr = err; f.mu.Unlo
 
 // FailConnect makes Connect return err until it is called with nil.
 func (f *Fake) FailConnect(err error) { f.mu.Lock(); f.connectErr = err; f.mu.Unlock() }
+
+// WithoutRPCs makes the worker answer the named RPCs, such as "ReadDir", as a worker built before them would.
+func (f *Fake) WithoutRPCs(names ...string) {
+	f.mu.Lock()
+	f.missing = append(f.missing, names...)
+	f.mu.Unlock()
+}
 
 // Counts returns how many times Ensure, Stop and Delete were called.
 func (f *Fake) Counts() (ensures, stops, deletes int) {
@@ -147,6 +157,13 @@ func (f *Fake) Connect(_ context.Context, name, token string) (*sandbox.Client, 
 			f.mu.Lock()
 			f.stdios++
 			f.mu.Unlock()
+		}
+		f.mu.Lock()
+		missing := slices.Contains(f.missing, path.Base(r.URL.Path))
+		f.mu.Unlock()
+		if missing {
+			http.NotFound(w, r)
+			return
 		}
 		h.ServeHTTP(w, r)
 	}))

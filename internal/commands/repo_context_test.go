@@ -191,3 +191,39 @@ func TestAssembleRepoSessionNoContextReadsNothing(t *testing.T) {
 	require.Empty(t, a.instructions.Text)
 	require.Empty(t, a.skills.Skills)
 }
+
+func TestAssembleRepoSessionFailsOnAnOldWorker(t *testing.T) {
+	assembleHome(t)
+	f := sandboxtest.New(t)
+	f.WithoutRPCs("ReadFile", "ReadDir", "Stat")
+	cfg := repoCfg(t, f, githosttest.New(t, projectContext()...), "main", true)
+
+	_, err := Assemble(t.Context(), cfg)
+
+	require.ErrorContains(t, err, "rebuild")
+	_, _, deletes := f.Counts()
+	require.Equal(t, 1, deletes, "the new sandbox is discarded")
+	require.NoFileExists(t, filepath.Join(filepath.Dir(sessionDBPath(t, cfg)), pinFile))
+}
+
+func TestAssembleRepoSessionFailsWhenSkillDiscoveryLosesTheWorker(t *testing.T) {
+	assembleHome(t)
+	f := sandboxtest.New(t)
+	f.WithoutRPCs("ReadDir")
+	cfg := repoCfg(t, f, githosttest.New(t, projectContext()...), "main", true)
+
+	_, err := Assemble(t.Context(), cfg)
+
+	require.ErrorContains(t, err, "failed to read skills from the sandbox")
+	_, _, deletes := f.Counts()
+	require.Equal(t, 1, deletes, "the new sandbox is discarded")
+	dir := filepath.Dir(sessionDBPath(t, cfg))
+	require.NoFileExists(t, filepath.Join(dir, skillsPinFile), "no partial catalog is pinned")
+
+	cfg.Sandbox.Backend = sandboxtest.New(t)
+	a, err := Assemble(t.Context(), cfg)
+	require.NoError(t, err, "a retry discovers the skills")
+	defer a.Close()
+	require.Len(t, a.skills.Skills, 1)
+	require.True(t, a.skills.Skills[0].Sandbox)
+}

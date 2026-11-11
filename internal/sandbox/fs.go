@@ -92,6 +92,7 @@ func (w *workerFS) Stat(name string) (fs.FileInfo, error) {
 	return fileInfo{name: res.Msg.Name, mode: fs.FileMode(res.Msg.Mode), size: res.Msg.Size}, nil
 }
 
+// ReadDir drops the worker's truncated flag: its 1024-entry cap is above the cap of every caller, which are skills and their resources.
 func (w *workerFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if !fs.ValidPath(name) {
 		return nil, invalid("readdir", name)

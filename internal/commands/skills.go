@@ -1,11 +1,15 @@
 package commands
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 
+	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/skills"
 )
 
@@ -99,4 +103,43 @@ func pinSkills(dir string, existed, noContext bool, discover func() ([]skills.Sk
 		warnings = nil
 	}
 	return skillSet{Skills: found, Warnings: warnings, Pinned: pinned}, nil
+}
+
+// workerWatch passes sandbox reads through and keeps the first failure of the worker itself.
+type workerWatch struct{ err error }
+
+func (w *workerWatch) files(next skills.FilesFunc) skills.FilesFunc {
+	return func(ctx context.Context) fs.FS { return watchedFS{fsys: next(ctx), w: w} }
+}
+
+func (w *workerWatch) note(err error) error {
+	if w.err == nil && errors.Is(err, sandbox.ErrWorker) {
+		w.err = err
+	}
+	return err
+}
+
+type watchedFS struct {
+	fsys fs.FS
+	w    *workerWatch
+}
+
+var (
+	_ fs.ReadDirFS = watchedFS{}
+	_ fs.StatFS    = watchedFS{}
+)
+
+func (f watchedFS) Open(name string) (fs.File, error) {
+	file, err := f.fsys.Open(name)
+	return file, f.w.note(err)
+}
+
+func (f watchedFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	entries, err := fs.ReadDir(f.fsys, name)
+	return entries, f.w.note(err)
+}
+
+func (f watchedFS) Stat(name string) (fs.FileInfo, error) {
+	info, err := fs.Stat(f.fsys, name)
+	return info, f.w.note(err)
 }

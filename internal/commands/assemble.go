@@ -249,19 +249,24 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 func discoverSkillsFunc(ctx context.Context, cwd, home string, workspace skills.FilesFunc, client *sandbox.Client) func() ([]skills.Skill, []string, error) {
 	return func() ([]skills.Skill, []string, error) {
 		var (
-			srcs []skills.Source
-			err  error
+			srcs  []skills.Source
+			err   error
+			watch workerWatch
 		)
 		if workspace != nil {
 			root, err := client.Root(ctx)
 			if err != nil {
 				return nil, nil, err
 			}
-			srcs = workspaceSkillSources(root, workspace, home)
+			srcs = workspaceSkillSources(root, watch.files(workspace), home)
 		} else if srcs, err = skillSources(cwd, home); err != nil {
 			return nil, nil, err
 		}
 		found, warns := skills.Discover(ctx, srcs)
+		// Discover only warns, but the pin is permanent, so a worker failure must not freeze a partial catalog.
+		if watch.err != nil {
+			return nil, nil, fmt.Errorf("failed to read skills from the sandbox: %w", watch.err)
+		}
 		return found, warns, nil
 	}
 }
