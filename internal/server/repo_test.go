@@ -139,3 +139,19 @@ func TestRepoCreateOnPlainServerIsRefused(t *testing.T) {
 
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 }
+
+func TestRepoSessionReopensWithoutGitHosts(t *testing.T) {
+	e := newSandboxEnv(t)
+	res, err := e.createRepo(t, "github.com/o/n", "feature", "")
+	require.NoError(t, err)
+	id := res.Msg.Session.Id
+	e.reg.Close()
+
+	// A server restarted without --sandbox-image has no git hosts, but the pin wins for an existing session.
+	e.cfg.Sandbox = &commands.SandboxConfig{Backend: e.fake}
+	r := e.registry(t)
+	sess, release, err := r.Acquire(t.Context(), id)
+	require.NoError(t, err)
+	defer release()
+	require.NotNil(t, sess)
+}

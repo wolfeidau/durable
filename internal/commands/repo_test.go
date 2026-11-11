@@ -180,3 +180,33 @@ func TestLastLineIsSanitisedAndCapped(t *testing.T) {
 	require.LessOrEqual(t, len(long), 200)
 	require.True(t, strings.HasPrefix(long, "é"))
 }
+
+func TestAssembleRepoSessionRetriesAnInterruptedClone(t *testing.T) {
+	assembleHome(t)
+	f := sandboxtest.New(t)
+	h := githosttest.New(t)
+	cfg := repoCfg(t, f, h, "main", true)
+	a, err := Assemble(t.Context(), cfg)
+	require.NoError(t, err)
+	pin := repoPin(t, a)
+	root := f.Root(pin.Name)
+	a.Close()
+	require.NoError(t, os.WriteFile(a.Path, nil, 0o600))
+
+	// A clone killed partway leaves only its staging directory behind.
+	entries, err := os.ReadDir(root)
+	require.NoError(t, err)
+	for _, e := range entries {
+		require.NoError(t, os.RemoveAll(filepath.Join(root, e.Name())))
+	}
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".durable-clone", ".git"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".durable-clone", "partial"), nil, 0o600))
+
+	a, err = Assemble(t.Context(), cfg)
+	require.NoError(t, err)
+	defer a.Close()
+	require.FileExists(t, filepath.Join(root, "main.txt"), "the interrupted clone is retried")
+	require.DirExists(t, filepath.Join(root, ".git"))
+	require.NoDirExists(t, filepath.Join(root, ".durable-clone"))
+	require.NoFileExists(t, filepath.Join(root, "partial"))
+}

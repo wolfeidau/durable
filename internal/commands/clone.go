@@ -21,8 +21,16 @@ type CloneError struct{ Msg string }
 
 func (e *CloneError) Error() string { return "failed to clone the repository: " + e.Msg }
 
-// cloneScript clones into the workspace unless it already has files. Arguments are positional so none is interpolated.
-const cloneScript = `if [ -n "$(ls -A)" ]; then exit 0; fi; exec git clone --quiet --branch "$1" -- "$2" .`
+// cloneScript clones into the workspace unless it already has files. It clones into a staging directory and then moves
+// the files into place, so a clone killed partway leaves only that directory, which the next open removes and retries.
+// Arguments are positional so none is interpolated.
+const cloneScript = `rm -rf .durable-clone
+if [ -n "$(ls -A)" ]; then exit 0; fi
+git clone --quiet --branch "$1" -- "$2" .durable-clone || exit
+for f in .durable-clone/* .durable-clone/.[!.]* .durable-clone/..?*; do
+  if [ -e "$f" ] || [ -L "$f" ]; then mv "$f" . || exit; fi
+done
+rmdir .durable-clone`
 
 // ensureClone clones url's branch into the sandbox workspace when the workspace is empty, so a deleted sandbox gets its repository back.
 func ensureClone(ctx context.Context, client *sandbox.Client, url, branch string) error {

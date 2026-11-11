@@ -302,14 +302,8 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		// No provider fields: route.matches rejects a flag that differs from the session's pin.
 		ac.CWD, ac.Session, ac.ExistingOnly = meta.CWD, meta.Name, true
 		ac.Workspace, ac.SessionID = meta.Workspace, filepath.Base(dir)
-		if meta.Workspace == commands.WorkspaceRepo {
-			// session.json holds the canonical form, so it parses again.
-			repo, err := r.ParseRepo(meta.Repo)
-			if err != nil {
-				return nil, fmt.Errorf("session %s has an unusable repository: %w", filepath.Base(dir), err)
-			}
-			ac.Repo, ac.Branch = repo, meta.Branch
-		}
+		// Only the branch: the pin holds the clone URL, so a reopen needs no git host, even without --sandbox-image.
+		ac.Branch = meta.Branch
 	}
 	asm, err := r.cfg.assemble(ctx, ac)
 	if err != nil {

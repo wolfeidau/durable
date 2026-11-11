@@ -283,16 +283,19 @@ offered.
 - **The repo is a text field:** a URL or `github.com/owner/name`, parsed by the git host and stored in
   its canonical form. The branch is required, and the name defaults to `default`. The UI prefills `main`.
 - **The clone runs on open whenever the workspace is empty,** so it happens at create and again after
-  `sandbox-delete`. A workspace that has files is never cloned over. The clone is synchronous inside
+  `sandbox-delete`. A workspace that has files is never cloned over. Git clones into a staging
+  directory, `.durable-clone`, and the files move into place once it succeeds, so a clone that is
+  killed partway is removed and retried on the next open. The clone is synchronous inside
   `CreateSession`. A failed clone returns `FAILED_PRECONDITION` with git's last output line, cleaned of
   control characters and capped at 200 bytes. A new session's sandbox is deleted, so a retry clones
   afresh; the pin and `session.json` stay.
 - **No token means anonymous access.** The session's access has a rule with no provider, so it clones
   public repos only and `git push` fails. Repo access is fixed at create, so a token added later
-  doesn't upgrade an existing session. `git push` needs no approval prompt of its own.
-- **Sessions that already
-  exist keep working whatever the flag, because the pin wins, including directory sessions with a
-  `sandbox.json`.
+  doesn't upgrade an existing session. The reverse holds too: a session created with a token needs
+  one on every later open, and fails to open without it instead of silently becoming anonymous.
+  `git push` needs no approval prompt of its own.
+- **Existing sessions keep their pin.** They keep working whatever the flag, including directory
+  sessions with a `sandbox.json` and repo sessions, whose clone URL is in the pin.
 - **No host directory, so no project context.** An empty session pins the user's
   `~/.durable/AGENTS.md` and user skills only. Project files come from
   the workspace in slice I. Its hooks run in a temp folder with an empty `cwd`.
