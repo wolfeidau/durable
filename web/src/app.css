@@ -445,6 +445,7 @@ details[open] > .call-head::before { transform: rotate(90deg); }
   font-size: 0.88em;
 }
 
+.md pre.console { background: var(--surface); border: 1px solid var(--border); }
 .md pre code { padding: 0; background: none; font-size: inherit; }
 .md table { border-collapse: collapse; }
 .md th, .md td { padding: 0.3rem 0.6rem; border: 1px solid var(--border); }

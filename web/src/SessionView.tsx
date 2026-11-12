@@ -75,11 +75,12 @@ const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): Re
   const touched = useRef(false);
   const bulk = useContext(OpenCalls);
   const seenVersion = useRef(bulk.version);
-  const failed = call.result !== undefined && call.isError;
+  const wanted = defaultOpen(call, output);
 
+  // Until the user toggles, the default decides, so a call that loads mid-page doesn't stay open after it finishes.
   useEffect(() => {
-    if (failed && !touched.current) setOpen(true);
-  }, [failed]);
+    if (!touched.current) setOpen(wanted);
+  }, [wanted]);
   useEffect(() => {
     if (bulk.version === seenVersion.current) return;
     seenVersion.current = bulk.version;
