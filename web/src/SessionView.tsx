@@ -1,9 +1,10 @@
 import { ConnectError } from "@connectrpc/connect";
-import { useMutation, useTransport } from "@connectrpc/connect-query";
-import { useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
-import { cancel, decideApproval, submit } from "./gen/durable/v1/durable-SessionService_connectquery";
+import { useMutation, useQuery, useTransport } from "@connectrpc/connect-query";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { cancel, decideApproval, listSessions, submit } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { ApprovalStatus, SubmissionStatus } from "./gen/durable/v1/durable_pb";
-import { StatusLine } from "./StatusLine";
+import { kindLabel, where } from "./sessions";
+import type { WatchSummary } from "./StatusLine";
 import { buildTranscript, type CallEntry, type Turn } from "./transcript";
 import { getToken } from "./token";
 import { useWatchEvents } from "./useWatchEvents";
@@ -15,6 +16,14 @@ const statusText: Record<number, string> = {
   [SubmissionStatus.RUNNING]: "running",
   [SubmissionStatus.DONE]: "done",
   [SubmissionStatus.FAILED]: "failed",
+  [SubmissionStatus.CANCELLED]: "cancelled",
+};
+
+const statusTone: Record<number, string> = {
+  [SubmissionStatus.QUEUED]: "link",
+  [SubmissionStatus.RUNNING]: "link pulse",
+  [SubmissionStatus.DONE]: "ok",
+  [SubmissionStatus.FAILED]: "error",
   [SubmissionStatus.CANCELLED]: "cancelled",
 };
 
@@ -41,25 +50,45 @@ interface CallProps {
   busy: boolean;
 }
 
+function chip(call: CallEntry, output: string | undefined): { text: string; tone: string } {
+  const a = call.approval;
+  if (a?.status === ApprovalStatus.PENDING) return { text: "waiting", tone: "warn" };
+  if (a?.status === ApprovalStatus.DECLINED) return { text: "denied", tone: "error" };
+  if (a?.status === ApprovalStatus.CANCELLED) return { text: "cancelled", tone: "cancelled" };
+  if (call.result !== undefined) return call.isError ? { text: "error", tone: "error" } : { text: "done", tone: "ok" };
+  return { text: "running", tone: output ? "link pulse" : "link" };
+}
+
 function Call({ call, output, onDecide, busy }: CallProps): ReactElement {
   const a = call.approval;
   const pending = a?.status === ApprovalStatus.PENDING;
+  const state = chip(call, output);
   return (
     <div className={`call${pending ? " call-pending" : ""}`}>
-      <div className="call-name">{call.name}</div>
-      {call.rewritten ? (
-        <p className="muted">input changed by a hook, hidden</p>
-      ) : (
-        call.input !== undefined && <pre className="mono">{pretty(call.input)}</pre>
-      )}
-      {a && !pending && decisionText[a.status] && (
-        <p className="muted">
-          {decisionText[a.status]}
-          {a.decidedBy && ` by ${a.decidedBy}`}
-        </p>
-      )}
+      <div className="call-head">
+        <span className="call-name">{call.name}</span>
+        <span className={`badge ${state.tone}`}>{state.text}</span>
+      </div>
+      <div className="call-body">
+        {call.rewritten ? (
+          <p className="muted">input changed by a hook, hidden</p>
+        ) : (
+          call.input !== undefined && <pre className="console">{pretty(call.input)}</pre>
+        )}
+        {a && !pending && decisionText[a.status] && (
+          <p className="muted">
+            {decisionText[a.status]}
+            {a.decidedBy && ` by ${a.decidedBy}`}
+          </p>
+        )}
+        {call.result !== undefined ? (
+          <pre className={`console result${call.isError ? " error" : ""}`}>{call.result}</pre>
+        ) : (
+          output && <pre className="console result live">{output}</pre>
+        )}
+      </div>
       {pending && (
-        <div className="approval">
+        <div className="approval banner warn">
           <span>Waiting for approval</span>
           <button disabled={busy} onClick={() => onDecide(a.seq, true)}>
             Allow
@@ -68,11 +97,6 @@ function Call({ call, output, onDecide, busy }: CallProps): ReactElement {
             Deny
           </button>
         </div>
-      )}
-      {call.result !== undefined ? (
-        <pre className={`mono result${call.isError ? " error" : ""}`}>{call.result}</pre>
-      ) : (
-        output && <pre className="mono result live">{output}</pre>
       )}
     </div>
   );
@@ -105,8 +129,10 @@ function TurnView({ turn, localText, partial, toolOutput, onDecide, onCancel, bu
       })}
       {partial && <div className="msg assistant live">{partial}</div>}
       <div className="turn-foot">
-        {statusText[turn.status] && <span className={`badge ${statusText[turn.status]}`}>{statusText[turn.status]}</span>}
-        {turn.error && <span className="error">{turn.error}</span>}
+        {statusText[turn.status] && (
+          <span className={`badge ${statusTone[turn.status]}`}>{statusText[turn.status]}</span>
+        )}
+        {turn.error && <span className="error-text">{turn.error}</span>}
         {onCancel && active(turn.status) && (
           <button className="secondary" onClick={onCancel}>
             Cancel
@@ -119,14 +145,21 @@ function TurnView({ turn, localText, partial, toolOutput, onDecide, onCancel, bu
 
 interface Props {
   sessionId: string;
-  authNeeded: boolean;
-  onToken: (t: string) => void;
-  onBack: () => void;
+  onWatch: (w: WatchSummary | undefined) => void;
 }
 
-export function SessionView({ sessionId, authNeeded, onToken, onBack }: Props): ReactElement {
+export function SessionView({ sessionId, onWatch }: Props): ReactElement {
   const transport = useTransport();
   const w = useWatchEvents(transport, sessionId, getToken);
+  const resume = useRef(w.resumeAuth);
+  resume.current = w.resumeAuth;
+  const { status, lastError } = w;
+  useEffect(() => {
+    onWatch({ status, lastError, resumeAuth: () => resume.current() });
+  }, [status, lastError, onWatch]);
+  useEffect(() => () => onWatch(undefined), [onWatch]);
+  const sessions = useQuery(listSessions, {});
+  const meta = sessions.data?.sessions.find((s) => s.id === sessionId);
   const turns = useMemo(() => buildTranscript(w.events), [w.events]);
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
@@ -178,10 +211,20 @@ export function SessionView({ sessionId, authNeeded, onToken, onBack }: Props): 
 
   return (
     <div className="session-view">
-      <StatusLine watch={w} authNeeded={authNeeded} onToken={onToken} />
-      <button className="link" onClick={onBack}>
-        All sessions
-      </button>
+      <div className="info card">
+        <h1>{meta?.name || sessionId}</h1>
+        {meta && (
+          <p className="info-where">
+            <span className="kind faint">{kindLabel(meta)}</span>
+            <span className="mono" title={where(meta)}>
+              {where(meta)}
+            </span>
+          </p>
+        )}
+        <p className="session-id mono faint" title={sessionId}>
+          {sessionId}
+        </p>
+      </div>
       <div className="transcript">
         {turns.map((t) => (
           <TurnView
@@ -208,19 +251,23 @@ export function SessionView({ sessionId, authNeeded, onToken, onBack }: Props): 
         ))}
         {turns.length === 0 && unseen.length === 0 && <p className="muted">No messages yet.</p>}
       </div>
+      {note && <p className="banner error">{note}</p>}
       <div className="composer">
         <textarea
           value={text}
           rows={3}
-          placeholder="Message (Cmd or Ctrl+Enter to send)"
+          placeholder="Message"
+          aria-label="Message"
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
         />
-        <button disabled={!text.trim()} onClick={send}>
-          Submit
-        </button>
+        <div className="composer-foot">
+          <span className="faint hint">⌘/Ctrl+Enter to send</span>
+          <button disabled={!text.trim()} onClick={send}>
+            Submit
+          </button>
+        </div>
       </div>
-      {note && <p className="error">{note}</p>}
     </div>
   );
 }

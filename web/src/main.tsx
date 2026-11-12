@@ -1,12 +1,13 @@
 import { Code, ConnectError, type Interceptor } from "@connectrpc/connect";
-import { TransportProvider } from "@connectrpc/connect-query";
+import { TransportProvider, useQuery } from "@connectrpc/connect-query";
 import { createConnectTransport } from "@connectrpc/connect-web";
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
+import { listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { SessionList } from "./SessionList";
 import { SessionView } from "./SessionView";
-import { StatusLine } from "./StatusLine";
+import { ConnectionPill, TokenInput, type WatchSummary } from "./StatusLine";
 import { getToken, setToken } from "./token";
 import { useSelectedSession } from "./useSelectedSession";
 import "./app.css";
@@ -27,9 +28,16 @@ const queryClient = new QueryClient({
   mutationCache: new MutationCache({ onError: flagAuth }),
 });
 
+function Crumb({ sessionId }: { sessionId: string }): ReactElement {
+  const { data } = useQuery(listSessions, {});
+  const name = data?.sessions.find((s) => s.id === sessionId)?.name;
+  return <span className="crumb-name">{name || sessionId}</span>;
+}
+
 function App(): ReactElement {
   const [sessionId, select] = useSelectedSession();
   const [authNeeded, setAuthNeeded] = useState(false);
+  const [watch, setWatch] = useState<WatchSummary | undefined>();
 
   useEffect(() => {
     onUnauthenticated = () => setAuthNeeded(true);
@@ -42,35 +50,49 @@ function App(): ReactElement {
     setToken(t);
     setAuthNeeded(false);
     void queryClient.refetchQueries();
+    watch?.resumeAuth();
   };
 
+  const home = (e: { preventDefault: () => void }) => {
+    e.preventDefault();
+    select("");
+  };
+  const activeWatch = sessionId ? watch : undefined;
+  const needToken = authNeeded || activeWatch?.status === "auth-needed";
+
   return (
-    <div className="app">
-      <header>
-        <h1>
-          <a
-            href={location.pathname}
-            onClick={(e) => {
-              e.preventDefault();
-              select("");
-            }}
-          >
+    <>
+      <header className="topbar">
+        <nav className="crumbs" aria-label="Breadcrumb">
+          <a className="brand" href={location.pathname} onClick={home}>
             durable
           </a>
-        </h1>
-        {sessionId && <span className="muted session-id">{sessionId}</span>}
+          {sessionId && (
+            <>
+              <span className="sep" aria-hidden="true">
+                /
+              </span>
+              <a href={location.pathname} onClick={home}>
+                Sessions
+              </a>
+              <span className="sep" aria-hidden="true">
+                /
+              </span>
+              <Crumb sessionId={sessionId} />
+            </>
+          )}
+        </nav>
+        <ConnectionPill watch={activeWatch} authNeeded={authNeeded} />
       </header>
-      <main>
+      {needToken && <TokenInput onApply={onToken} />}
+      <main className={`page${sessionId ? " page-session" : ""}`}>
         {sessionId ? (
-          <SessionView key={sessionId} sessionId={sessionId} authNeeded={authNeeded} onToken={onToken} onBack={() => select("")} />
+          <SessionView key={sessionId} sessionId={sessionId} onWatch={setWatch} />
         ) : (
-          <>
-            <StatusLine authNeeded={authNeeded} onToken={onToken} />
-            <SessionList onSelect={select} />
-          </>
+          <SessionList onSelect={select} />
         )}
       </main>
-    </div>
+    </>
   );
 }
 
