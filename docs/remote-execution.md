@@ -3,10 +3,9 @@
 Phase 4 of the [architecture](architecture.md#phases): the agent's tools run in a sandbox, and the
 model loop, the session and every control stay outside it.
 
-**Status: designed, not built.** Two spikes passed against a local OpenShell gateway. Their code and
-`FINDINGS.md` are on the unmerged branches `spike/openshell-worker`, `spike/openshell-workspace` and
-`spike/openshell-server`, kept until the slices land; the results this design depends on are copied
-below. The [slices](#slices) build it properly.
+**Status: built** in #88 to #96, against a local [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell)
+gateway. Two spikes proved the design first, and the results it depends on are copied below. Every
+[slice](#slices) is done except more git hosts.
 
 ## Shape
 
@@ -26,8 +25,8 @@ below. The [slices](#slices) build it properly.
                                      (providers, policy)      git host   as placeholders
 ```
 
-`durable chat` keeps its in-process tools. The server gains the sandbox behind a flag; local tools
-stay its default until the slices land.
+`durable chat` keeps its in-process tools. The server gains the sandbox behind a flag, and local
+tools stay its default.
 
 ## What the spikes proved
 
@@ -456,7 +455,7 @@ Giving each MCP server its own sandbox would separate its credentials and egress
 
 ## Slices
 
-Each slice is one PR. The spike branches are reference, not a base.
+Each slice is one PR.
 
 | Slice | Scope | Depends on |
 |---|---|---|
