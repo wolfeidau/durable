@@ -16,7 +16,7 @@ import { cancel, decideApproval, listSessions, submit } from "./gen/durable/v1/d
 import { ApprovalStatus, SubmissionStatus } from "./gen/durable/v1/durable_pb";
 import { chip, defaultOpen, summary } from "./calls";
 import { Markdown } from "./markdown";
-import { kindLabel, where } from "./sessions";
+import { kindText, where } from "./sessions";
 import type { WatchSummary } from "./StatusLine";
 import { TranscriptBuilder, type CallEntry, type Turn } from "./transcript";
 import { getToken } from "./token";
@@ -298,7 +298,7 @@ export function SessionView({ sessionId, onWatch }: Props): ReactElement {
         <h1>{meta?.name || sessionId}</h1>
         {meta && (
           <p className="info-where">
-            <span className="kind faint">{kindLabel(meta)}</span>
+            <span className="kind faint">{kindText(meta)}</span>
             <span className="mono" title={where(meta)}>
               {where(meta)}
             </span>

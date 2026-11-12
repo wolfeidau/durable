@@ -1,4 +1,4 @@
-import { Workspace } from "./gen/durable/v1/durable_pb";
+import { Workspace, type EnvironmentInfo } from "./gen/durable/v1/durable_pb";
 
 export type Mode = "directory" | "empty" | "repo";
 
@@ -8,6 +8,7 @@ export interface NewSessionForm {
   name: string;
   repo: string;
   branch: string;
+  environment: string;
 }
 
 export interface NewSessionRequest {
@@ -17,6 +18,7 @@ export interface NewSessionRequest {
   requestId: string;
   repo: string;
   branch: string;
+  environment: string;
 }
 
 export const defaultBranch = "main";
@@ -43,15 +45,26 @@ export function canCreate(form: NewSessionForm): boolean {
   }
 }
 
+// The chosen name if the server still lists it, else "default", else the first.
+export function pickEnvironment(names: readonly string[], chosen?: string): string {
+  if (chosen !== undefined && names.includes(chosen)) return chosen;
+  return names.includes("default") ? "default" : (names[0] ?? "");
+}
+
+export function environmentHint(e: EnvironmentInfo): string {
+  return `${e.image} · ${e.grants.length > 0 ? e.grants.join(", ") : "no network grants"}`;
+}
+
 // The caller keeps requestId across failed attempts so a retry is the same create. Only an empty session uses it.
 export function buildRequest(form: NewSessionForm, requestId: string): NewSessionRequest {
   const name = form.name.trim();
-  const none = { cwd: "", requestId: "", repo: "", branch: "" };
+  const none = { cwd: "", requestId: "", repo: "", branch: "", environment: "" };
+  const environment = form.environment;
   switch (form.mode) {
     case "empty":
-      return { ...none, name, workspace: Workspace.EMPTY, requestId };
+      return { ...none, name, workspace: Workspace.EMPTY, requestId, environment };
     case "repo":
-      return { ...none, name, workspace: Workspace.REPO, repo: form.repo.trim(), branch: form.branch.trim() };
+      return { ...none, name, workspace: Workspace.REPO, repo: form.repo.trim(), branch: form.branch.trim(), environment };
     default:
       return { ...none, name, workspace: Workspace.DIRECTORY, cwd: form.cwd.trim() };
   }
@@ -74,6 +87,11 @@ export class RequestIds {
   }
 
   succeeded(): void {
+    this.current = undefined;
+  }
+
+  // A different choice is a different create, so a failed one's ID must not carry over to it.
+  changed(): void {
     this.current = undefined;
   }
 }

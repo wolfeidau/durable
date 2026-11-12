@@ -4,8 +4,17 @@ import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { createSession, getServerInfo, listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { type SessionInfo } from "./gen/durable/v1/durable_pb";
-import { buildRequest, canCreate, defaultBranch, modesFor, RequestIds, type Mode } from "./newSession";
-import { age, kindLabel, sorted, where } from "./sessions";
+import {
+  buildRequest,
+  canCreate,
+  defaultBranch,
+  environmentHint,
+  modesFor,
+  pickEnvironment,
+  RequestIds,
+  type Mode,
+} from "./newSession";
+import { age, kindText, sorted, where } from "./sessions";
 
 const modeLabels: Record<Mode, string> = { directory: "Directory", empty: "Empty workspace", repo: "Repository" };
 
@@ -33,15 +42,22 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
   const [repo, setRepo] = useState("");
   const [branch, setBranch] = useState(defaultBranch);
   const [chosen, setChosen] = useState<Mode | undefined>();
+  const [chosenEnv, setChosenEnv] = useState<string | undefined>();
   const create = useMutation(createSession);
   const info = useQuery(getServerInfo, {}, { staleTime: Infinity });
   const requestIds = useRef(new RequestIds());
   const modes = modesFor(info.data?.workspaces ?? []);
   const mode = chosen && modes.includes(chosen) ? chosen : (modes[0] ?? "directory");
+  const environments = info.data?.environments ?? [];
+  const environment = pickEnvironment(
+    environments.map((e) => e.name),
+    chosenEnv,
+  );
+  const showEnvironment = mode !== "directory" && environments.length > 0;
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const form = { mode, cwd, name, repo, branch };
+    const form = { mode, cwd, name, repo, branch, environment };
     const res = await create.mutateAsync(buildRequest(form, requestIds.current.get())).catch(() => undefined);
     if (!res?.session) return;
     requestIds.current.succeeded();
@@ -75,7 +91,51 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
       ) : (
         <p className="kind">{modeLabels[mode]}</p>
       )}
+      {showEnvironment && environments.length === 1 && <p className="kind">Environment: {environment}</p>}
+      {showEnvironment && environments.length > 1 && environments.length <= 4 && (
+        <div className="env-row">
+          <span className="caption" id="environment-caption">
+            Environment
+          </span>
+          <div className="segmented env" role="radiogroup" aria-labelledby="environment-caption">
+            {environments.map((e) => (
+              <span key={e.name} title={environmentHint(e)}>
+                <input
+                  type="radio"
+                  name="environment"
+                  id={`env-${e.name}`}
+                  value={e.name}
+                  checked={environment === e.name}
+                  onChange={() => {
+                    requestIds.current.changed();
+                    setChosenEnv(e.name);
+                  }}
+                />
+                <label htmlFor={`env-${e.name}`}>{e.name}</label>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="fields">
+        {showEnvironment && environments.length > 4 && (
+          <label className="wide">
+            Environment
+            <select
+              value={environment}
+              onChange={(e) => {
+                requestIds.current.changed();
+                setChosenEnv(e.target.value);
+              }}
+            >
+              {environments.map((e) => (
+                <option key={e.name} value={e.name} title={environmentHint(e)}>
+                  {e.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         {mode === "directory" && (
           <label className="wide">
             Working directory
@@ -101,7 +161,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
       </div>
       {create.error && <p className="banner tone-error">{ConnectError.from(create.error).rawMessage}</p>}
       <div className="form-actions">
-        <button type="submit" disabled={!canCreate({ mode, cwd, name, repo, branch }) || create.isPending}>
+        <button type="submit" disabled={!canCreate({ mode, cwd, name, repo, branch, environment }) || create.isPending}>
           Create
         </button>
       </div>
@@ -182,7 +242,7 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
                     </a>
                   </td>
                   <td className="workspace">
-                    <span className="kind faint">{kindLabel(s)}</span>
+                    <span className="kind faint">{kindText(s)}</span>
                     <span className="where mono" title={where(s)}>
                       {where(s)}
                     </span>
