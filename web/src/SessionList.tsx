@@ -99,7 +99,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
       </div>
-      {create.error && <p className="banner error">{ConnectError.from(create.error).rawMessage}</p>}
+      {create.error && <p className="banner tone-error">{ConnectError.from(create.error).rawMessage}</p>}
       <div className="form-actions">
         <button type="submit" disabled={!canCreate({ mode, cwd, name, repo, branch }) || create.isPending}>
           Create
@@ -113,8 +113,8 @@ function Status({ s }: { s: SessionInfo }): ReactElement {
   if (s.pendingApprovals === 0 && s.unfinishedSubmissions === 0) return <span className="faint">idle</span>;
   return (
     <>
-      {s.pendingApprovals > 0 && <span className="badge warn">{s.pendingApprovals} awaiting approval</span>}
-      {s.unfinishedSubmissions > 0 && <span className="badge link pulse">working</span>}
+      {s.pendingApprovals > 0 && <span className="badge tone-warn">{s.pendingApprovals} awaiting approval</span>}
+      {s.unfinishedSubmissions > 0 && <span className="badge tone-link pulse">working</span>}
     </>
   );
 }
@@ -143,9 +143,9 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
         </div>
       </div>
       {isPending && !error && <p className="muted">Loading</p>}
-      {error && <p className="banner error">{ConnectError.from(error).rawMessage}</p>}
+      {error && <p className="banner tone-error">{ConnectError.from(error).rawMessage}</p>}
       {data?.warnings.map((w) => (
-        <p className="banner warn" key={w}>
+        <p className="banner tone-warn" key={w}>
           {w}
         </p>
       ))}

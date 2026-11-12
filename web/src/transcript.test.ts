@@ -8,7 +8,7 @@ import {
   SubmissionStatus,
   type Event,
 } from "./gen/durable/v1/durable_pb";
-import { buildTranscript } from "./transcript";
+import { buildTranscript, TranscriptBuilder, type Turn } from "./transcript";
 
 let n = 0n;
 const ev = (init: MessageInitShape<typeof EventSchema>): Event => create(EventSchema, { seq: ++n, submission: 1n, ...init });
@@ -139,5 +139,120 @@ describe("buildTranscript", () => {
   test("a call with empty input has no input", () => {
     const [t] = buildTranscript([msg(Role.ASSISTANT, "", { toolCalls: [{ id: "c1", name: "bash" }] })]);
     expect(t!.entries[0]).toMatchObject({ kind: "call", input: undefined });
+  });
+});
+
+const dump = (turns: Turn[]) => JSON.stringify(turns, (_k, v) => (typeof v === "bigint" ? `${v}n` : v));
+
+const at = (submission: bigint, e: Event): Event => {
+  e.submission = submission;
+  return e;
+};
+
+function realisticEvents(): Event[] {
+  const call = { id: "c1", name: "bash", input: bytes('{"command":"ls"}') };
+  const call2 = { id: "c2", name: "read", input: bytes('{"path":"a"}') };
+  return [
+    sub(SubmissionStatus.QUEUED, { requestId: "r1" }),
+    msg(Role.USER, "list files"),
+    sub(SubmissionStatus.RUNNING),
+    msg(Role.ASSISTANT, "sure", { toolCalls: [call, call2] }),
+    ev({ kind: EventKind.APPROVAL_REQUESTED, call, approvalSeq: 7n, approval: ApprovalStatus.PENDING }),
+    ev({ kind: EventKind.APPROVAL_DECIDED, approvalSeq: 7n, approval: ApprovalStatus.ALLOWED, decidedBy: "web" }),
+    ev({ kind: EventKind.CALL_STARTED, call }),
+    msg(Role.TOOL, "a.txt", { toolCallId: "c1" }),
+    ev({ kind: EventKind.CALL_DONE, call: { id: "c1", name: "bash" } }),
+    ev({ kind: EventKind.CALL_STARTED, call: call2 }),
+    ev({ kind: EventKind.COMPACTED }),
+    sub(SubmissionStatus.DONE),
+    at(2n, sub(SubmissionStatus.QUEUED, { requestId: "r2" })),
+    at(2n, msg(Role.USER, "again")),
+    at(2n, ev({ kind: EventKind.CALL_REPLAYED, call: { id: "c9", name: "bash" } })),
+    at(2n, ev({ kind: EventKind.COMPACTION_FAILED, error: "too big" })),
+    at(2n, sub(SubmissionStatus.FAILED, { error: "boom" })),
+    msg(Role.TOOL, "late", { toolCallId: "c2", isError: true }),
+    ev({ kind: EventKind.CALL_DONE, call: { id: "c2", name: "read" }, isError: true }),
+  ];
+}
+
+describe("TranscriptBuilder", () => {
+  test("incremental updates equal a full build at every split point", () => {
+    const events = realisticEvents();
+    const want = dump(buildTranscript(events));
+    for (let split = 0; split <= events.length; split++) {
+      const b = new TranscriptBuilder();
+      b.update(events.slice(0, split));
+      expect(dump(b.update(events))).toBe(want);
+      const stepped = new TranscriptBuilder();
+      for (let i = 1; i <= events.length; i += 1 + (split % 3)) stepped.update(events.slice(0, i));
+      expect(dump(stepped.update(events))).toBe(want);
+    }
+  });
+
+  test("an update touching the last turn keeps earlier turns and calls", () => {
+    const events = realisticEvents();
+    const b = new TranscriptBuilder();
+    const before = b.update(events.slice(0, 16));
+    const after = b.update(events.slice(0, 17));
+    expect(after).not.toBe(before);
+    expect(after[0]).toBe(before[0]!);
+    for (const [i, e] of before[0]!.entries.entries()) expect(after[0]!.entries[i]).toBe(e);
+    expect(after[1]).not.toBe(before[1]!);
+  });
+
+  test("an update to one call replaces only that call and its turn", () => {
+    const events = realisticEvents();
+    const b = new TranscriptBuilder();
+    const before = b.update(events.slice(0, 8));
+    const after = b.update(events.slice(0, 9));
+    const [, , a2, a3] = after[0]!.entries;
+    const [, , b2, b3] = before[0]!.entries;
+    expect(a2).not.toBe(b2!);
+    expect(a3).toBe(b3!);
+  });
+
+  test("an unchanged list returns the same array", () => {
+    const events = realisticEvents();
+    const b = new TranscriptBuilder();
+    const first = b.update(events);
+    expect(b.update(events)).toBe(first);
+    expect(b.update(events.slice())).toBe(first);
+  });
+
+  test("a shorter or different list rebuilds", () => {
+    const events = realisticEvents();
+    const b = new TranscriptBuilder();
+    b.update(events);
+    expect(dump(b.update(events.slice(0, 5)))).toBe(dump(buildTranscript(events.slice(0, 5))));
+    expect(b.update([])).toEqual([]);
+    b.update(events);
+    const other = events.slice(3);
+    expect(dump(b.update(other))).toBe(dump(buildTranscript(other)));
+  });
+
+  test("thousands of events build incrementally", () => {
+    const events: Event[] = [];
+    for (let t = 1n; t <= 500n; t++) {
+      const id = `call-${t}`;
+      const call = { id, name: "bash", input: bytes('{"command":"ls"}') };
+      events.push(
+        at(t, sub(SubmissionStatus.QUEUED, { requestId: `r${t}` })),
+        at(t, msg(Role.USER, `q${t}`)),
+        at(t, msg(Role.ASSISTANT, "ok", { toolCalls: [call] })),
+        at(t, ev({ kind: EventKind.CALL_STARTED, call })),
+        at(t, msg(Role.TOOL, "out", { toolCallId: id })),
+        at(t, ev({ kind: EventKind.CALL_DONE, call: { id, name: "bash" } })),
+        at(t, msg(Role.ASSISTANT, "done")),
+        at(t, sub(SubmissionStatus.RUNNING)),
+        at(t, ev({ kind: EventKind.COMPACTED })),
+        at(t, sub(SubmissionStatus.DONE)),
+      );
+    }
+    expect(events).toHaveLength(5000);
+    const b = new TranscriptBuilder();
+    let turns: Turn[] = [];
+    for (let i = 10; i <= events.length; i += 10) turns = b.update(events.slice(0, i));
+    expect(turns).toHaveLength(500);
+    expect(dump(turns)).toBe(dump(buildTranscript(events)));
   });
 });

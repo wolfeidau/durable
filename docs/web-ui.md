@@ -22,12 +22,16 @@ As of #80, the UI works end to end without the CLI:
 The visual design followed: a header bar with a breadcrumb and the connection status, a session
 table that stacks on narrow screens, and tool call cards, in light and dark themes.
 
+Assistant messages render as Markdown, and tool calls collapse to a one-line summary and a state
+chip, with the running, waiting and failed ones open.
+
 ## First iteration
 
 ### Done means
 
 - Every item under [feedback](#feedback) is fixed or explicitly deferred.
-- Transcript rendering holds up with thousands of events.
+- Transcript rendering holds up with thousands of events. Met: the transcript builds
+  incrementally and finished turns don't redraw.
 - `durable-server` ships as a release binary with the UI embedded.
 
 Then the browser tests ([#83](https://github.com/wolfeidau/durable/issues/83)) start, against the UI
@@ -77,8 +81,13 @@ this list.
 1. **Visual design** (item 1), keeping the one-view layout (item 4).
 2. **Directory browsing** (item 2): recent directories, then `ListDirectories`.
 3. **Transcript rendering at scale.** Each event redraws every row, which won't hold at a few
-   hundred events. Carried over from slice K.
+   hundred events. Carried over from slice K. Done: the transcript is built incrementally, only
+   the turn and call an event touches is replaced, turns are memoised so a delta redraws only the
+   running one, and `content-visibility: auto` skips off-screen turns.
 4. **Readable output.** Markdown for assistant messages, and tool calls and results that collapse.
+   Done: Markdown comes from `marked`'s lexer and is rendered as React elements, with raw HTML
+   shown as text, only `http`, `https` and `mailto` links, and images as links. Tool calls collapse
+   under a summary line, and the session header can collapse or expand them all.
 5. **Release binaries.** `.goreleaser.yaml` builds only `cmd/durable`. Add `durable-server`, with
    `mise run web:build` before the Go build so the binary embeds the UI. CGO stays, so each target
    still builds on a matching host.
