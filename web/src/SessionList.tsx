@@ -94,10 +94,10 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
       {showEnvironment && environments.length === 1 && <p className="kind">Environment: {environment}</p>}
       {showEnvironment && environments.length > 1 && environments.length <= 4 && (
         <div className="env-row">
-          <span className="caption" id="env-caption">
+          <span className="caption" id="environment-caption">
             Environment
           </span>
-          <div className="segmented env" role="radiogroup" aria-labelledby="env-caption">
+          <div className="segmented env" role="radiogroup" aria-labelledby="environment-caption">
             {environments.map((e) => (
               <span key={e.name} title={environmentHint(e)}>
                 <input
@@ -106,7 +106,10 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
                   id={`env-${e.name}`}
                   value={e.name}
                   checked={environment === e.name}
-                  onChange={() => setChosenEnv(e.name)}
+                  onChange={() => {
+                    requestIds.current.changed();
+                    setChosenEnv(e.name);
+                  }}
                 />
                 <label htmlFor={`env-${e.name}`}>{e.name}</label>
               </span>
@@ -118,7 +121,13 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
         {showEnvironment && environments.length > 4 && (
           <label className="wide">
             Environment
-            <select value={environment} onChange={(e) => setChosenEnv(e.target.value)}>
+            <select
+              value={environment}
+              onChange={(e) => {
+                requestIds.current.changed();
+                setChosenEnv(e.target.value);
+              }}
+            >
               {environments.map((e) => (
                 <option key={e.name} value={e.name} title={environmentHint(e)}>
                   {e.name}

@@ -89,4 +89,9 @@ export class RequestIds {
   succeeded(): void {
     this.current = undefined;
   }
+
+  // A different choice is a different create, so a failed one's ID must not carry over to it.
+  changed(): void {
+    this.current = undefined;
+  }
 }

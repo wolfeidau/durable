@@ -106,6 +106,14 @@ describe("request ids", () => {
     ids.succeeded();
     expect(ids.get()).toBe("id-2");
   });
+
+  test("changing the environment after a failure starts a new create", () => {
+    let n = 0;
+    const ids = new RequestIds(() => `id-${++n}`);
+    expect(ids.get()).toBe("id-1");
+    ids.changed();
+    expect(ids.get()).toBe("id-2");
+  });
 });
 
 test("the default id is 32 random hex characters", () => {

@@ -26,7 +26,7 @@ Assistant messages render as Markdown, and tool calls collapse to a one-line sum
 chip, with the running, waiting and failed ones open.
 
 The new-session form picks a sandbox environment from `GetServerInfo`. The control shows only for an
-empty or repo workspace and is hidden when the server has one environment. The list and the session
+empty or repo workspace; with one environment the form shows its name instead of a control. The list and the session
 view show each session's environment.
 
 ## First iteration
