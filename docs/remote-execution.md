@@ -287,7 +287,8 @@ it, and so does `golangci-lint run`, whose `go list` runs as the go binary. Othe
 Image notes for the Go image:
 
 - HOME is `/sandbox`, the workspace, and only `/tmp` and `/sandbox` are writable. The image sets `GOPATH`,
-  `GOCACHE`, `GOLANGCI_LINT_CACHE` and `XDG_CACHE_HOME` under `/tmp`, so caches stay out of the repo and its commits.
+  `GOCACHE`, `GOLANGCI_LINT_CACHE`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` under `/tmp`, so caches and config,
+  such as Go's telemetry counters, stay out of the repo and its commits.
 - `GOPROXY` is `https://proxy.golang.org` with no `direct`, so modules come only from the proxy. A private module fails.
 - `GOTOOLCHAIN=local`, so a `go` line newer than the image's Go fails instead of downloading a toolchain.
 - The image's `ENV` reaches the worker, and so the agent's `bash`.

@@ -17,6 +17,6 @@ RUN case "$TARGETARCH" in \
  && mv "/tmp/golangci-lint-2.15.0-linux-${TARGETARCH}/golangci-lint" /usr/local/bin/ \
  && rm -rf /tmp/gl.tgz "/tmp/golangci-lint-2.15.0-linux-${TARGETARCH}"
 # HOME is the repo workspace in the sandbox, so caches live in /tmp to stay out of commits.
-ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org GOPATH=/tmp/go GOCACHE=/tmp/go-build GOLANGCI_LINT_CACHE=/tmp/golangci-lint XDG_CACHE_HOME=/tmp/.cache
+ENV PATH=/usr/local/go/bin:$PATH GOTOOLCHAIN=local GOPROXY=https://proxy.golang.org GOPATH=/tmp/go GOCACHE=/tmp/go-build GOLANGCI_LINT_CACHE=/tmp/golangci-lint XDG_CACHE_HOME=/tmp/.cache XDG_CONFIG_HOME=/tmp/.config
 USER app
 WORKDIR /sandbox
