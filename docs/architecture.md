@@ -330,8 +330,7 @@ A minimal test page uses connect-web's `WatchEvents` on loopback. It checks that
 fall back to SSE for the browser. Phase 3 automates it with Playwright, run from its Docker image,
 in [#83](https://github.com/wolfeidau/durable/issues/83).
 
-**Spike result: passed.** The page lives on the unmerged
-[`spike/browser-watch`](https://github.com/wolfeidau/durable/tree/spike/browser-watch) branch. It was
+**Spike result: passed.** The throwaway page is retired, and its results are recorded here. It was
 driven by hand in Chrome against a real OpenRouter model:
 
 - `WatchEvents` was one `fetch` over HTTP/1.1, open for 50s, and events arrived as they committed,

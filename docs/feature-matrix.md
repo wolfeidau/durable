@@ -103,10 +103,10 @@ writers across processes, and bash orphans are stopped on recovery.
 |---|---|---|---|---|
 | Interactive terminal | Part: line REPL | Yes: TUI | n/a: library | Yes |
 | Non-interactive run | Part: piped stdin | Yes: `-p` | n/a: library | Yes: `-p` |
-| Structured event output | Part: `Observer`, library only | Yes: JSON mode | Yes: `watch` | Yes: stream JSON |
+| Structured event output | Yes: `Observer` in the library, `WatchEvents` on the server | Yes: JSON mode | Yes: `watch` | Yes: stream JSON |
 | RPC over stdio | No | Yes | n/a: library | Part: SDK |
 | Embeddable library | Yes: harness, tools, Claude and Responses adapters | Yes: SDK | Yes | Yes: Agent SDK |
-| Multiple clients on one session | No | n/d | Yes: read-only opens, `watch` | Part: Remote Control |
+| Multiple clients on one session | Yes: server watchers share a session; the CLI hands over by lease | n/d | Yes: read-only opens, `watch` | Part: Remote Control |
 | Telemetry | No | n/d | Yes: metrics | Yes |
 
 ## Recommended order

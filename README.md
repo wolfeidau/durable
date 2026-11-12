@@ -112,7 +112,7 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
   `.agents/skills` when it is created.
 - **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
 - **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open
-  creates a fresh one and clones the branch again.
+  creates a fresh one, and a repo session clones its branch again.
 
 See [docs/remote-execution.md](docs/remote-execution.md) for the design and the egress policy.
 
