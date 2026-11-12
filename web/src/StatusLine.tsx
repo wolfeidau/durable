@@ -1,11 +1,13 @@
 import { useState, type ReactElement } from "react";
 import type { WatchHandle } from "./useWatchEvents";
 
+export type WatchSummary = Pick<WatchHandle, "status" | "lastError" | "resumeAuth">;
+
 export function TokenInput({ onApply }: { onApply: (t: string) => void }): ReactElement {
   const [value, setValue] = useState("");
   return (
     <form
-      className="token-box"
+      className="banner warn token-box"
       onSubmit={(e) => {
         e.preventDefault();
         onApply(value.trim());
@@ -20,7 +22,7 @@ export function TokenInput({ onApply }: { onApply: (t: string) => void }): React
   );
 }
 
-function describe(w: WatchHandle): { text: string; tone: string } {
+function describe(w: WatchSummary): { text: string; tone: string } {
   switch (w.status) {
     case "live":
       return { text: "live", tone: "ok" };
@@ -38,27 +40,18 @@ function describe(w: WatchHandle): { text: string; tone: string } {
 }
 
 interface Props {
-  watch?: WatchHandle;
+  watch?: WatchSummary;
   authNeeded: boolean;
-  onToken: (t: string) => void;
 }
 
-export function StatusLine({ watch, authNeeded, onToken }: Props): ReactElement | null {
+export function ConnectionPill({ watch, authNeeded }: Props): ReactElement | null {
   const needToken = authNeeded || watch?.status === "auth-needed";
   if (!watch && !needToken) return null;
-  const s = watch ? describe(watch) : { text: "token needed", tone: "bad" };
+  const s = needToken || !watch ? { text: "token needed", tone: "bad" } : describe(watch);
   return (
-    <div className="status-line">
-      <span className={`dot ${s.tone}`} aria-hidden="true" />
-      <span>{needToken ? "token needed" : s.text}</span>
-      {needToken && (
-        <TokenInput
-          onApply={(t) => {
-            onToken(t);
-            watch?.resumeAuth();
-          }}
-        />
-      )}
-    </div>
+    <span className={`pill ${s.tone}`} role="status" title={s.text}>
+      <span className="dot" aria-hidden="true" />
+      <span className="pill-text">{s.text}</span>
+    </span>
   );
 }

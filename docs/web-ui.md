@@ -4,9 +4,8 @@ The browser UI for `durable-server`, from its first cut onward. The server's des
 the validation layers are in [architecture](architecture.md); access and auth are in
 [server access](server-access.md).
 
-**Status: paused until phase 4 works end to end.** The first cut is built (#80). The rest of this
-iteration waits for [remote execution](architecture.md#phases), so feedback comes from using the
-whole architecture rather than the UI on its own. The feedback below is recorded for then.
+**Status: first iteration in progress.** The first cut is built (#80) and phase 4 is built, so
+the remaining feedback below is worked through against the whole architecture.
 
 ## Built
 
@@ -16,9 +15,12 @@ As of #80, the UI works end to end without the CLI:
   new-session form.
 - The live transcript as plain text, with streamed model text and `bash` output, tool calls and
   their results, submission errors and compaction events.
-- The approval prompt, submit, cancel, and a status line that reports reconnects, missing auth and a
-  session taken over by another process.
+- The approval prompt, submit, cancel, and a connection status that reports reconnects, missing
+  auth and a session taken over by another process.
 - Resume across server restarts under one epoch, and replay from 0 after a restore.
+
+The visual design followed: a header bar with a breadcrumb and the connection status, a session
+table that stacks on narrow screens, and tool call cards, in light and dark themes.
 
 ## First iteration
 
@@ -37,7 +39,7 @@ From using the first cut in real sessions. Each item gets a status as it's picke
 
 | # | Item | Status |
 |---|---|---|
-| 1 | **Visual design.** The UI should look as polished as `../airunner`'s dashboard, which uses a high-contrast dark theme, a header bar, cards and tables. Bring that design over in durable's token style (light and dark, `prefers-color-scheme`), not as a copy of its 900 lines of CSS. | Open |
+| 1 | **Visual design.** The UI should look as polished as `../airunner`'s dashboard, which uses a high-contrast dark theme, a header bar, cards and tables. Bring that design over in durable's token style (light and dark, `prefers-color-scheme`), not as a copy of its 900 lines of CSS. | Done: header bar, session table, call cards, light and dark tokens |
 | 2 | **Browsing for a working directory.** The form takes a typed absolute path, because `CreateSession` takes a path and a browser can't read the server's filesystem: a native folder picker returns no absolute path. Browsing needs a server RPC that lists directories. See [directory browsing](#directory-browsing). | Superseded for sandboxed sessions: their [workspace is empty or a repo](remote-execution.md#a-sandboxed-sessions-workspace-is-empty-or-a-repo), so the form offers those instead. On a server started with `--sandbox-image` the form shows an empty workspace and a name, and creates it by a `request_id`. A repo session takes the repo and branch as text fields; a repo picker is deferred |
 | 3 | **Running the harness in [OpenShell](https://docs.nvidia.com/openshell/about/architecture).** Investigate splitting durable into a harness/agent process and a web server, with the harness in an OpenShell sandbox. This reverses [the harness runs outside the sandbox](architecture.md#the-harness-runs-outside-the-sandbox), so it's a phase 4 design question rather than UI work. See [OpenShell](#openshell). | Open, investigation |
 | 4 | **Keep the session list and the one-view layout.** A full-page list, or one session filling the page, is preferred over a thread sidebar. Keep this layout as the design changes. | Keep |
