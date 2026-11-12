@@ -93,20 +93,25 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
       )}
       {showEnvironment && environments.length === 1 && <p className="kind">Environment: {environment}</p>}
       {showEnvironment && environments.length > 1 && environments.length <= 4 && (
-        <div className="segmented env" role="radiogroup" aria-label="Environment">
-          {environments.map((e) => (
-            <span key={e.name} title={environmentHint(e)}>
-              <input
-                type="radio"
-                name="environment"
-                id={`env-${e.name}`}
-                value={e.name}
-                checked={environment === e.name}
-                onChange={() => setChosenEnv(e.name)}
-              />
-              <label htmlFor={`env-${e.name}`}>{e.name}</label>
-            </span>
-          ))}
+        <div className="env-row">
+          <span className="caption" id="env-caption">
+            Environment
+          </span>
+          <div className="segmented env" role="radiogroup" aria-labelledby="env-caption">
+            {environments.map((e) => (
+              <span key={e.name} title={environmentHint(e)}>
+                <input
+                  type="radio"
+                  name="environment"
+                  id={`env-${e.name}`}
+                  value={e.name}
+                  checked={environment === e.name}
+                  onChange={() => setChosenEnv(e.name)}
+                />
+                <label htmlFor={`env-${e.name}`}>{e.name}</label>
+              </span>
+            ))}
+          </div>
         </div>
       )}
       <div className="fields">

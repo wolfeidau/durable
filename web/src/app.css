@@ -286,7 +286,9 @@ label input, label select { margin-top: 0.25rem; }
   overflow: hidden;
 }
 
-.segmented.env { max-width: 100%; flex-wrap: wrap; }
+.env-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; margin-bottom: 1rem; }
+.env-row .caption { font-size: 0.85rem; color: var(--muted); }
+.segmented.env { max-width: 100%; flex-wrap: wrap; margin-bottom: 0; }
 .segmented.env label { overflow-wrap: anywhere; }
 
 .segmented input {
