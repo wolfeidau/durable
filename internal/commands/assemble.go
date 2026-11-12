@@ -37,12 +37,15 @@ var ErrEmptyNeedsSandbox = errors.New("an empty or repo session needs a sandbox"
 // SandboxConfig lets Assemble run a session's built-in tools in a sandbox.
 type SandboxConfig struct {
 	Backend sandbox.Backend
-	// Image is the worker image for new sessions; empty keeps new sessions local. A session that already has a sandbox keeps its pin.
-	Image string
+	// Environments are the worker images and grants new sessions can use; none keeps new sessions local.
+	// A session that already has a sandbox keeps its pin and never consults them.
+	Environments map[string]Environment
 	// GitHosts are the hosts a repo session can live on, by kind.
 	GitHosts map[string]githost.Host
 	// GitTokens is true for each host kind the server holds a token for; a repo on any other host is cloned anonymously.
 	GitTokens map[string]bool
+	// GitAuthor is the commit author new sessions pin; unset leaves sandboxes without one.
+	GitAuthor sandbox.GitIdentity
 }
 
 // AssembleConfig is everything Assemble needs to build a session's options without a terminal.
@@ -56,6 +59,8 @@ type AssembleConfig struct {
 	// Repo and Branch are what a repo session clones.
 	Repo   githost.Repo
 	Branch string
+	// Environment names the sandbox environment of a new session; empty resolves as ResolveEnvironment does.
+	Environment string
 	// Home is where user config is read from; empty means the user's home directory.
 	Home string
 
@@ -272,7 +277,7 @@ func discoverSkillsFunc(ctx context.Context, cwd, home string, workspace skills.
 }
 
 func (c AssembleConfig) sessionMeta() SessionMeta {
-	meta := SessionMeta{CWD: c.CWD, Name: c.Session, Workspace: c.Workspace, CreatedAt: time.Now().UTC()}
+	meta := SessionMeta{CWD: c.CWD, Name: c.Session, Workspace: c.Workspace, Environment: c.Environment, CreatedAt: time.Now().UTC()}
 	if c.Workspace == WorkspaceRepo {
 		meta.Repo, meta.Branch = c.Repo.String(), c.Branch
 	}
@@ -311,7 +316,7 @@ func (c AssembleConfig) checkSandboxed(dir string, existed bool) (bool, error) {
 	if ok && c.Sandbox == nil {
 		return false, ErrSandboxed
 	}
-	sandboxed := ok || c.Sandbox != nil && !existed && c.Sandbox.Image != ""
+	sandboxed := ok || c.Sandbox != nil && !existed && len(c.Sandbox.Environments) > 0
 	if c.Workspace != "" && !sandboxed {
 		return false, ErrEmptyNeedsSandbox
 	}
@@ -343,8 +348,12 @@ func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, f
 			}
 			access = []sandbox.GitAccess{a}
 		}
-		// The access is fixed here, so a reopen keeps it even if the server's tokens changed.
-		if pin, err = sandbox.WritePinGit(dir, c.Sandbox.Image, mcpEgress(servers), access); err != nil {
+		env, err := ResolveEnvironment(c.Sandbox.Environments, c.Environment)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		// The access and grants are fixed here, so a reopen keeps them even if the tokens or the environments file changed.
+		if pin, err = sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, buildGrants(env.Grants, c.Workspace, access), c.Sandbox.GitAuthor.Config()); err != nil {
 			return nil, nil, nil, err
 		}
 	}

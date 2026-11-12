@@ -89,7 +89,7 @@ func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.
 	}
 	out := &v1.ListSessionsResponse{Warnings: warnings}
 	for _, m := range metas {
-		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt), Workspace: workspaceOf(m), Repo: m.Repo, Branch: m.Branch}
+		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt), Workspace: workspaceOf(m), Repo: m.Repo, Branch: m.Branch, Environment: m.Environment}
 		st, err := durable.ReadStatus(ctx, filepath.Join(s.home, ".durable", "sessions", m.ID, "session.sqlite"))
 		if err != nil {
 			// The warning is returned to the client, so it isn't logged here.
@@ -108,11 +108,14 @@ const minRequestIDLen = 16
 
 func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error) {
 	name := req.Msg.GetName()
+	if err := s.checkEnvironmentApplies(req.Msg); err != nil {
+		return nil, err
+	}
 	var spec createSpec
 	switch req.Msg.GetWorkspace() {
 	case v1.Workspace_WORKSPACE_UNSPECIFIED, v1.Workspace_WORKSPACE_DIRECTORY:
 		if s.reg.Sandboxed() {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty and repo sessions: start it without --sandbox-image for directory sessions"))
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty and repo sessions: start it without --sandbox-image or environments for directory sessions"))
 		}
 		cwd := req.Msg.GetCwd()
 		if !filepath.IsAbs(cwd) {
@@ -129,19 +132,10 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 		}
 		spec = createSpec{cwd: cwd, name: name}
 	case v1.Workspace_WORKSPACE_EMPTY:
-		if req.Msg.GetCwd() != "" {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("an empty workspace takes no cwd"))
+		var err error
+		if spec, err = s.emptySpec(req.Msg, name); err != nil {
+			return nil, err
 		}
-		if req.Msg.GetRequestId() == "" {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id is required for an empty workspace"))
-		}
-		if len(req.Msg.GetRequestId()) < minRequestIDLen {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id must be at least 16 characters; use a random value"))
-		}
-		if !s.reg.Sandboxed() {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image"))
-		}
-		spec = createSpec{workspace: commands.WorkspaceEmpty, name: name, id: commands.EmptySessionID(req.Msg.GetRequestId())}
 	case v1.Workspace_WORKSPACE_REPO:
 		var err error
 		if spec, err = s.repoSpec(req.Msg); err != nil {
@@ -164,15 +158,37 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 		return nil, s.publicErr(ctx, "create session", err)
 	}
 	return connect.NewResponse(&v1.CreateSessionResponse{
-		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt), Workspace: workspaceOf(meta), Repo: meta.Repo, Branch: meta.Branch},
+		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt), Workspace: workspaceOf(meta), Repo: meta.Repo, Branch: meta.Branch, Environment: meta.Environment},
 		Created: created,
 	}), nil
+}
+
+// emptySpec validates an empty create.
+func (s sessionService) emptySpec(msg *v1.CreateSessionRequest, name string) (createSpec, error) {
+	if msg.GetCwd() != "" {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("an empty workspace takes no cwd"))
+	}
+	if msg.GetRequestId() == "" {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id is required for an empty workspace"))
+	}
+	if len(msg.GetRequestId()) < minRequestIDLen {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id must be at least 16 characters; use a random value"))
+	}
+	if !s.reg.Sandboxed() {
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/environments.json"))
+	}
+	id := commands.EmptySessionID(msg.GetRequestId())
+	env, err := s.environment(id, msg.GetEnvironment())
+	if err != nil {
+		return createSpec{}, err
+	}
+	return createSpec{workspace: commands.WorkspaceEmpty, name: name, id: id, environment: env}, nil
 }
 
 // repoSpec validates a repo create. Its errors are fixed text, because the input may hold a credential.
 func (s sessionService) repoSpec(msg *v1.CreateSessionRequest) (createSpec, error) {
 	if !s.reg.Sandboxed() {
-		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("repo sessions need a sandbox: start the server with --sandbox-image"))
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("repo sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/environments.json"))
 	}
 	if msg.GetCwd() != "" || msg.GetRequestId() != "" {
 		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("a repo workspace takes no cwd or request_id"))
@@ -192,10 +208,31 @@ func (s sessionService) repoSpec(msg *v1.CreateSessionRequest) (createSpec, erro
 	if name == "" {
 		name = "default"
 	}
-	return createSpec{
-		workspace: commands.WorkspaceRepo, name: name, repo: repo, branch: branch,
-		id: commands.RepoSessionID(repo.String(), branch, name),
-	}, nil
+	id := commands.RepoSessionID(repo.String(), branch, name)
+	env, err := s.environment(id, msg.GetEnvironment())
+	if err != nil {
+		return createSpec{}, err
+	}
+	return createSpec{workspace: commands.WorkspaceRepo, name: name, repo: repo, branch: branch, environment: env, id: id}, nil
+}
+
+// checkEnvironmentApplies rejects an environment on a directory workspace or a server without a sandbox.
+func (s sessionService) checkEnvironmentApplies(msg *v1.CreateSessionRequest) error {
+	ws := msg.GetWorkspace()
+	directory := ws == v1.Workspace_WORKSPACE_UNSPECIFIED || ws == v1.Workspace_WORKSPACE_DIRECTORY
+	if msg.GetEnvironment() != "" && (directory || !s.reg.Sandboxed()) {
+		return connect.NewError(connect.CodeInvalidArgument, errors.New("an environment applies to empty and repo workspaces on a sandboxed server"))
+	}
+	return nil
+}
+
+// environment resolves the requested environment of an empty or repo create, or returns INVALID_ARGUMENT naming the available ones.
+func (s sessionService) environment(id, name string) (string, error) {
+	env, err := s.reg.ResolveEnvironment(id, name)
+	if err != nil {
+		return "", connect.NewError(connect.CodeInvalidArgument, err)
+	}
+	return env, nil
 }
 
 var branchRE = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,200}$`)
@@ -224,7 +261,11 @@ func (s sessionService) GetServerInfo(context.Context, *connect.Request[v1.GetSe
 	if s.reg.Sandboxed() {
 		kinds = []v1.Workspace{v1.Workspace_WORKSPACE_EMPTY, v1.Workspace_WORKSPACE_REPO}
 	}
-	return connect.NewResponse(&v1.GetServerInfoResponse{Workspaces: kinds}), nil
+	var envs []*v1.EnvironmentInfo
+	for _, e := range s.reg.Environments() {
+		envs = append(envs, &v1.EnvironmentInfo{Name: e.Name, Image: e.Image, Grants: e.Grants})
+	}
+	return connect.NewResponse(&v1.GetServerInfoResponse{Workspaces: kinds, Environments: envs}), nil
 }
 
 // leaseLost marks the session lost and returns Unavailable for an ErrLeaseLost, or nil for any other error.

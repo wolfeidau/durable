@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/mail"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -38,8 +39,9 @@ type serveCmd struct {
 	Model                 string        `help:"Model name for new sessions. Required for new openrouter sessions, which pin it. For anthropic, empty uses the built-in default."`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
-	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker). Existing sessions keep their pin."`
-	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference or gh. Only github is supported; without the flag, github reads DURABLE_GITHUB_TOKEN. Needs --sandbox-image."`
+	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker), as the \"default\" environment. Environments in ~/.durable/environments.json add images and network grants. Existing sessions keep their pin."`
+	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference or gh. Only github is supported; without the flag, github reads DURABLE_GITHUB_TOKEN. Needs --sandbox-image or an environment."`
+	GitAuthor             string        `name:"git-author" placeholder:"NAME <EMAIL>" default:"durable <durable@localhost>" help:"The git user.name and user.email for commits in new sandboxed sessions. Existing sessions keep their pin."`
 	GitHubAPIURL          string        `name:"github-api-url" env:"DURABLE_GITHUB_API_URL" hidden:"" help:"GitHub API base URL, for tests."`
 }
 
@@ -61,6 +63,30 @@ type serverInfo struct {
 	Token string `json:"token"`
 }
 
+// loadEnvironments merges the environments file with --sandbox-image, which is the "default" environment.
+func loadEnvironments(path, image string) (map[string]commands.Environment, error) {
+	envs, err := commands.LoadEnvironments(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load %s: %w", filepath.Join("~", ".durable", filepath.Base(path)), err)
+	}
+	if image == "" {
+		return envs, nil
+	}
+	if _, ok := envs[commands.DefaultEnvironment]; ok {
+		return nil, fmt.Errorf("--sandbox-image defines the %q environment, which %s also defines", commands.DefaultEnvironment, filepath.Join("~", ".durable", filepath.Base(path)))
+	}
+	envs[commands.DefaultEnvironment] = commands.Environment{Name: commands.DefaultEnvironment, Image: image}
+	return envs, nil
+}
+
+func parseGitAuthor(v string) (sandbox.GitIdentity, error) {
+	a, err := mail.ParseAddress(v)
+	if err != nil || a.Name == "" || a.Address == "" {
+		return sandbox.GitIdentity{}, fmt.Errorf("--git-author %q must be NAME <EMAIL>", v)
+	}
+	return sandbox.GitIdentity{Name: a.Name, Email: a.Address}, nil
+}
+
 func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -71,8 +97,17 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	if len(gitSources) > 0 && c.SandboxImage == "" {
-		return errors.New("a git host token needs --sandbox-image, because repositories are only reachable from a sandbox")
+	environments, err := loadEnvironments(filepath.Join(home, ".durable", "environments.json"), c.SandboxImage)
+	if err != nil {
+		return err
+	}
+	if len(gitSources) > 0 && len(environments) == 0 {
+		return errors.New("a git host token needs --sandbox-image or an environment, because repositories are only reachable from a sandbox")
+	}
+
+	gitAuthor, err := parseGitAuthor(c.GitAuthor)
+	if err != nil {
+		return err
 	}
 
 	// Only the lock holder writes and removes server.json, so a second server can't break discovery.
@@ -118,8 +153,8 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	// Closed after the registry, whose sessions stop their sandboxes through it.
 	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources)}
 	defer backend.Close()
-	sandboxCfg := &commands.SandboxConfig{Backend: sandbox.Shared(backend), Image: c.SandboxImage}
-	if c.SandboxImage != "" {
+	sandboxCfg := &commands.SandboxConfig{Backend: sandbox.Shared(backend), Environments: environments, GitAuthor: gitAuthor}
+	if len(environments) > 0 {
 		sandboxCfg.GitHosts = map[string]githost.Host{github.Kind: github.New(c.GitHubAPIURL)}
 		_, hasToken := gitSources[github.Kind]
 		sandboxCfg.GitTokens = map[string]bool{github.Kind: hasToken}

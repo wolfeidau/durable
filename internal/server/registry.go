@@ -117,13 +117,48 @@ type createSpec struct {
 	// repo and branch are what a repo session clones.
 	repo   githost.Repo
 	branch string
+	// environment is the resolved sandbox environment name.
+	environment string
 	// led is set by acquire when this caller opened the session, not one that joined it.
 	led bool
 }
 
 // Sandboxed reports whether new sessions run their tools in a sandbox.
 func (r *Registry) Sandboxed() bool {
-	return r.cfg.Sandbox != nil && r.cfg.Sandbox.Image != ""
+	return r.cfg.Sandbox != nil && len(r.cfg.Sandbox.Environments) > 0
+}
+
+// Environments returns the sandbox environments new sessions can use, sorted by name.
+func (r *Registry) Environments() []commands.Environment {
+	if r.cfg.Sandbox == nil {
+		return nil
+	}
+	var out []commands.Environment
+	for _, n := range slices.Sorted(maps.Keys(r.cfg.Sandbox.Environments)) {
+		e := r.cfg.Sandbox.Environments[n]
+		e.Name = n
+		out = append(out, e)
+	}
+	return out
+}
+
+// ResolveEnvironment returns the name of the environment a new session gets; empty resolves as commands.ResolveEnvironment does.
+// A name that no longer resolves is fine for a session that already exists, which keeps its own, so a repeated create
+// never fails on a changed file; a valid name still wins, so a retry of a create that failed before its pin keeps it.
+func (r *Registry) ResolveEnvironment(id, name string) (string, error) {
+	err := commands.ErrEnvironment
+	if r.cfg.Sandbox != nil {
+		var e commands.Environment
+		if e, err = commands.ResolveEnvironment(r.cfg.Sandbox.Environments, name); err == nil {
+			return e.Name, nil
+		}
+	}
+	if dir, derr := SessionDir(r.cfg.Home, id); derr == nil {
+		if _, merr := commands.ReadSessionMeta(dir); merr == nil {
+			return "", nil
+		}
+	}
+	return "", err
 }
 
 // ParseRepo parses raw with the first configured git host that accepts it. The error never quotes raw, which may hold a credential.
@@ -292,7 +327,7 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 	}
 	if spec != nil {
 		ac.CWD, ac.Session, ac.Workspace, ac.SessionID = spec.cwd, spec.name, spec.workspace, spec.id
-		ac.Repo, ac.Branch = spec.repo, spec.branch
+		ac.Repo, ac.Branch, ac.Environment = spec.repo, spec.branch, spec.environment
 		ac.Provider, ac.Protocol, ac.Model = r.cfg.Provider, r.cfg.Protocol, r.cfg.Model
 	} else {
 		meta, err := commands.ReadSessionMeta(dir)

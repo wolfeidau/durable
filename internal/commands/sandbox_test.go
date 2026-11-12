@@ -23,7 +23,7 @@ func sandboxCfg(t *testing.T, f *sandboxtest.Fake, image string) AssembleConfig 
 	t.Helper()
 	return AssembleConfig{
 		CWD: t.TempDir(), Session: "s", APIToken: "k",
-		Sandbox: &SandboxConfig{Backend: f, Image: image},
+		Sandbox: &SandboxConfig{Backend: f, Environments: imageEnvs(image)},
 	}
 }
 
@@ -77,7 +77,7 @@ func TestAssembleReopenWithoutImageStillUsesSandbox(t *testing.T) {
 	a.Close()
 	markExisting(t, cfg)
 
-	cfg.Sandbox.Image = ""
+	cfg.Sandbox.Environments = nil
 	a, err = Assemble(t.Context(), cfg)
 	require.NoError(t, err)
 	defer a.Close()
@@ -112,7 +112,7 @@ func TestAssembleSessionWithoutPinStaysLocal(t *testing.T) {
 	a.Close()
 	dir := markExisting(t, cfg)
 
-	cfg.Sandbox.Image = "img:1"
+	cfg.Sandbox.Environments = imageEnvs("img:1")
 	a, err = Assemble(t.Context(), cfg)
 	require.NoError(t, err)
 	defer a.Close()

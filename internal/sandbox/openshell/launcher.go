@@ -31,6 +31,7 @@ const (
 
 	egressRule       = "durable-mcp"
 	gitRule          = "durable-git"
+	grantRulePrefix  = "durable-grant-"
 	defaultWorkspace = "default"
 	deleteTimeout    = 2 * time.Minute
 	stopPollInterval = 500 * time.Millisecond
@@ -99,11 +100,14 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 	if s.Name == "" || s.Image == "" || s.Token == "" {
 		return errors.New("sandbox name, image and worker token are required")
 	}
+	if err := checkGrantProviders(s.Grants, s.Git); err != nil {
+		return err
+	}
 	if err := l.syncProviders(ctx, s.Git); err != nil {
 		return err
 	}
 	env := map[string]string{worker.TokenEnv: s.Token}
-	maps.Copy(env, gitEnv(s.Git))
+	maps.Copy(env, gitEnv(s.GitConfig, s.Git))
 	spec := &v1.SandboxSpec{
 		Environment: env,
 		Providers:   gitProviders(s.Git),
@@ -112,7 +116,7 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 		// A worker that exits leaves the sandbox in Error. On OpenShell v0.1.7 OnFailure crash-loops in Starting,
 		// where the sandbox can be neither stopped nor deleted.
 		RestartPolicy: v1.SandboxRestartNever,
-		Policy:        sandboxPolicy(s.Egress, s.Git),
+		Policy:        sandboxPolicy(s.Egress, s.Git, s.Grants),
 	}
 	if _, err := l.c.Sandboxes().Create(ctx, l.ws, s.Name, spec); err != nil {
 		l.forget(s.Git)
@@ -132,8 +136,8 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 // sandboxPolicy lets the worker binary, which runs the MCP bridge, reach the egress endpoints, and the repository
 // clients reach only what access allows. Without a policy the sandbox has no egress at all. Giving one drops the
 // gateway's default Landlock setting but keeps its filesystem and process defaults, so only Landlock is restated.
-func sandboxPolicy(egress []sandbox.Endpoint, access []sandbox.GitAccess) *types.SandboxPolicy {
-	if len(egress) == 0 && len(access) == 0 {
+func sandboxPolicy(egress []sandbox.Endpoint, access []sandbox.GitAccess, grants []sandbox.Grant) *types.SandboxPolicy {
+	if len(egress) == 0 && len(access) == 0 && len(grants) == 0 {
 		return nil
 	}
 	rules := map[string]types.NetworkPolicyRule{}
@@ -147,10 +151,46 @@ func sandboxPolicy(egress []sandbox.Endpoint, access []sandbox.GitAccess) *types
 	if len(access) > 0 {
 		rules[gitRule] = gitPolicyRule(access)
 	}
+	for _, g := range grants {
+		rules[grantRulePrefix+g.Name] = grantPolicyRule(g)
+	}
 	return &types.SandboxPolicy{
 		Landlock:        &types.LandlockPolicy{Compatibility: "best_effort"},
 		NetworkPolicies: rules,
 	}
+}
+
+// grantPolicyRule makes a plain rule for endpoints without request rules, else an enforced L7 rule.
+func grantPolicyRule(g sandbox.Grant) types.NetworkPolicyRule {
+	name := grantRulePrefix + g.Name
+	rule := types.NetworkPolicyRule{Name: name}
+	for _, b := range g.Binaries {
+		rule.Binaries = append(rule.Binaries, types.PolicyNetworkBinary{Path: b})
+	}
+	for _, e := range g.Endpoints {
+		ep := types.PolicyNetworkEndpoint{Host: e.Host, Port: e.Port}
+		if len(g.Rules) > 0 {
+			ep.Protocol, ep.Enforcement = "rest", types.NetworkEnforcementModeEnforce
+			for _, r := range g.Rules {
+				ep.Rules = append(ep.Rules, types.L7Rule{Allow: &types.L7Allow{Method: r.Method, Path: r.Path}})
+			}
+		}
+		if g.Provider != "" {
+			ep.CredentialBinding = &types.NetworkCredentialBinding{Provider: g.Provider}
+		}
+		rule.Endpoints = append(rule.Endpoints, ep)
+	}
+	return rule
+}
+
+// checkGrantProviders refuses a grant whose provider the session's git access doesn't sync, which could never authenticate.
+func checkGrantProviders(grants []sandbox.Grant, access []sandbox.GitAccess) error {
+	for _, g := range grants {
+		if g.Provider != "" && !slices.ContainsFunc(access, func(a sandbox.GitAccess) bool { return a.Provider == g.Provider }) {
+			return fmt.Errorf("grant %q needs provider %q, which the session's git access doesn't have", g.Name, g.Provider)
+		}
+	}
+	return nil
 }
 
 // gitPolicyRule merges accesses to the same provider and endpoint into one endpoint, because the gateway matches an
@@ -213,8 +253,11 @@ func gitProviders(access []sandbox.GitAccess) []string {
 }
 
 // gitEnv numbers the git client's config entries in key order so the environment is the same on every create.
-func gitEnv(access []sandbox.GitAccess) map[string]string {
-	conf := map[string]string{}
+func gitEnv(base map[string]string, access []sandbox.GitAccess) map[string]string {
+	conf := maps.Clone(base)
+	if conf == nil {
+		conf = map[string]string{}
+	}
 	for _, g := range access {
 		maps.Copy(conf, g.GitConfig)
 	}

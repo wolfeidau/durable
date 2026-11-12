@@ -108,8 +108,13 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
   `gh`. Without it, the server reads `DURABLE_GITHUB_TOKEN`, and with no token at all, sessions
   clone public repos anonymously. The token stays on the server, and the sandbox sees only a
   placeholder. A fine-grained token limited to the repos durable should reach is safest.
+- **Commit author:** `--git-author "NAME <EMAIL>"`, default `durable <durable@localhost>`, is pinned per session.
 - **Project context:** a repo session pins the clone's `AGENTS.md` and its `.durable/skills` and
   `.agents/skills` when it is created.
+- **Go development:** `mise run image:worker-go` builds a worker image with Go and golangci-lint.
+  Put `{ "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] } }` in
+  `~/.durable/environments.json` and create sessions with `environment: "go"`. The grant lets only
+  the `go` binary reach the module proxy. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
 - **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
 - **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open
   creates a fresh one, and a repo session clones its branch again.

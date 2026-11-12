@@ -57,7 +57,7 @@ func newSandboxEnv(t *testing.T) *sandboxEnv {
 	f := sandboxtest.New(t)
 	h := githosttest.New(t)
 	e.cfg.Sandbox = &commands.SandboxConfig{
-		Backend: f, Image: "img:1",
+		Backend: f, Environments: map[string]commands.Environment{"default": {Image: "img:1"}},
 		GitHosts: map[string]githost.Host{"github": h}, GitTokens: map[string]bool{"github": true},
 	}
 	e.cfg.IdleTimeout = 100 * time.Millisecond

@@ -223,12 +223,15 @@ durable-server --sandbox-image durable-worker:dev
 ```
 
 - `--sandbox-image <ref>` runs the built-in tools of new sessions in an OpenShell sandbox from the
-  image. Existing sessions keep their pin. The server connects to the gateway on first use, so
+  image, as the `default` [environment](#environments-images-and-network-grants). Existing sessions keep their pin. The server connects to the gateway on first use, so
   without the flag and without sandboxed sessions it never contacts one.
 - A server with the flag creates empty and repo sessions: `CreateSession` takes `workspace: EMPTY` and a
   `request_id`, or `workspace: REPO` with a `repo` and `branch`, and refuses a directory with
   `FAILED_PRECONDITION`. Without the flag it refuses both the same way. `GetServerInfo` lists the kinds the server accepts.
 - `--git-host-token <kind>=<source>` gives the server a git host token; see [git host tokens](#git-host-tokens).
+- `--git-author "NAME <EMAIL>"` is the author of commits in new sandboxed sessions, default
+  `durable <durable@localhost>`. It reaches git as `user.name` and `user.email` config in the sandbox's
+  environment, and is pinned per session like the image, so existing sessions keep theirs.
 - `durable-server sandbox-delete <session-id>` deletes a session's sandbox; see above.
 - `mise run test:openshell` runs the gateway tests.
 
@@ -254,6 +257,49 @@ A repo session, created through the API:
 # workspace REPO, repo github.com/owner/name, branch main; the UI form has the same fields
 durable-server --sandbox-image durable-worker:dev --git-host-token github=gh
 ```
+
+### Environments: images and network grants
+
+An environment pairs a worker image with the network grants a session gets. There are three layers.
+
+- **Images** hold the tools. `durable-worker:dev` has bash, git and curl. `durable-worker-go:dev`, from
+  `mise run image:worker-go`, adds the Go toolchain and golangci-lint on top of it.
+- **Grants** are named network allowances built into the server. A grant names the binaries that may
+  connect and the hosts they may reach. The environments file picks grants by name and can't add hosts.
+- **Environments** are named in `~/.durable/environments.json`. `--sandbox-image REF` adds one named
+  `default`, and a file entry with that name as well is a startup error. The server is sandboxed when it has any
+  environment. A missing file has none.
+
+```json
+{ "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] } }
+```
+
+```sh
+mise run image:worker-go
+durable-server
+```
+
+`CreateSession` takes an `environment`. Empty means `default`, or the only environment when there is exactly one.
+An unknown or ambiguous name, or an environment on a directory workspace, returns `INVALID_ARGUMENT`.
+`GetServerInfo` lists the environments, and `ListSessions` reports each session's.
+
+The `go-modules` grant is one plain L4 rule, `durable-grant-go-modules`. It lets `/usr/local/go/bin/go`
+reach `proxy.golang.org:443` and `sum.golang.org:443`. `go mod tidy`, `download`, `build` and `test` work with
+it, and so does `golangci-lint run`, whose `go list` runs as the go binary. Other binaries and other hosts stay denied.
+
+Image notes for the Go image:
+
+- HOME is `/sandbox`, the workspace, and only `/tmp` and `/sandbox` are writable. The image sets `GOPATH`,
+  `GOCACHE`, `GOLANGCI_LINT_CACHE`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` under `/tmp`, so caches and config,
+  such as Go's telemetry counters, stay out of the repo and its commits.
+- `GOPROXY` is `https://proxy.golang.org` with no `direct`, so modules come only from the proxy. A private module fails.
+- `GOTOOLCHAIN=local`, so a `go` line newer than the image's Go fails instead of downloading a toolchain.
+- The image's `ENV` reaches the worker, and so the agent's `bash`.
+
+The first pin records the environment's image and its grants in `sandbox.json`, and create builds the policy from the
+pin. Reopening a session ignores the file, so editing or removing an environment never changes an existing session or
+breaks it. A create for a session that already exists returns it with its own environment; the first create wins.
+A repo session that pushes straight to its branch (trunk-based work) needs the branch to allow direct pushes.
 
 ### A sandboxed session's workspace is empty or a repo
 
@@ -484,7 +530,7 @@ Each slice is one PR.
   matters only at create. See [one sandbox per session](#one-sandbox-per-session).
 - **Later:** does a running sandbox pick up a rotated provider credential before its next start?
 - **Later:** one sandbox per session, or one per repository shared across sessions?
-- **Later:** a per-session egress policy beyond GitHub, and how a person approves a new rule.
+- **Partly answered:** named grants through [environments](#environments-images-and-network-grants). A `github-api` grant for `gh` and `curl` with the token binding is the next one. How a person approves a new rule is still open.
 - **Later:** run each MCP server in its own sandbox, so its credentials and egress aren't shared
   with the agent. Today they share the session's sandbox; see
   [MCP servers run in the sandbox](#mcp-servers-run-in-the-sandbox).

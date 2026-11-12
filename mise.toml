@@ -49,8 +49,13 @@ depends = ["image:worker"]
 # The worker image plus a stdio MCP server for the gateway tests.
 run = "docker build -f docker/worker-test.Dockerfile -t durable-worker:mcptest ."
 
+[tasks."image:worker-go"]
+depends = ["image:worker"]
+# The worker image plus the Go toolchain and golangci-lint, for the go-modules grant.
+run = "docker build -f docker/worker-go.Dockerfile -t durable-worker-go:dev ."
+
 [tasks."test:openshell"]
-depends = ["image:worker-test"]
+depends = ["image:worker-test", "image:worker-go"]
 run = "DURABLE_TEST_OPENSHELL=1 go test -count=1 -timeout 20m -run . ./internal/sandbox/openshell/ ./cmd/durable-server/"
 
 [tasks."web:gen"]
