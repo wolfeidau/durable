@@ -45,7 +45,7 @@ func TestPinRoundTripsGitAccessAndOmitsItWhenEmpty(t *testing.T) {
 		Binaries: []string{"/usr/bin/git"},
 	}}
 	dir := t.TempDir()
-	pin, err := sandbox.WritePinGit(dir, "img", nil, access, nil)
+	pin, err := sandbox.WritePinGit(dir, "img", nil, access, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, access, pin.Git)
 	require.Equal(t, access, pin.Spec().Git)
@@ -169,7 +169,7 @@ func TestPinWithGrantsRoundTripsAndOldPinsDecodeWithNone(t *testing.T) {
 	dir := t.TempDir()
 	grants := []sandbox.Grant{{Name: "go-modules", Binaries: []string{"/usr/local/go/bin/go"}, Endpoints: []sandbox.Endpoint{{Host: "proxy.golang.org", Port: 443}}}}
 
-	p, err := sandbox.WritePinGit(dir, "img", nil, nil, grants)
+	p, err := sandbox.WritePinGit(dir, "img", nil, nil, grants, nil)
 	require.NoError(t, err)
 	require.Equal(t, grants, p.Grants)
 	require.Equal(t, grants, p.Spec().Grants)

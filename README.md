@@ -108,6 +108,7 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
   `gh`. Without it, the server reads `DURABLE_GITHUB_TOKEN`, and with no token at all, sessions
   clone public repos anonymously. The token stays on the server, and the sandbox sees only a
   placeholder. A fine-grained token limited to the repos durable should reach is safest.
+- **Commit author:** `--git-author "NAME <EMAIL>"`, default `durable <durable@localhost>`, is pinned per session.
 - **Project context:** a repo session pins the clone's `AGENTS.md` and its `.durable/skills` and
   `.agents/skills` when it is created.
 - **Go development:** `mise run image:worker-go` builds a worker image with Go and golangci-lint.

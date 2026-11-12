@@ -229,6 +229,9 @@ durable-server --sandbox-image durable-worker:dev
   `request_id`, or `workspace: REPO` with a `repo` and `branch`, and refuses a directory with
   `FAILED_PRECONDITION`. Without the flag it refuses both the same way. `GetServerInfo` lists the kinds the server accepts.
 - `--git-host-token <kind>=<source>` gives the server a git host token; see [git host tokens](#git-host-tokens).
+- `--git-author "NAME <EMAIL>"` is the author of commits in new sandboxed sessions, default
+  `durable <durable@localhost>`. It reaches git as `user.name` and `user.email` config in the sandbox's
+  environment, and is pinned per session like the image, so existing sessions keep theirs.
 - `durable-server sandbox-delete <session-id>` deletes a session's sandbox; see above.
 - `mise run test:openshell` runs the gateway tests.
 

@@ -107,7 +107,7 @@ func (l *Launcher) Create(ctx context.Context, s sandbox.Spec) error {
 		return err
 	}
 	env := map[string]string{worker.TokenEnv: s.Token}
-	maps.Copy(env, gitEnv(s.Git))
+	maps.Copy(env, gitEnv(s.GitConfig, s.Git))
 	spec := &v1.SandboxSpec{
 		Environment: env,
 		Providers:   gitProviders(s.Git),
@@ -253,8 +253,11 @@ func gitProviders(access []sandbox.GitAccess) []string {
 }
 
 // gitEnv numbers the git client's config entries in key order so the environment is the same on every create.
-func gitEnv(access []sandbox.GitAccess) map[string]string {
-	conf := map[string]string{}
+func gitEnv(base map[string]string, access []sandbox.GitAccess) map[string]string {
+	conf := maps.Clone(base)
+	if conf == nil {
+		conf = map[string]string{}
+	}
 	for _, g := range access {
 		maps.Copy(conf, g.GitConfig)
 	}

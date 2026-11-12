@@ -198,7 +198,7 @@ func TestMixedAnonymousAndCredentialedAccessStaySeparate(t *testing.T) {
 }
 
 func TestGitEnvNumbersKeysInSortedOrder(t *testing.T) {
-	env := gitEnv([]sandbox.GitAccess{
+	env := gitEnv(nil, []sandbox.GitAccess{
 		{GitConfig: map[string]string{"b.key": "vb", "a.key": "va"}},
 		{GitConfig: map[string]string{"c.key": "vc"}},
 	})

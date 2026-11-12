@@ -44,6 +44,8 @@ type SandboxConfig struct {
 	GitHosts map[string]githost.Host
 	// GitTokens is true for each host kind the server holds a token for; a repo on any other host is cloned anonymously.
 	GitTokens map[string]bool
+	// GitAuthor is the commit author new sessions pin; unset leaves sandboxes without one.
+	GitAuthor sandbox.GitIdentity
 }
 
 // AssembleConfig is everything Assemble needs to build a session's options without a terminal.
@@ -351,7 +353,7 @@ func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, f
 			return nil, nil, nil, err
 		}
 		// The access and grants are fixed here, so a reopen keeps them even if the tokens or the environments file changed.
-		if pin, err = sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, buildGrants(env.Grants, c.Workspace, access)); err != nil {
+		if pin, err = sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, buildGrants(env.Grants, c.Workspace, access), c.Sandbox.GitAuthor.Config()); err != nil {
 			return nil, nil, nil, err
 		}
 	}

@@ -35,6 +35,21 @@ type Spec struct {
 	Git []GitAccess
 	// Grants are the extra network access the sandbox's environment allows.
 	Grants []Grant
+	// GitConfig is the git client config for the whole sandbox, such as the commit author.
+	GitConfig map[string]string
+}
+
+// GitIdentity is the author of commits made in a sandbox.
+type GitIdentity struct {
+	Name, Email string
+}
+
+// Config returns the identity as git config, or nil when it is unset.
+func (g GitIdentity) Config() map[string]string {
+	if g.Name == "" || g.Email == "" {
+		return nil
+	}
+	return map[string]string{"user.name": g.Name, "user.email": g.Email}
 }
 
 // Grant is a named network allowance for specific binaries, as neutral data a backend turns into policy.
@@ -109,6 +124,8 @@ type Pin struct {
 	Git []GitAccess `json:"git,omitempty"`
 	// Grants are fixed at the first pin, like Egress. Pins from before them have none.
 	Grants []Grant `json:"grants,omitempty"`
+	// GitConfig is fixed at the first pin, like Egress. Pins from before it have none, so no commit author.
+	GitConfig map[string]string `json:"git_config,omitempty"`
 }
 
 // Spec returns the pin as a sandbox spec.
@@ -135,11 +152,11 @@ func ReadPin(dir string) (p Pin, ok bool, err error) {
 // WritePin pins image and egress for the session in dir with a fresh random name and token. The first writer wins, and
 // every caller gets the winner's pin back.
 func WritePin(dir, image string, egress ...Endpoint) (Pin, error) {
-	return WritePinGit(dir, image, egress, nil, nil)
+	return WritePinGit(dir, image, egress, nil, nil, nil)
 }
 
-// WritePinGit is WritePin with repository access and grants, which are fixed at the first pin too.
-func WritePinGit(dir, image string, egress []Endpoint, repos []GitAccess, grants []Grant) (Pin, error) {
+// WritePinGit is WritePin with repository access, grants and git config, which are fixed at the first pin too.
+func WritePinGit(dir, image string, egress []Endpoint, repos []GitAccess, grants []Grant, gitConfig map[string]string) (Pin, error) {
 	if p, ok, err := ReadPin(dir); ok || err != nil {
 		return p, err
 	}
@@ -152,7 +169,7 @@ func WritePinGit(dir, image string, egress []Endpoint, repos []GitAccess, grants
 		return Pin{}, err
 	}
 	// The name is random, not derived from the session, so homes never collide; "ds-" plus 16 hex fits OpenShell's name limit.
-	data, err := json.Marshal(Pin{Name: "ds-" + name, Image: image, Token: token, Egress: egress, Git: repos, Grants: grants})
+	data, err := json.Marshal(Pin{Name: "ds-" + name, Image: image, Token: token, Egress: egress, Git: repos, Grants: grants, GitConfig: gitConfig})
 	if err != nil {
 		return Pin{}, fmt.Errorf("failed to encode sandbox pin: %w", err)
 	}
