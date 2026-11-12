@@ -330,8 +330,7 @@ A minimal test page uses connect-web's `WatchEvents` on loopback. It checks that
 fall back to SSE for the browser. Phase 3 automates it with Playwright, run from its Docker image,
 in [#83](https://github.com/wolfeidau/durable/issues/83).
 
-**Spike result: passed.** The page lives on the unmerged
-[`spike/browser-watch`](https://github.com/wolfeidau/durable/tree/spike/browser-watch) branch. It was
+**Spike result: passed.** The throwaway page is retired, and its results are recorded here. It was
 driven by hand in Chrome against a real OpenRouter model:
 
 - `WatchEvents` was one `fetch` over HTTP/1.1, open for 50s, and events arrived as they committed,
@@ -437,9 +436,11 @@ a `ReplayNever` call records an unknown outcome and doesn't run again. See
      misconfigured for its provider. Cancel by `request_id` from a second client. The status of a
      session that idled out with an approval pending.
 
-4. **Remote execution. Designed; see [remote execution](remote-execution.md).** Tools run in an
-   OpenShell sandbox that the server connects in to. The workspace is empty, or a clone of the
-   session's repo whose work comes back through `git push`. Git hosts are pluggable, GitHub first.
+4. **Remote execution. Built in #88 to #96; see [remote execution](remote-execution.md).** Tools run in an
+   [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox that the server connects in to. The
+   workspace is empty, or a clone of the session's repo whose work comes back through `git push`.
+   The repo's `AGENTS.md` and skills are read from the clone. Git hosts are pluggable, and GitHub is
+   the only one so far. More hosts and the open questions stay in that doc.
 5. **Scale.** Queues, multiple workers and microVMs.
 
 ## Open questions

@@ -15,8 +15,13 @@ For how it compares with Pi, Pi Durable and Claude Code, see the [feature matrix
 - **Models:** Anthropic and OpenRouter, pinned per session.
 - **Extensions:** MCP tools, Agent Skills, `AGENTS.md`, and `PreToolUse` and `PostToolUse` hooks.
 - **Embeddable:** a Go library with two interfaces, `Model` and `Tool`, and reusable adapters and tools.
+- **Server and web UI:** `durable-server` serves the sessions over a Connect API and a browser UI on
+  loopback: create a session, watch the reply stream, approve tool calls and cancel.
+- **Sandboxed sessions:** with [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell), the server
+  runs each session's tools in its own sandbox. The workspace is empty or a clone of a GitHub repo
+  and branch, and a repo session loads the clone's `AGENTS.md` and skills.
 
-Not included: a TUI, parallel tool calls, subagents, an OS sandbox or usage tracking.
+Not included: a TUI, parallel tool calls, subagents, an OS sandbox for `durable chat`, or usage tracking.
 See the [feature matrix](docs/feature-matrix.md).
 
 ## Quick start
@@ -65,6 +70,52 @@ Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default)
   Ctrl-D exits. A second Ctrl-C exits without waiting for the turn: the task resumes on restart,
   after waiting out the session lease.
 
+## Running the server
+
+`durable-server` runs the same agent behind an API and a web UI. It listens on `127.0.0.1:7878` and
+keeps one bearer token in `~/.durable/server-token`:
+
+```sh
+go install github.com/wolfeidau/durable/cmd/durable-server@latest
+durable-server serve --api-token-from-1password 'op://<vault>/<item>/<field>'
+durable-server url   # prints the browser link, with the token in the URL fragment
+```
+
+- **Web UI:** a `go install` build serves a placeholder page. To embed the UI, build from a checkout
+  with `mise run web:build` first, then `go build ./cmd/durable-server`.
+- **Models:** `--provider`, `--protocol` and `--model` set the route for new sessions, as in
+  `durable chat`. Existing sessions keep their pin.
+- **Sessions:** without a sandbox, a session is a directory on your machine, typed as an absolute
+  path, and its tools run as you. It is the same session `durable chat` opens there, and a lease
+  hands it between the two.
+- **Access:** loopback only by default, and `durable-server rotate-token` replaces the token. See
+  [docs/server-access.md](docs/server-access.md).
+
+### Sandboxed sessions
+
+`--sandbox-image` runs the tools of new sessions in an [OpenShell](https://docs.nvidia.com/openshell/)
+sandbox, one per session. The model loop, the model key and `session.sqlite` stay on the host. You
+need a running OpenShell gateway and the worker image, built from a checkout:
+
+```sh
+mise run image:worker
+durable-server serve --sandbox-image durable-worker:dev --git-host-token github=gh
+```
+
+- **Workspaces:** a sandboxed session starts empty, or as a clone of a repo and branch. Work comes
+  back through `git push`.
+- **Git hosts:** GitHub only so far. `--git-host-token github=<source>` takes an `op://` reference or
+  `gh`. Without it, the server reads `DURABLE_GITHUB_TOKEN`, and with no token at all, sessions
+  clone public repos anonymously. The token stays on the server, and the sandbox sees only a
+  placeholder. A fine-grained token limited to the repos durable should reach is safest.
+- **Project context:** a repo session pins the clone's `AGENTS.md` and its `.durable/skills` and
+  `.agents/skills` when it is created.
+- **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
+- **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open
+  creates a fresh one, and a repo session clones its branch again.
+
+See [docs/remote-execution.md](docs/remote-execution.md) for the design and the egress policy.
+
 ## Extending it
 
 - **Providers:** `anthropic` is the default, and `openrouter` reaches other models over
@@ -73,7 +124,8 @@ Flags: `--provider` (default `anthropic`), `--protocol` (the provider's default)
 - **Project instructions:** a new session loads `AGENTS.md` files into the system prompt, from
   `~/.durable` and from the repository root down to the working directory. **A cloned repository's
   `AGENTS.md` goes into the system prompt, so treat it as untrusted input, especially with
-  `--yes`.** `--no-context` skips loading. See [docs/context.md](docs/context.md).
+  `--yes`.** `--no-context` skips loading. A sandboxed repo session reads them from its clone. See
+  [docs/context.md](docs/context.md).
 - **Skills:** a new session loads [Agent Skills](https://agentskills.io/specification) from
   `.durable/skills`, `.agents/skills` and the matching folders in `~/`. **A cloned repository's
   skills go into the model's context, so treat them as untrusted input, especially with `--yes`.**
@@ -321,6 +373,19 @@ it at a fake Anthropic server, kill it mid-`bash` and at an approval prompt, the
 check the tool ran once and the outcome was reported. The harness tests simulate crashes by
 cancelling the context at the worst moments, including after a tool's side effect and during a
 model call.
+
+The server's real-binary tests in `cmd/durable-server` cover the API, approvals, idle close and
+network faults. `mise run test:openshell` runs sandboxed sessions, including a repo clone, against a
+local OpenShell gateway. Plain `go test` skips them.
+
+## Docs
+
+- [Architecture](docs/architecture.md): the design and its phases.
+- [Feature matrix](docs/feature-matrix.md): durable compared with Pi, Pi Durable and Claude Code.
+- [Providers](docs/providers.md), [context](docs/context.md), [MCP](docs/mcp.md) and
+  [hooks](docs/hooks.md).
+- [Server access](docs/server-access.md), the [web UI](docs/web-ui.md) and
+  [remote execution](docs/remote-execution.md).
 
 ## Next steps, roughly in order of payoff
 

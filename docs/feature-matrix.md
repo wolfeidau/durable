@@ -95,7 +95,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Allow, ask, deny rules | No | Ext | Ext | Yes |
 | Workspace path scoping | Part: file tools only | No: cwd isn't a boundary | Ext | Yes |
 | Strips credentials from bash | Part: `ANTHROPIC_*`, `OPENROUTER_*`, `OP_*` | n/d | n/d | n/d |
-| OS sandbox | No: deferred, see #9 | Ext: containers | No | Yes |
+| OS sandbox | Server only: a per-session [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox; `durable chat` stays unsandboxed, see #9 | Ext: containers | No | Yes |
 
 ## Interfaces and embedding
 
@@ -103,10 +103,10 @@ writers across processes, and bash orphans are stopped on recovery.
 |---|---|---|---|---|
 | Interactive terminal | Part: line REPL | Yes: TUI | n/a: library | Yes |
 | Non-interactive run | Part: piped stdin | Yes: `-p` | n/a: library | Yes: `-p` |
-| Structured event output | Part: `Observer`, library only | Yes: JSON mode | Yes: `watch` | Yes: stream JSON |
+| Structured event output | Yes: `Observer` in the library, `WatchEvents` on the server | Yes: JSON mode | Yes: `watch` | Yes: stream JSON |
 | RPC over stdio | No | Yes | n/a: library | Part: SDK |
 | Embeddable library | Yes: harness, tools, Claude and Responses adapters | Yes: SDK | Yes | Yes: Agent SDK |
-| Multiple clients on one session | No | n/d | Yes: read-only opens, `watch` | Part: Remote Control |
+| Multiple clients on one session | Yes: server watchers share a session; the CLI hands over by lease | n/d | Yes: read-only opens, `watch` | Part: Remote Control |
 | Telemetry | No | n/d | Yes: metrics | Yes |
 
 ## Recommended order
@@ -125,8 +125,8 @@ prerequisites for a modular harness. Items 5 to 8 are features on top.
 | 7 | Done: `hooks` package and `~/.durable/hooks.json`, not pinned; only `PreToolUse` and `PostToolUse` so far | The only practical runtime extension in Go. Existing Claude Code hooks need adapting; see [hooks](hooks.md) | M |
 | 8 | Add steering and durable subagents | README next steps 2 and 3. Subagents need multiple conversations per store first | L |
 
-Leave out for now: a TUI, more providers beyond Anthropic and OpenRouter, codemode and the
-OS sandbox, which stays deferred on #9. A package format also waits: it adds no capability
+Leave out for now: a TUI, more providers beyond Anthropic and OpenRouter, codemode and an
+OS sandbox for `durable chat`, which stays deferred on #9. A package format also waits: it adds no capability
 beyond MCP, skills and hooks, so build it when someone else needs to install a shared set of
 extensions, or when copying one setup across machines or projects becomes a real cost.
 
