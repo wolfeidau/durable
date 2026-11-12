@@ -414,6 +414,11 @@ tbody tr:focus-within {
 .session-name {
   font-weight: 600;
   overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.session-name:hover {
+  text-decoration: underline;
 }
 
 .workspace {
@@ -527,6 +532,10 @@ tbody tr:focus-within {
   gap: 0.5rem;
   align-items: baseline;
   overflow-wrap: anywhere;
+}
+
+.info-where .kind {
+  flex-shrink: 0;
 }
 
 .session-id {
