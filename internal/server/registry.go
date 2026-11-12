@@ -143,18 +143,22 @@ func (r *Registry) Environments() []commands.Environment {
 }
 
 // ResolveEnvironment returns the name of the environment a new session gets; empty resolves as commands.ResolveEnvironment does.
-// A session that already exists keeps its own, so it resolves to empty and a repeated create never fails on a changed file.
+// A name that no longer resolves is fine for a session that already exists, which keeps its own, so a repeated create
+// never fails on a changed file; a valid name still wins, so a retry of a create that failed before its pin keeps it.
 func (r *Registry) ResolveEnvironment(id, name string) (string, error) {
-	if dir, err := SessionDir(r.cfg.Home, id); err == nil {
-		if _, err := commands.ReadSessionMeta(dir); err == nil {
+	err := commands.ErrEnvironment
+	if r.cfg.Sandbox != nil {
+		var e commands.Environment
+		if e, err = commands.ResolveEnvironment(r.cfg.Sandbox.Environments, name); err == nil {
+			return e.Name, nil
+		}
+	}
+	if dir, derr := SessionDir(r.cfg.Home, id); derr == nil {
+		if _, merr := commands.ReadSessionMeta(dir); merr == nil {
 			return "", nil
 		}
 	}
-	if r.cfg.Sandbox == nil {
-		return "", commands.ErrEnvironment
-	}
-	e, err := commands.ResolveEnvironment(r.cfg.Sandbox.Environments, name)
-	return e.Name, err
+	return "", err
 }
 
 // ParseRepo parses raw with the first configured git host that accepts it. The error never quotes raw, which may hold a credential.
