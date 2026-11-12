@@ -2,7 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { describe, expect, test } from "bun:test";
 import { SessionInfoSchema, Workspace } from "./gen/durable/v1/durable_pb";
-import { age, kindLabel, sorted, where } from "./sessions";
+import { age, kindLabel, kindText, sorted, where } from "./sessions";
 
 const now = 1_700_000_000_000;
 
@@ -11,6 +11,7 @@ interface Init {
   workspace?: Workspace;
   cwd?: string;
   repo?: string;
+  environment?: string;
   branch?: string;
   pendingApprovals?: number;
   createdMs?: number;
@@ -61,6 +62,13 @@ describe("workspace labels", () => {
     const s = info({ workspace: Workspace.REPO, repo: "github.com/o/n", branch: "main" });
     expect(where(s)).toBe("github.com/o/n@main");
     expect(kindLabel(s)).toBe("Repo");
+  });
+});
+
+describe("kindText", () => {
+  test("adds the environment when set", () => {
+    expect(kindText(info({ workspace: Workspace.REPO, environment: "go" }))).toBe("Repo · go");
+    expect(kindText(info({ workspace: Workspace.REPO }))).toBe("Repo");
   });
 });
 

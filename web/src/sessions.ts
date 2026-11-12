@@ -46,3 +46,7 @@ export function kindLabel(s: SessionInfo): "Directory" | "Empty" | "Repo" {
       return "Directory";
   }
 }
+
+export function kindText(s: SessionInfo): string {
+  return s.environment ? `${kindLabel(s)} · ${s.environment}` : kindLabel(s);
+}

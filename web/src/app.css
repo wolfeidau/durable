@@ -286,6 +286,9 @@ label input, label select { margin-top: 0.25rem; }
   overflow: hidden;
 }
 
+.segmented.env { max-width: 100%; flex-wrap: wrap; }
+.segmented.env label { overflow-wrap: anywhere; }
+
 .segmented input {
   position: absolute;
   width: 1px;
