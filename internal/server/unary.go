@@ -115,7 +115,7 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 	switch req.Msg.GetWorkspace() {
 	case v1.Workspace_WORKSPACE_UNSPECIFIED, v1.Workspace_WORKSPACE_DIRECTORY:
 		if s.reg.Sandboxed() {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty and repo sessions: start it without --sandbox-image for directory sessions"))
+			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty and repo sessions: start it without --sandbox-image or environments for directory sessions"))
 		}
 		cwd := req.Msg.GetCwd()
 		if !filepath.IsAbs(cwd) {
@@ -175,19 +175,20 @@ func (s sessionService) emptySpec(msg *v1.CreateSessionRequest, name string) (cr
 		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id must be at least 16 characters; use a random value"))
 	}
 	if !s.reg.Sandboxed() {
-		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image"))
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/environments.json"))
 	}
-	env, err := s.environment(msg.GetEnvironment())
+	id := commands.EmptySessionID(msg.GetRequestId())
+	env, err := s.environment(id, msg.GetEnvironment())
 	if err != nil {
 		return createSpec{}, err
 	}
-	return createSpec{workspace: commands.WorkspaceEmpty, name: name, id: commands.EmptySessionID(msg.GetRequestId()), environment: env}, nil
+	return createSpec{workspace: commands.WorkspaceEmpty, name: name, id: id, environment: env}, nil
 }
 
 // repoSpec validates a repo create. Its errors are fixed text, because the input may hold a credential.
 func (s sessionService) repoSpec(msg *v1.CreateSessionRequest) (createSpec, error) {
 	if !s.reg.Sandboxed() {
-		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("repo sessions need a sandbox: start the server with --sandbox-image"))
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("repo sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/environments.json"))
 	}
 	if msg.GetCwd() != "" || msg.GetRequestId() != "" {
 		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("a repo workspace takes no cwd or request_id"))
@@ -203,18 +204,16 @@ func (s sessionService) repoSpec(msg *v1.CreateSessionRequest) (createSpec, erro
 	if !validBranch(branch) {
 		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("branch is not a valid branch name"))
 	}
-	env, err := s.environment(msg.GetEnvironment())
-	if err != nil {
-		return createSpec{}, err
-	}
 	name := msg.GetName()
 	if name == "" {
 		name = "default"
 	}
-	return createSpec{
-		workspace: commands.WorkspaceRepo, name: name, repo: repo, branch: branch, environment: env,
-		id: commands.RepoSessionID(repo.String(), branch, name),
-	}, nil
+	id := commands.RepoSessionID(repo.String(), branch, name)
+	env, err := s.environment(id, msg.GetEnvironment())
+	if err != nil {
+		return createSpec{}, err
+	}
+	return createSpec{workspace: commands.WorkspaceRepo, name: name, repo: repo, branch: branch, environment: env, id: id}, nil
 }
 
 // checkEnvironmentApplies rejects an environment on a directory workspace or a server without a sandbox.
@@ -228,8 +227,8 @@ func (s sessionService) checkEnvironmentApplies(msg *v1.CreateSessionRequest) er
 }
 
 // environment resolves the requested environment of an empty or repo create, or returns INVALID_ARGUMENT naming the available ones.
-func (s sessionService) environment(name string) (string, error) {
-	env, err := s.reg.ResolveEnvironment(name)
+func (s sessionService) environment(id, name string) (string, error) {
+	env, err := s.reg.ResolveEnvironment(id, name)
 	if err != nil {
 		return "", connect.NewError(connect.CodeInvalidArgument, err)
 	}

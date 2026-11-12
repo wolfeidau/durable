@@ -146,6 +146,51 @@ func TestCreateWithEnvironmentPinsImageAndGrants(t *testing.T) {
 	require.Equal(t, "go", meta.Environment)
 }
 
+func TestRepeatedCreateReturnsTheFirstSessionEvenWhenTheEnvironmentChanged(t *testing.T) {
+	_, home := newWorkspace(t)
+	writeEnvironments(t, home, `{"go": {"image": "durable-worker-go:dev"}, "rust": {"image": "durable-worker-rust:dev"}}`)
+	r := envServer(t, home)
+	c := newClient(r)
+	const requestID = "req-repeat-0123456789"
+
+	// The session as a first create leaves it, written directly because there is no gateway to open its sandbox.
+	dir := filepath.Join(home, ".durable", "sessions", commands.EmptySessionID(requestID))
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, commands.WriteSessionMeta(dir, commands.SessionMeta{Name: "s", Workspace: commands.WorkspaceEmpty, Environment: "go", CreatedAt: time.Now().UTC()}))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "session.sqlite"), nil, 0o600))
+	_, err := sandbox.WritePin(dir, "durable-worker-go:dev")
+	require.NoError(t, err)
+	pinPath := filepath.Join(dir, sandbox.PinFile)
+	before, err := os.ReadFile(pinPath)
+	require.NoError(t, err)
+
+	got, err := c.createEmptyIn(t, "rust", requestID)
+
+	require.NoError(t, err)
+	require.False(t, got.GetCreated())
+	require.Equal(t, "go", got.GetSession().GetEnvironment())
+	after, err := os.ReadFile(pinPath)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after))
+	require.Contains(t, string(after), "durable-worker-go:dev")
+
+	// A restart whose file no longer has the environment still returns the session.
+	require.NoError(t, r.cmd.Process.Kill())
+	<-r.done
+	require.NoError(t, os.Remove(filepath.Join(home, ".durable", "server.json")))
+	writeEnvironments(t, home, `{"rust": {"image": "durable-worker-rust:dev"}, "node": {"image": "durable-worker-node:dev"}}`)
+	c = newClient(envServer(t, home))
+
+	got, err = c.createEmptyIn(t, "go", requestID)
+
+	require.NoError(t, err)
+	require.False(t, got.GetCreated())
+	require.Equal(t, "go", got.GetSession().GetEnvironment())
+	got, err = c.createEmptyIn(t, "", requestID)
+	require.NoError(t, err, "an empty name is ambiguous for a new session, not an existing one")
+	require.Equal(t, "go", got.GetSession().GetEnvironment())
+}
+
 func TestListSessionsReportsTheEnvironment(t *testing.T) {
 	_, home := newWorkspace(t)
 	dir := filepath.Join(home, ".durable", "sessions", "0123456789abcdef")

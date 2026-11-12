@@ -143,7 +143,13 @@ func (r *Registry) Environments() []commands.Environment {
 }
 
 // ResolveEnvironment returns the name of the environment a new session gets; empty resolves as commands.ResolveEnvironment does.
-func (r *Registry) ResolveEnvironment(name string) (string, error) {
+// A session that already exists keeps its own, so it resolves to empty and a repeated create never fails on a changed file.
+func (r *Registry) ResolveEnvironment(id, name string) (string, error) {
+	if dir, err := SessionDir(r.cfg.Home, id); err == nil {
+		if _, err := commands.ReadSessionMeta(dir); err == nil {
+			return "", nil
+		}
+	}
 	if r.cfg.Sandbox == nil {
 		return "", commands.ErrEnvironment
 	}
