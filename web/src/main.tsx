@@ -31,7 +31,7 @@ const queryClient = new QueryClient({
 function Crumb({ sessionId }: { sessionId: string }): ReactElement {
   const { data } = useQuery(listSessions, {});
   const name = data?.sessions.find((s) => s.id === sessionId)?.name;
-  return <span className="crumb-name">{name || sessionId}</span>;
+  return <span className="crumb-name" aria-current="page">{name || sessionId}</span>;
 }
 
 function App(): ReactElement {

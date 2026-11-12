@@ -15,11 +15,12 @@ As of #80, the UI works end to end without the CLI:
   new-session form.
 - The live transcript as plain text, with streamed model text and `bash` output, tool calls and
   their results, submission errors and compaction events.
-- The approval prompt, submit, cancel, and a status line that reports reconnects, missing auth and a
-  session taken over by another process.
+- The approval prompt, submit, cancel, and a connection status that reports reconnects, missing
+  auth and a session taken over by another process.
 - Resume across server restarts under one epoch, and replay from 0 after a restore.
-- A header bar with the connection status, a session table, and tool call cards, in light and dark
-  themes.
+
+The visual design followed: a header bar with a breadcrumb and the connection status, a session
+table that stacks on narrow screens, and tool call cards, in light and dark themes.
 
 ## First iteration
 
