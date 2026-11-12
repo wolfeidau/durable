@@ -30,6 +30,8 @@ type SessionMeta struct {
 	// Repo is the canonical repository and Branch the branch cloned, for a repo session.
 	Repo   string `json:"repo,omitempty"`
 	Branch string `json:"branch,omitempty"`
+	// Environment is the sandbox environment the session was created with; sessions from before it have none.
+	Environment string `json:"environment,omitempty"`
 	// ID is the session directory name, the id the API uses.
 	ID string `json:"-"`
 }

@@ -44,6 +44,15 @@ message GetServerInfoRequest {}
 message GetServerInfoResponse {
   // workspaces lists the kinds CreateSession accepts.
   repeated Workspace workspaces = 1;
+  // environments lists the sandbox environments CreateSession accepts; empty for a server without a sandbox.
+  repeated EnvironmentInfo environments = 2;
+}
+
+// EnvironmentInfo is a sandbox environment: a worker image and the network grants a session gets.
+message EnvironmentInfo {
+  string name = 1;
+  string image = 2;
+  repeated string grants = 3;
 }
 
 message CreateSessionRequest {
@@ -60,6 +69,10 @@ message CreateSessionRequest {
   string repo = 5;
   // branch is required for a repo workspace.
   string branch = 6;
+  // environment names a sandbox environment from GetServerInfo. Empty means "default", or the only environment when there
+  // is exactly one. It applies to empty and repo workspaces only, and the first create wins: a create that finds the
+  // session already there returns it with its own environment.
+  string environment = 7;
 }
 
 message CreateSessionResponse {
@@ -91,6 +104,8 @@ message SessionInfo {
   // repo is the canonical repository, such as github.com/owner/name, for a repo workspace.
   string repo = 8;
   string branch = 9;
+  // environment is the sandbox environment the session was created with; empty for a directory session or one from before environments.
+  string environment = 10;
 }
 
 message SubmitRequest {

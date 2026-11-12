@@ -56,8 +56,13 @@ func gitEnv(t *testing.T, srv *httptest.Server) []string {
 // runFailing runs the server expecting it to exit, and returns its output.
 func runFailing(t *testing.T, env []string, args ...string) string {
 	t.Helper()
+	return runFailingIn(t, t.TempDir(), env, args...)
+}
+
+func runFailingIn(t *testing.T, home string, env []string, args ...string) string {
+	t.Helper()
 	cmd := exec.CommandContext(t.Context(), binPath, append([]string{"--addr", "127.0.0.1:0"}, args...)...)
-	cmd.Env = append(append(os.Environ(), "HOME="+t.TempDir()), env...)
+	cmd.Env = append(append(os.Environ(), "HOME="+home), env...)
 	done := make(chan struct{})
 	var out []byte
 	var err error

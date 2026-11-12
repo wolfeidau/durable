@@ -24,7 +24,7 @@ func repoCfg(t *testing.T, f *sandboxtest.Fake, h *githosttest.Host, branch stri
 		Workspace: WorkspaceRepo, SessionID: RepoSessionID(repo.String(), branch, "default"), Session: "default", APIToken: "k",
 		Repo: repo, Branch: branch,
 		Sandbox: &SandboxConfig{
-			Backend: f, Image: "img:1",
+			Backend: f, Environments: imageEnvs("img:1"),
 			GitHosts:  map[string]githost.Host{"github": h},
 			GitTokens: map[string]bool{"github": tokens},
 		},
@@ -145,7 +145,7 @@ func TestAssembleRepoSessionWithoutTokenIsAnonymous(t *testing.T) {
 func TestAssembleRepoSessionNeedsSandbox(t *testing.T) {
 	assembleHome(t)
 	cfg := repoCfg(t, sandboxtest.New(t), githosttest.New(t), "main", true)
-	cfg.Sandbox.Image = ""
+	cfg.Sandbox.Environments = nil
 
 	_, err := Assemble(t.Context(), cfg)
 

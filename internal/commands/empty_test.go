@@ -14,7 +14,7 @@ import (
 func emptyCfg(f *sandboxtest.Fake, image string) AssembleConfig {
 	return AssembleConfig{
 		Workspace: WorkspaceEmpty, SessionID: EmptySessionID("req-1"), Session: "s", APIToken: "k",
-		Sandbox: &SandboxConfig{Backend: f, Image: image},
+		Sandbox: &SandboxConfig{Backend: f, Environments: imageEnvs(image)},
 	}
 }
 
