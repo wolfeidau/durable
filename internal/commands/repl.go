@@ -195,7 +195,7 @@ func (r *repl) expandSkill(ctx context.Context, line string) (prompt string, ok 
 		fmt.Fprintf(r.out, "unknown skill %q; the skills in this session are listed when it starts, or start a new --session to reload them\n", name)
 		return "", false
 	}
-	expanded, err := skills.Expand(ctx, s, text)
+	expanded, err := skills.Expand(ctx, s, text, nil)
 	if err != nil {
 		r.failed = true
 		fmt.Fprintf(r.out, "error: failed to load skill %q: %v\n", name, err)

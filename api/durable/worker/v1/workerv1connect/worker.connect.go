@@ -45,6 +45,12 @@ const (
 	ToolServiceResultProcedure = "/durable.worker.v1.ToolService/Result"
 	// ToolServiceStdioProcedure is the fully-qualified name of the ToolService's Stdio RPC.
 	ToolServiceStdioProcedure = "/durable.worker.v1.ToolService/Stdio"
+	// ToolServiceReadFileProcedure is the fully-qualified name of the ToolService's ReadFile RPC.
+	ToolServiceReadFileProcedure = "/durable.worker.v1.ToolService/ReadFile"
+	// ToolServiceReadDirProcedure is the fully-qualified name of the ToolService's ReadDir RPC.
+	ToolServiceReadDirProcedure = "/durable.worker.v1.ToolService/ReadDir"
+	// ToolServiceStatProcedure is the fully-qualified name of the ToolService's Stat RPC.
+	ToolServiceStatProcedure = "/durable.worker.v1.ToolService/Stat"
 )
 
 // ToolServiceClient is a client for the durable.worker.v1.ToolService service.
@@ -64,6 +70,12 @@ type ToolServiceClient interface {
 	// Stdio runs one process and pipes its stdin and output over the stream. The first request must be a start;
 	// ending the stream stops the process. It knows nothing of what the process speaks.
 	Stdio(context.Context) *connect.BidiStreamForClient[v1.StdioRequest, v1.StdioResponse]
+	// ReadFile reads a regular file inside the workspace, never following a symlink out of it.
+	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
+	// ReadDir lists a directory inside the workspace, in name order.
+	ReadDir(context.Context, *connect.Request[v1.ReadDirRequest]) (*connect.Response[v1.ReadDirResponse], error)
+	// Stat describes a file or directory inside the workspace, following symlinks that stay inside it.
+	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 }
 
 // NewToolServiceClient constructs a client for the durable.worker.v1.ToolService service. By
@@ -113,6 +125,24 @@ func NewToolServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(toolServiceMethods.ByName("Stdio")),
 			connect.WithClientOptions(opts...),
 		),
+		readFile: connect.NewClient[v1.ReadFileRequest, v1.ReadFileResponse](
+			httpClient,
+			baseURL+ToolServiceReadFileProcedure,
+			connect.WithSchema(toolServiceMethods.ByName("ReadFile")),
+			connect.WithClientOptions(opts...),
+		),
+		readDir: connect.NewClient[v1.ReadDirRequest, v1.ReadDirResponse](
+			httpClient,
+			baseURL+ToolServiceReadDirProcedure,
+			connect.WithSchema(toolServiceMethods.ByName("ReadDir")),
+			connect.WithClientOptions(opts...),
+		),
+		stat: connect.NewClient[v1.StatRequest, v1.StatResponse](
+			httpClient,
+			baseURL+ToolServiceStatProcedure,
+			connect.WithSchema(toolServiceMethods.ByName("Stat")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -124,6 +154,9 @@ type toolServiceClient struct {
 	cancel    *connect.Client[v1.CancelRequest, v1.CancelResponse]
 	result    *connect.Client[v1.ResultRequest, v1.ResultResponse]
 	stdio     *connect.Client[v1.StdioRequest, v1.StdioResponse]
+	readFile  *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
+	readDir   *connect.Client[v1.ReadDirRequest, v1.ReadDirResponse]
+	stat      *connect.Client[v1.StatRequest, v1.StatResponse]
 }
 
 // Info calls durable.worker.v1.ToolService.Info.
@@ -156,6 +189,21 @@ func (c *toolServiceClient) Stdio(ctx context.Context) *connect.BidiStreamForCli
 	return c.stdio.CallBidiStream(ctx)
 }
 
+// ReadFile calls durable.worker.v1.ToolService.ReadFile.
+func (c *toolServiceClient) ReadFile(ctx context.Context, req *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {
+	return c.readFile.CallUnary(ctx, req)
+}
+
+// ReadDir calls durable.worker.v1.ToolService.ReadDir.
+func (c *toolServiceClient) ReadDir(ctx context.Context, req *connect.Request[v1.ReadDirRequest]) (*connect.Response[v1.ReadDirResponse], error) {
+	return c.readDir.CallUnary(ctx, req)
+}
+
+// Stat calls durable.worker.v1.ToolService.Stat.
+func (c *toolServiceClient) Stat(ctx context.Context, req *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error) {
+	return c.stat.CallUnary(ctx, req)
+}
+
 // ToolServiceHandler is an implementation of the durable.worker.v1.ToolService service.
 type ToolServiceHandler interface {
 	// Info reports the worker's environment, without its token.
@@ -173,6 +221,12 @@ type ToolServiceHandler interface {
 	// Stdio runs one process and pipes its stdin and output over the stream. The first request must be a start;
 	// ending the stream stops the process. It knows nothing of what the process speaks.
 	Stdio(context.Context, *connect.BidiStream[v1.StdioRequest, v1.StdioResponse]) error
+	// ReadFile reads a regular file inside the workspace, never following a symlink out of it.
+	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
+	// ReadDir lists a directory inside the workspace, in name order.
+	ReadDir(context.Context, *connect.Request[v1.ReadDirRequest]) (*connect.Response[v1.ReadDirResponse], error)
+	// Stat describes a file or directory inside the workspace, following symlinks that stay inside it.
+	Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error)
 }
 
 // NewToolServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -218,6 +272,24 @@ func NewToolServiceHandler(svc ToolServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(toolServiceMethods.ByName("Stdio")),
 		connect.WithHandlerOptions(opts...),
 	)
+	toolServiceReadFileHandler := connect.NewUnaryHandler(
+		ToolServiceReadFileProcedure,
+		svc.ReadFile,
+		connect.WithSchema(toolServiceMethods.ByName("ReadFile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	toolServiceReadDirHandler := connect.NewUnaryHandler(
+		ToolServiceReadDirProcedure,
+		svc.ReadDir,
+		connect.WithSchema(toolServiceMethods.ByName("ReadDir")),
+		connect.WithHandlerOptions(opts...),
+	)
+	toolServiceStatHandler := connect.NewUnaryHandler(
+		ToolServiceStatProcedure,
+		svc.Stat,
+		connect.WithSchema(toolServiceMethods.ByName("Stat")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/durable.worker.v1.ToolService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ToolServiceInfoProcedure:
@@ -232,6 +304,12 @@ func NewToolServiceHandler(svc ToolServiceHandler, opts ...connect.HandlerOption
 			toolServiceResultHandler.ServeHTTP(w, r)
 		case ToolServiceStdioProcedure:
 			toolServiceStdioHandler.ServeHTTP(w, r)
+		case ToolServiceReadFileProcedure:
+			toolServiceReadFileHandler.ServeHTTP(w, r)
+		case ToolServiceReadDirProcedure:
+			toolServiceReadDirHandler.ServeHTTP(w, r)
+		case ToolServiceStatProcedure:
+			toolServiceStatHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -263,4 +341,16 @@ func (UnimplementedToolServiceHandler) Result(context.Context, *connect.Request[
 
 func (UnimplementedToolServiceHandler) Stdio(context.Context, *connect.BidiStream[v1.StdioRequest, v1.StdioResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.Stdio is not implemented"))
+}
+
+func (UnimplementedToolServiceHandler) ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.ReadFile is not implemented"))
+}
+
+func (UnimplementedToolServiceHandler) ReadDir(context.Context, *connect.Request[v1.ReadDirRequest]) (*connect.Response[v1.ReadDirResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.ReadDir is not implemented"))
+}
+
+func (UnimplementedToolServiceHandler) Stat(context.Context, *connect.Request[v1.StatRequest]) (*connect.Response[v1.StatResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.worker.v1.ToolService.Stat is not implemented"))
 }

@@ -213,7 +213,7 @@ func TestSkillSourcesCwdIsHome(t *testing.T) {
 	for _, s := range srcs {
 		require.Empty(t, s.Root)
 	}
-	got, warns := skills.Discover(srcs)
+	got, warns := skills.Discover(t.Context(), srcs)
 	require.Empty(t, warns)
 	require.Len(t, got, 1)
 	require.Equal(t, "linked", got[0].Name)

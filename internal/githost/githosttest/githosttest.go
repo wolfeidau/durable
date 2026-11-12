@@ -23,9 +23,27 @@ type Host struct {
 
 var _ githost.Host = (*Host)(nil)
 
+// Option adds content to the main branch, so the feature branch has it too.
+type Option func(*config)
+
+type config struct {
+	files    map[string]string
+	symlinks map[string]string
+}
+
+// WithFile adds a file at name, a slash path relative to the repository root.
+func WithFile(name, content string) Option {
+	return func(c *config) { c.files[name] = content }
+}
+
+// WithSymlink adds a symbolic link at name that points to target.
+func WithSymlink(name, target string) Option {
+	return func(c *config) { c.symlinks[name] = target }
+}
+
 // New creates the bare repository under t's temporary directory. It sets GIT_CONFIG_NOSYSTEM and GIT_CONFIG_GLOBAL for t, so
 // the test doesn't read the developer's git configuration.
-func New(t *testing.T) *Host {
+func New(t *testing.T, opts ...Option) *Host {
 	t.Helper()
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
@@ -42,11 +60,23 @@ func New(t *testing.T) *Host {
 	}
 	write := func(name, content string) {
 		t.Helper()
-		require.NoError(t, os.WriteFile(filepath.Join(work, name), []byte(content), 0o600))
+		path := filepath.Join(work, filepath.FromSlash(name))
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	}
+	cfg := config{files: map[string]string{}, symlinks: map[string]string{}}
+	for _, o := range opts {
+		o(&cfg)
 	}
 	run(dir, "init", "--bare", "-b", "main", remote)
 	run(work, "init", "-b", "main")
 	write("main.txt", "main\n")
+	for name, content := range cfg.files {
+		write(name, content)
+	}
+	for name, target := range cfg.symlinks {
+		require.NoError(t, os.Symlink(target, filepath.Join(work, filepath.FromSlash(name))))
+	}
 	run(work, "add", ".")
 	run(work, "commit", "-m", "main")
 	run(work, "push", remote, "main")

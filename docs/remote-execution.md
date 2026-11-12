@@ -297,8 +297,10 @@ offered.
 - **Existing sessions keep their pin.** They keep working whatever the flag, including directory
   sessions with a `sandbox.json` and repo sessions, whose clone URL is in the pin.
 - **No host directory, so no project context.** An empty session pins the user's
-  `~/.durable/AGENTS.md` and user skills only. Project files come from
-  the workspace in slice I. Its hooks run in a temp folder with an empty `cwd`.
+  `~/.durable/AGENTS.md` and user skills only, because it has no repo to read. A repo session also
+  reads its project files from the clone, as
+  [below](#instructions-and-skills-come-from-the-workspace). Its hooks run in a temp folder with an
+  empty `cwd`.
 - **Both kinds persist.** Either workspace survives stop and start, and is lost only when the
   session is deleted.
 - **UI:** when the server runs sandboxed, the new-session form offers an empty workspace or a repo;
@@ -375,11 +377,34 @@ OpenShell:
 
 ### Instructions and skills come from the workspace
 
-The project `AGENTS.md` and project skills live in the cloned repo, so the worker reads them once
-when the session is created, and the server pins them as it does today. An empty workspace has
-none. `~/.durable/AGENTS.md` and user skills stay on the server. Reading through the worker keeps
-the existing rules: symlinks that leave the repository are refused, and the content is untrusted.
-The spikes still read them from the host.
+A repo session reads the project's context from its clone, through the worker. The worker has three
+read-only RPCs for it, `ReadFile`, `ReadDir` and `Stat`. Each opens the workspace through `os.Root`,
+so a symlink that leaves it is refused, and each accepts only a relative path that stays inside it.
+They are not model tools.
+
+- **What is read:** `AGENTS.md` at the workspace root, and skills under `.durable/skills` and
+  `.agents/skills`, in that order. There are no parent directories, because the clone root is the
+  repo root. The budgets, the binary and truncation checks, and the warnings are the same as for a
+  local session.
+- **Pinned at create:** the text of `AGENTS.md` goes in `instructions.md`, and the skills' metadata
+  goes in `skills.json`, as they do today. The user's `~/.durable/AGENTS.md` and user skills stay on
+  the server and are added to the same pins. A reopen reads the pins and discovers nothing.
+- **Skills are read live:** the `skill` tool reads `SKILL.md` and lists a skill's files when it is
+  called, through the worker, as a local session reads the live files. A skill from the clone is
+  marked `sandbox` in `skills.json`, and its directory is relative to the workspace. A reopen gives
+  the tool the new worker, so a skill still works after the sandbox is stopped or deleted and cloned
+  again.
+- **Failures:** a missing file is "none". A file that is a symlink out of the repo, binary or not a
+  regular file is skipped with a warning. A failure of the worker itself fails the create, and a new
+  sandbox is discarded as for a failed clone.
+- **The worker image must match the server.** A worker built before these RPCs answers
+  `Unimplemented`, and the error says to rebuild the image. Only new repo sessions read the
+  workspace, so only they are affected. An existing session keeps its pins, which are empty for a
+  repo session created before this.
+- **Untrusted:** the repo is the user's own choice, but its text can say anything, so the same rule
+  applies as for a local project: instructions don't override the user's direct requests.
+
+An empty workspace has no project context, and directory sessions read the host as before.
 
 ### MCP servers run in the sandbox
 
@@ -442,7 +467,7 @@ Each slice is one PR. The spike branches are reference, not a base.
 | **G. Git hosts and GitHub** (done) | The git host interface, the token flags and environment variables, one provider per host, per-session repo access in the sandbox policy, and GitHub as the first integration. Real-binary tests for each token source (1Password, environment variable and `gh`), and the startup check | S |
 | **R. Repo sessions** (done) | `CreateSession` with a repo and branch through the git host interface, the clone at create, and repo session identity. The repo picker is deferred; the repo is a text field. Real-binary tests: an idempotent create, and a clone and push | E, G |
 | **H. More git hosts** | One slice per host, such as GitLab or GitHub Enterprise: its implementation | G |
-| **I. Instructions** | `AGENTS.md` and project skills read through the worker and pinned | S |
+| **I. Instructions** (done) | `AGENTS.md` and project skills read through the worker and pinned | S |
 | **M. MCP** (done) | MCP servers inside the sandbox: the `Stdio` RPC, the HTTP bridge, and egress for HTTP servers. Tests: a stdio server through the worker, the bridge against an HTTP server, the kill of the process group, and the launcher's policy | S |
 
 ## Open questions

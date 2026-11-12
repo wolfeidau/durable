@@ -78,6 +78,11 @@ func TestGatewayRepoSessionClonesPublicRepo(t *testing.T) {
 	require.True(t, ok)
 	require.Contains(t, out, "README")
 	require.Contains(t, out, "master")
+
+	r.stop(t)
+	del, err := sandboxDelete(t, home, id)
+	require.NoError(t, err, del)
+	require.Contains(t, del, "clones its branch again")
 }
 
 func TestGatewayRepoSessionPushes(t *testing.T) {

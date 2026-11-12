@@ -129,6 +129,10 @@ func (c *sandboxDeleteCmd) Run(ctx context.Context) error {
 	if err := b.Delete(dctx, pin.Name); err != nil {
 		return fmt.Errorf("failed to delete sandbox %s: %w", pin.Name, err)
 	}
+	if len(pin.Git) > 0 && pin.Git[0].CloneURL != "" {
+		fmt.Printf("Deleted sandbox %s. The next open of session %s creates a fresh one and clones its branch again.\n", pin.Name, c.Session)
+		return nil
+	}
 	fmt.Printf("Deleted sandbox %s. The next open of session %s creates a fresh, empty one.\n", pin.Name, c.Session)
 	return nil
 }

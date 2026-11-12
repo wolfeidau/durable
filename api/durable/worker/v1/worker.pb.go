@@ -959,6 +959,382 @@ func (*StdioResponse_Stderr) isStdioResponse_Event() {}
 
 func (*StdioResponse_ExitCode) isStdioResponse_Event() {}
 
+// ReadFileRequest names a file to read.
+type ReadFileRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is relative to the workspace root and must stay inside it.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// max_bytes bounds the read; the worker caps it at 1 MiB.
+	MaxBytes      int64 `protobuf:"varint,2,opt,name=max_bytes,json=maxBytes,proto3" json:"max_bytes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadFileRequest) Reset() {
+	*x = ReadFileRequest{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadFileRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadFileRequest) ProtoMessage() {}
+
+func (x *ReadFileRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadFileRequest.ProtoReflect.Descriptor instead.
+func (*ReadFileRequest) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ReadFileRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *ReadFileRequest) GetMaxBytes() int64 {
+	if x != nil {
+		return x.MaxBytes
+	}
+	return 0
+}
+
+// ReadFileResponse carries the bytes read.
+type ReadFileResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// data is at most max_bytes of the file.
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// truncated is set when the file is longer than data.
+	Truncated     bool `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadFileResponse) Reset() {
+	*x = ReadFileResponse{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadFileResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadFileResponse) ProtoMessage() {}
+
+func (x *ReadFileResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadFileResponse.ProtoReflect.Descriptor instead.
+func (*ReadFileResponse) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ReadFileResponse) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *ReadFileResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+// ReadDirRequest names a directory to list.
+type ReadDirRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is relative to the workspace root and must stay inside it; "." is the root.
+	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadDirRequest) Reset() {
+	*x = ReadDirRequest{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadDirRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadDirRequest) ProtoMessage() {}
+
+func (x *ReadDirRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadDirRequest.ProtoReflect.Descriptor instead.
+func (*ReadDirRequest) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *ReadDirRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+// DirEntry is one entry of a directory.
+type DirEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the entry's base name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// mode is the entry's own type and permission bits, as an io/fs FileMode; a symlink is not followed.
+	Mode          uint32 `protobuf:"varint,2,opt,name=mode,proto3" json:"mode,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DirEntry) Reset() {
+	*x = DirEntry{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DirEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DirEntry) ProtoMessage() {}
+
+func (x *DirEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DirEntry.ProtoReflect.Descriptor instead.
+func (*DirEntry) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *DirEntry) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *DirEntry) GetMode() uint32 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
+}
+
+// ReadDirResponse lists a directory.
+type ReadDirResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// entries are sorted by name, at most 1024.
+	Entries []*DirEntry `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	// truncated is set when the directory has more entries than were returned.
+	Truncated     bool `protobuf:"varint,2,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ReadDirResponse) Reset() {
+	*x = ReadDirResponse{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ReadDirResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ReadDirResponse) ProtoMessage() {}
+
+func (x *ReadDirResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ReadDirResponse.ProtoReflect.Descriptor instead.
+func (*ReadDirResponse) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *ReadDirResponse) GetEntries() []*DirEntry {
+	if x != nil {
+		return x.Entries
+	}
+	return nil
+}
+
+func (x *ReadDirResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+// StatRequest names the path to describe.
+type StatRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// path is relative to the workspace root and must stay inside it; "." is the root.
+	Path          string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatRequest) Reset() {
+	*x = StatRequest{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatRequest) ProtoMessage() {}
+
+func (x *StatRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StatRequest.ProtoReflect.Descriptor instead.
+func (*StatRequest) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *StatRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+// StatResponse describes a path.
+type StatResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// name is the base name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// mode is the io/fs FileMode of the path.
+	Mode uint32 `protobuf:"varint,2,opt,name=mode,proto3" json:"mode,omitempty"`
+	// size is the length in bytes of a regular file.
+	Size          int64 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StatResponse) Reset() {
+	*x = StatResponse{}
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StatResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StatResponse) ProtoMessage() {}
+
+func (x *StatResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_worker_v1_worker_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StatResponse.ProtoReflect.Descriptor instead.
+func (*StatResponse) Descriptor() ([]byte, []int) {
+	return file_durable_worker_v1_worker_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *StatResponse) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *StatResponse) GetMode() uint32 {
+	if x != nil {
+		return x.Mode
+	}
+	return 0
+}
+
+func (x *StatResponse) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
 var File_durable_worker_v1_worker_proto protoreflect.FileDescriptor
 
 const file_durable_worker_v1_worker_proto_rawDesc = "" +
@@ -1019,14 +1395,37 @@ const file_durable_worker_v1_worker_proto_rawDesc = "" +
 	"\x06stdout\x18\x01 \x01(\fH\x00R\x06stdout\x12\x18\n" +
 	"\x06stderr\x18\x02 \x01(\fH\x00R\x06stderr\x12\x1d\n" +
 	"\texit_code\x18\x03 \x01(\x05H\x00R\bexitCodeB\a\n" +
-	"\x05event2\xf0\x03\n" +
+	"\x05event\"B\n" +
+	"\x0fReadFileRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1b\n" +
+	"\tmax_bytes\x18\x02 \x01(\x03R\bmaxBytes\"D\n" +
+	"\x10ReadFileResponse\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1c\n" +
+	"\ttruncated\x18\x02 \x01(\bR\ttruncated\"$\n" +
+	"\x0eReadDirRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"2\n" +
+	"\bDirEntry\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04mode\x18\x02 \x01(\rR\x04mode\"f\n" +
+	"\x0fReadDirResponse\x125\n" +
+	"\aentries\x18\x01 \x03(\v2\x1b.durable.worker.v1.DirEntryR\aentries\x12\x1c\n" +
+	"\ttruncated\x18\x02 \x01(\bR\ttruncated\"!\n" +
+	"\vStatRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"J\n" +
+	"\fStatResponse\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
+	"\x04mode\x18\x02 \x01(\rR\x04mode\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x03R\x04size2\xe0\x05\n" +
 	"\vToolService\x12G\n" +
 	"\x04Info\x12\x1e.durable.worker.v1.InfoRequest\x1a\x1f.durable.worker.v1.InfoResponse\x12V\n" +
 	"\tListTools\x12#.durable.worker.v1.ListToolsRequest\x1a$.durable.worker.v1.ListToolsResponse\x12R\n" +
 	"\aExecute\x12!.durable.worker.v1.ExecuteRequest\x1a\".durable.worker.v1.ExecuteResponse0\x01\x12M\n" +
 	"\x06Cancel\x12 .durable.worker.v1.CancelRequest\x1a!.durable.worker.v1.CancelResponse\x12M\n" +
 	"\x06Result\x12 .durable.worker.v1.ResultRequest\x1a!.durable.worker.v1.ResultResponse\x12N\n" +
-	"\x05Stdio\x12\x1f.durable.worker.v1.StdioRequest\x1a .durable.worker.v1.StdioResponse(\x010\x01B=Z;github.com/wolfeidau/durable/api/durable/worker/v1;workerv1b\x06proto3"
+	"\x05Stdio\x12\x1f.durable.worker.v1.StdioRequest\x1a .durable.worker.v1.StdioResponse(\x010\x01\x12S\n" +
+	"\bReadFile\x12\".durable.worker.v1.ReadFileRequest\x1a#.durable.worker.v1.ReadFileResponse\x12P\n" +
+	"\aReadDir\x12!.durable.worker.v1.ReadDirRequest\x1a\".durable.worker.v1.ReadDirResponse\x12G\n" +
+	"\x04Stat\x12\x1e.durable.worker.v1.StatRequest\x1a\x1f.durable.worker.v1.StatResponseB=Z;github.com/wolfeidau/durable/api/durable/worker/v1;workerv1b\x06proto3"
 
 var (
 	file_durable_worker_v1_worker_proto_rawDescOnce sync.Once
@@ -1040,7 +1439,7 @@ func file_durable_worker_v1_worker_proto_rawDescGZIP() []byte {
 	return file_durable_worker_v1_worker_proto_rawDescData
 }
 
-var file_durable_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_durable_worker_v1_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_durable_worker_v1_worker_proto_goTypes = []any{
 	(*InfoRequest)(nil),       // 0: durable.worker.v1.InfoRequest
 	(*InfoResponse)(nil),      // 1: durable.worker.v1.InfoResponse
@@ -1057,32 +1456,46 @@ var file_durable_worker_v1_worker_proto_goTypes = []any{
 	(*StdioRequest)(nil),      // 12: durable.worker.v1.StdioRequest
 	(*StdioStart)(nil),        // 13: durable.worker.v1.StdioStart
 	(*StdioResponse)(nil),     // 14: durable.worker.v1.StdioResponse
-	nil,                       // 15: durable.worker.v1.InfoResponse.EnvEntry
-	nil,                       // 16: durable.worker.v1.StdioStart.EnvEntry
+	(*ReadFileRequest)(nil),   // 15: durable.worker.v1.ReadFileRequest
+	(*ReadFileResponse)(nil),  // 16: durable.worker.v1.ReadFileResponse
+	(*ReadDirRequest)(nil),    // 17: durable.worker.v1.ReadDirRequest
+	(*DirEntry)(nil),          // 18: durable.worker.v1.DirEntry
+	(*ReadDirResponse)(nil),   // 19: durable.worker.v1.ReadDirResponse
+	(*StatRequest)(nil),       // 20: durable.worker.v1.StatRequest
+	(*StatResponse)(nil),      // 21: durable.worker.v1.StatResponse
+	nil,                       // 22: durable.worker.v1.InfoResponse.EnvEntry
+	nil,                       // 23: durable.worker.v1.StdioStart.EnvEntry
 }
 var file_durable_worker_v1_worker_proto_depIdxs = []int32{
-	15, // 0: durable.worker.v1.InfoResponse.env:type_name -> durable.worker.v1.InfoResponse.EnvEntry
+	22, // 0: durable.worker.v1.InfoResponse.env:type_name -> durable.worker.v1.InfoResponse.EnvEntry
 	3,  // 1: durable.worker.v1.ListToolsResponse.tools:type_name -> durable.worker.v1.ToolInfo
 	7,  // 2: durable.worker.v1.ExecuteResponse.result:type_name -> durable.worker.v1.ExecuteResult
 	13, // 3: durable.worker.v1.StdioRequest.start:type_name -> durable.worker.v1.StdioStart
-	16, // 4: durable.worker.v1.StdioStart.env:type_name -> durable.worker.v1.StdioStart.EnvEntry
-	0,  // 5: durable.worker.v1.ToolService.Info:input_type -> durable.worker.v1.InfoRequest
-	2,  // 6: durable.worker.v1.ToolService.ListTools:input_type -> durable.worker.v1.ListToolsRequest
-	5,  // 7: durable.worker.v1.ToolService.Execute:input_type -> durable.worker.v1.ExecuteRequest
-	8,  // 8: durable.worker.v1.ToolService.Cancel:input_type -> durable.worker.v1.CancelRequest
-	10, // 9: durable.worker.v1.ToolService.Result:input_type -> durable.worker.v1.ResultRequest
-	12, // 10: durable.worker.v1.ToolService.Stdio:input_type -> durable.worker.v1.StdioRequest
-	1,  // 11: durable.worker.v1.ToolService.Info:output_type -> durable.worker.v1.InfoResponse
-	4,  // 12: durable.worker.v1.ToolService.ListTools:output_type -> durable.worker.v1.ListToolsResponse
-	6,  // 13: durable.worker.v1.ToolService.Execute:output_type -> durable.worker.v1.ExecuteResponse
-	9,  // 14: durable.worker.v1.ToolService.Cancel:output_type -> durable.worker.v1.CancelResponse
-	11, // 15: durable.worker.v1.ToolService.Result:output_type -> durable.worker.v1.ResultResponse
-	14, // 16: durable.worker.v1.ToolService.Stdio:output_type -> durable.worker.v1.StdioResponse
-	11, // [11:17] is the sub-list for method output_type
-	5,  // [5:11] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	23, // 4: durable.worker.v1.StdioStart.env:type_name -> durable.worker.v1.StdioStart.EnvEntry
+	18, // 5: durable.worker.v1.ReadDirResponse.entries:type_name -> durable.worker.v1.DirEntry
+	0,  // 6: durable.worker.v1.ToolService.Info:input_type -> durable.worker.v1.InfoRequest
+	2,  // 7: durable.worker.v1.ToolService.ListTools:input_type -> durable.worker.v1.ListToolsRequest
+	5,  // 8: durable.worker.v1.ToolService.Execute:input_type -> durable.worker.v1.ExecuteRequest
+	8,  // 9: durable.worker.v1.ToolService.Cancel:input_type -> durable.worker.v1.CancelRequest
+	10, // 10: durable.worker.v1.ToolService.Result:input_type -> durable.worker.v1.ResultRequest
+	12, // 11: durable.worker.v1.ToolService.Stdio:input_type -> durable.worker.v1.StdioRequest
+	15, // 12: durable.worker.v1.ToolService.ReadFile:input_type -> durable.worker.v1.ReadFileRequest
+	17, // 13: durable.worker.v1.ToolService.ReadDir:input_type -> durable.worker.v1.ReadDirRequest
+	20, // 14: durable.worker.v1.ToolService.Stat:input_type -> durable.worker.v1.StatRequest
+	1,  // 15: durable.worker.v1.ToolService.Info:output_type -> durable.worker.v1.InfoResponse
+	4,  // 16: durable.worker.v1.ToolService.ListTools:output_type -> durable.worker.v1.ListToolsResponse
+	6,  // 17: durable.worker.v1.ToolService.Execute:output_type -> durable.worker.v1.ExecuteResponse
+	9,  // 18: durable.worker.v1.ToolService.Cancel:output_type -> durable.worker.v1.CancelResponse
+	11, // 19: durable.worker.v1.ToolService.Result:output_type -> durable.worker.v1.ResultResponse
+	14, // 20: durable.worker.v1.ToolService.Stdio:output_type -> durable.worker.v1.StdioResponse
+	16, // 21: durable.worker.v1.ToolService.ReadFile:output_type -> durable.worker.v1.ReadFileResponse
+	19, // 22: durable.worker.v1.ToolService.ReadDir:output_type -> durable.worker.v1.ReadDirResponse
+	21, // 23: durable.worker.v1.ToolService.Stat:output_type -> durable.worker.v1.StatResponse
+	15, // [15:24] is the sub-list for method output_type
+	6,  // [6:15] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_durable_worker_v1_worker_proto_init() }
@@ -1109,7 +1522,7 @@ func file_durable_worker_v1_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_worker_v1_worker_proto_rawDesc), len(file_durable_worker_v1_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

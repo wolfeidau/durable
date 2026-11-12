@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -34,7 +34,8 @@ func Find(skills []Skill, name string) (Skill, bool) {
 }
 
 // Tool returns the skill tool for the non-hidden skills, or nil when there are none.
-func Tool(skills []Skill) durable.Tool {
+// A sandbox skill is read through sandboxFiles; when that is nil the skill fails rather than reading the host.
+func Tool(skills []Skill, sandboxFiles FilesFunc) durable.Tool {
 	var visible []Skill
 	for _, s := range skills {
 		if !s.Hidden {
@@ -64,15 +65,17 @@ func Tool(skills []Skill) durable.Tool {
 				`"path":{"type":["string","null"],"description":"A file inside the skill directory, relative to it, or null to load the skill."}},` +
 				`"required":["name","path"],"additionalProperties":false}`),
 		},
-		skills: visible,
+		skills:  visible,
+		sandbox: sandboxFiles,
 	}
 }
 
 func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 type skillTool struct {
-	spec   durable.ToolSpec
-	skills []Skill
+	spec    durable.ToolSpec
+	skills  []Skill
+	sandbox FilesFunc
 }
 
 func (t *skillTool) Spec() durable.ToolSpec { return t.spec }
@@ -101,12 +104,17 @@ func (t *skillTool) Execute(ctx context.Context, call durable.ToolCall) (string,
 		return "", fmt.Errorf("unknown skill %q", in.Name)
 	}
 	if in.Path == nil {
-		return render(ctx, s)
+		return render(ctx, s, t.sandbox)
 	}
 	if !filepath.IsLocal(*in.Path) {
 		return "", fmt.Errorf("path %q must be relative and stay inside the skill directory", *in.Path)
 	}
-	text, truncated, err := readText(s.Root, filepath.Join(s.Dir, *in.Path))
+	fsys, closeFS, err := skillFS(ctx, s, t.sandbox)
+	if err != nil {
+		return "", err
+	}
+	defer closeFS()
+	text, truncated, err := readText(fsys, path.Join(skillDir(s), filepath.ToSlash(*in.Path)))
 	if err != nil {
 		return "", err
 	}
@@ -114,8 +122,8 @@ func (t *skillTool) Execute(ctx context.Context, call durable.ToolCall) (string,
 }
 
 // Expand wraps a skill for a user-invoked turn, followed by the user's text. It works for hidden skills.
-func Expand(ctx context.Context, s Skill, text string) (string, error) {
-	out, err := render(ctx, s)
+func Expand(ctx context.Context, s Skill, text string, sandboxFiles FilesFunc) (string, error) {
+	out, err := render(ctx, s, sandboxFiles)
 	if err != nil {
 		return "", err
 	}
@@ -125,11 +133,30 @@ func Expand(ctx context.Context, s Skill, text string) (string, error) {
 	return out, nil
 }
 
-func render(ctx context.Context, s Skill) (string, error) {
+// skillFS returns the file system the skill's files are read through, and the function that closes it.
+func skillFS(ctx context.Context, s Skill, sandboxFiles FilesFunc) (fs.FS, func(), error) {
+	if !s.Sandbox {
+		return openLocal(s.Root)
+	}
+	if sandboxFiles == nil {
+		return nil, nil, fmt.Errorf("skill %q lives in the session's sandbox, which this session cannot read", s.Name)
+	}
+	return sandboxFiles(ctx), func() {}, nil
+}
+
+// skillDir is the skill directory inside its file system, as a slash path.
+func skillDir(s Skill) string { return path.Clean(filepath.ToSlash(s.Dir)) }
+
+func render(ctx context.Context, s Skill, sandboxFiles FilesFunc) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	data, _, err := readConfined(s.Root, filepath.Join(s.Dir, "SKILL.md"))
+	fsys, closeFS, err := skillFS(ctx, s, sandboxFiles)
+	if err != nil {
+		return "", err
+	}
+	defer closeFS()
+	data, _, err := readFS(fsys, path.Join(skillDir(s), "SKILL.md"))
 	if err != nil {
 		return "", err
 	}
@@ -137,7 +164,7 @@ func render(ctx context.Context, s Skill) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("skill %q has no frontmatter", s.Name)
 	}
-	files, capped, err := listResources(ctx, s)
+	files, capped, err := listResources(ctx, fsys, s)
 	if err != nil {
 		return "", err
 	}
@@ -155,22 +182,15 @@ func render(ctx context.Context, s Skill) (string, error) {
 	return sb.String(), nil
 }
 
-// listResources lists files under the skill directory without reading them or leaving Root.
-func listResources(ctx context.Context, s Skill) ([]string, bool, error) {
-	r, err := os.OpenRoot(s.Root)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to open root: %w", err)
-	}
-	defer r.Close()
-	sub, err := r.OpenRoot(s.Dir)
+// listResources lists files under the skill directory without reading them or leaving the file system.
+func listResources(ctx context.Context, fsys fs.FS, s Skill) ([]string, bool, error) {
+	sub, err := fs.Sub(fsys, skillDir(s))
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to open skill directory: %w", err)
 	}
-	defer sub.Close()
-
 	var files []string
 	capped := false
-	err = fs.WalkDir(sub.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(sub, ".", func(p string, d fs.DirEntry, err error) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -206,8 +226,8 @@ func listResources(ctx context.Context, s Skill) ([]string, bool, error) {
 	return files, capped, nil
 }
 
-func readText(root, rel string) (string, bool, error) {
-	b, truncated, err := readConfined(root, rel)
+func readText(fsys fs.FS, rel string) (string, bool, error) {
+	b, truncated, err := readFS(fsys, rel)
 	if err != nil {
 		return "", false, err
 	}

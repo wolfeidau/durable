@@ -195,6 +195,7 @@ func TestGatewaySandboxDeleteCreatesAFreshSandboxOnNextOpen(t *testing.T) {
 
 	out, err := sandboxDelete(t, home, id)
 	require.NoError(t, err, out)
+	require.Contains(t, out, "fresh, empty one")
 	_, err = phaseOf(t, l, pin.Name)
 	require.ErrorIs(t, err, openshell.ErrNotFound)
 	again, ok, err := sandbox.ReadPin(filepath.Join(home, ".durable", "sessions", id))

@@ -21,6 +21,12 @@ service ToolService {
   // Stdio runs one process and pipes its stdin and output over the stream. The first request must be a start;
   // ending the stream stops the process. It knows nothing of what the process speaks.
   rpc Stdio(stream StdioRequest) returns (stream StdioResponse);
+  // ReadFile reads a regular file inside the workspace, never following a symlink out of it.
+  rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  // ReadDir lists a directory inside the workspace, in name order.
+  rpc ReadDir(ReadDirRequest) returns (ReadDirResponse);
+  // Stat describes a file or directory inside the workspace, following symlinks that stay inside it.
+  rpc Stat(StatRequest) returns (StatResponse);
 }
 
 // InfoRequest asks for the worker's environment.
@@ -149,4 +155,58 @@ message StdioResponse {
     // exit_code is the process's exit code, or -1 when a signal ended it.
     int32 exit_code = 3;
   }
+}
+
+// ReadFileRequest names a file to read.
+message ReadFileRequest {
+  // path is relative to the workspace root and must stay inside it.
+  string path = 1;
+  // max_bytes bounds the read; the worker caps it at 1 MiB.
+  int64 max_bytes = 2;
+}
+
+// ReadFileResponse carries the bytes read.
+message ReadFileResponse {
+  // data is at most max_bytes of the file.
+  bytes data = 1;
+  // truncated is set when the file is longer than data.
+  bool truncated = 2;
+}
+
+// ReadDirRequest names a directory to list.
+message ReadDirRequest {
+  // path is relative to the workspace root and must stay inside it; "." is the root.
+  string path = 1;
+}
+
+// DirEntry is one entry of a directory.
+message DirEntry {
+  // name is the entry's base name.
+  string name = 1;
+  // mode is the entry's own type and permission bits, as an io/fs FileMode; a symlink is not followed.
+  uint32 mode = 2;
+}
+
+// ReadDirResponse lists a directory.
+message ReadDirResponse {
+  // entries are sorted by name, at most 1024.
+  repeated DirEntry entries = 1;
+  // truncated is set when the directory has more entries than were returned.
+  bool truncated = 2;
+}
+
+// StatRequest names the path to describe.
+message StatRequest {
+  // path is relative to the workspace root and must stay inside it; "." is the root.
+  string path = 1;
+}
+
+// StatResponse describes a path.
+message StatResponse {
+  // name is the base name.
+  string name = 1;
+  // mode is the io/fs FileMode of the path.
+  uint32 mode = 2;
+  // size is the length in bytes of a regular file.
+  int64 size = 3;
 }

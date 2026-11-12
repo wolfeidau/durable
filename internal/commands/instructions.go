@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,9 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+
+	"github.com/wolfeidau/durable/internal/sandbox"
+	"github.com/wolfeidau/durable/skills"
 )
 
 const (
@@ -42,13 +46,14 @@ func buildPrompt(pinned string) string {
 }
 
 // discoverInstructions reads cwd's AGENTS.md first, then its parents up to the repository root, then the user file.
-func discoverInstructions(cwd, home string) (instructions, error) {
+// With ws (a repo session) the project file is AGENTS.md at the root of the workspace, read through ws; there is no cwd and no parent.
+func discoverInstructions(ctx context.Context, cwd, home string, ws skills.FilesFunc) (instructions, error) {
 	// An empty cwd (an empty session) has no project; EvalSymlinks("") would resolve to the process cwd.
 	var (
 		root string
 		dirs []string
 	)
-	if cwd != "" {
+	if cwd != "" && ws == nil {
 		resolved, err := filepath.EvalSymlinks(cwd)
 		if err != nil {
 			return instructions{}, fmt.Errorf("failed to resolve working directory: %w", err)
@@ -56,47 +61,96 @@ func discoverInstructions(cwd, home string) (instructions, error) {
 		root, dirs = projectDirs(resolved, uint32(os.Geteuid())) //nolint:gosec // uids fit in 32 bits
 	}
 
-	var (
-		res    instructions
-		blocks []string
-		total  int
-	)
-	// Callers add the most specific file first so it wins the budget; results are prepended to keep general-to-specific order.
-	add := func(path, shown string, trusted bool) {
-		if total >= maxTotalBytes {
-			if _, err := os.Lstat(path); err == nil {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("%s skipped: total limit of %d KiB reached", shown, maxTotalBytes>>10))
-			}
-			return
+	// Files are added the most specific first so it wins the budget; results are prepended to keep general-to-specific order.
+	var b instructionBuilder
+	if ws != nil {
+		err := b.add(instructionsFile,
+			func() bool { _, err := fs.Stat(ws(ctx), instructionsFile); return err == nil },
+			func(limit int) (string, bool, string, error) { return readWorkspaceInstructions(ctx, ws(ctx), limit) })
+		if err != nil {
+			return instructions{}, err
 		}
-		limit := min(maxFileBytes, maxTotalBytes-total)
-		content, truncated, warn := readInstructions(path, root, trusted, limit)
-		if warn != "" {
-			res.Warnings = append(res.Warnings, fmt.Sprintf("%s skipped: %s", shown, warn))
-			return
-		}
-		if strings.TrimSpace(content) == "" {
-			// A cut inside a multi-byte character can leave nothing of a real file.
-			if truncated {
-				res.Warnings = append(res.Warnings, fmt.Sprintf("%s skipped: total limit of %d KiB reached", shown, maxTotalBytes>>10))
-			}
-			return
-		}
-		total += len(content)
-		if truncated {
-			content += truncationMarker
-			res.Warnings = append(res.Warnings, fmt.Sprintf("%s truncated to %.1f KiB", shown, float64(len(content))/1024))
-		}
-		blocks = append([]string{fmt.Sprintf("<instructions path=%q>\n%s\n</instructions>", shown, strings.TrimSpace(content))}, blocks...)
-		res.Files = append([]string{fmt.Sprintf("%s (%d bytes)", shown, len(content))}, res.Files...)
 	}
-
 	for _, d := range slices.Backward(dirs) {
-		add(filepath.Join(d, instructionsFile), filepath.ToSlash(relTo(root, filepath.Join(d, instructionsFile))), false)
+		path := filepath.Join(d, instructionsFile)
+		if err := b.addHost(path, filepath.ToSlash(relTo(root, path)), root, false); err != nil {
+			return instructions{}, err
+		}
 	}
-	add(filepath.Join(home, ".durable", instructionsFile), "~/.durable/"+instructionsFile, true)
-	res.Text = strings.Join(blocks, "\n\n")
-	return res, nil
+	if err := b.addHost(filepath.Join(home, ".durable", instructionsFile), "~/.durable/"+instructionsFile, root, true); err != nil {
+		return instructions{}, err
+	}
+	b.res.Text = strings.Join(b.blocks, "\n\n")
+	return b.res, nil
+}
+
+// instructionBuilder spends the per-file and total budgets over the files added to it.
+type instructionBuilder struct {
+	res    instructions
+	blocks []string
+	total  int
+}
+
+func (b *instructionBuilder) addHost(path, shown, root string, trusted bool) error {
+	return b.add(shown,
+		func() bool { _, err := os.Lstat(path); return err == nil },
+		func(limit int) (string, bool, string, error) {
+			c, t, w := readInstructions(path, root, trusted, limit)
+			return c, t, w, nil
+		})
+}
+
+// add reads one file with what is left of the budget. exists says whether a file that wasn't read was there to skip.
+func (b *instructionBuilder) add(shown string, exists func() bool, read func(limit int) (string, bool, string, error)) error {
+	if b.total >= maxTotalBytes {
+		if exists() {
+			b.res.Warnings = append(b.res.Warnings, fmt.Sprintf("%s skipped: total limit of %d KiB reached", shown, maxTotalBytes>>10))
+		}
+		return nil
+	}
+	limit := min(maxFileBytes, maxTotalBytes-b.total)
+	content, truncated, warn, err := read(limit)
+	if err != nil {
+		return err
+	}
+	if warn != "" {
+		b.res.Warnings = append(b.res.Warnings, fmt.Sprintf("%s skipped: %s", shown, warn))
+		return nil
+	}
+	if strings.TrimSpace(content) == "" {
+		// A cut inside a multi-byte character can leave nothing of a real file.
+		if truncated {
+			b.res.Warnings = append(b.res.Warnings, fmt.Sprintf("%s skipped: total limit of %d KiB reached", shown, maxTotalBytes>>10))
+		}
+		return nil
+	}
+	b.total += len(content)
+	if truncated {
+		content += truncationMarker
+		b.res.Warnings = append(b.res.Warnings, fmt.Sprintf("%s truncated to %.1f KiB", shown, float64(len(content))/1024))
+	}
+	b.blocks = append([]string{fmt.Sprintf("<instructions path=%q>\n%s\n</instructions>", shown, strings.TrimSpace(content))}, b.blocks...)
+	b.res.Files = append([]string{fmt.Sprintf("%s (%d bytes)", shown, len(content))}, b.res.Files...)
+	return nil
+}
+
+// readWorkspaceInstructions reads AGENTS.md through the sandbox. A failure of the worker itself is an error, because
+// the pin would otherwise freeze without the file; a problem with the file is a warning.
+func readWorkspaceInstructions(ctx context.Context, fsys fs.FS, limit int) (string, bool, string, error) {
+	f, err := fsys.Open(instructionsFile)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", false, "", nil
+	case err != nil && ctx.Err() != nil:
+		return "", false, "", ctx.Err()
+	case errors.Is(err, sandbox.ErrWorker):
+		return "", false, "", fmt.Errorf("failed to read %s from the sandbox: %w", instructionsFile, err)
+	case err != nil:
+		return "", false, err.Error(), nil
+	}
+	defer f.Close()
+	content, truncated, warn := readOpened(f, limit)
+	return content, truncated, warn, nil
 }
 
 // relTo can't fail here because both paths are absolute.
@@ -151,6 +205,11 @@ func readInstructions(path, root string, trusted bool, limit int) (string, bool,
 		return "", false, err.Error()
 	}
 	defer f.Close()
+	return readOpened(f, limit)
+}
+
+// readOpened reads at most limit bytes of an open file, and warns about one that isn't text.
+func readOpened(f fs.File, limit int) (string, bool, string) {
 	info, err := f.Stat()
 	if err != nil {
 		return "", false, err.Error()
