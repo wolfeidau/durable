@@ -30,47 +30,128 @@ export interface Turn {
 const decoder = new TextDecoder();
 const decode = (b: Uint8Array | undefined): string | undefined => (b && b.length ? decoder.decode(b) : undefined);
 
-export function buildTranscript(events: readonly Event[]): Turn[] {
-  const turns = new Map<bigint, Turn>();
-  const calls = new Map<string, CallEntry>();
-  const approvals = new Map<bigint, CallEntry>();
+interface CallRef {
+  seq: bigint;
+  idx: number;
+  call: CallEntry;
+}
 
-  const turnFor = (seq: bigint): Turn => {
-    let t = turns.get(seq);
-    if (!t) {
-      t = { seq, status: SubmissionStatus.UNSPECIFIED, entries: [] };
-      turns.set(seq, t);
+// Applies events copy-on-write, so a turn or call that no event touched keeps its identity for memoised views.
+export class TranscriptBuilder {
+  private processed = 0;
+  private first: Event | undefined;
+  private last: Event | undefined;
+  private result: Turn[] = [];
+  private index = new Map<bigint, number>();
+  private calls = new Map<string, CallRef>();
+  private approvals = new Map<bigint, CallRef>();
+  private freshTurns = new Set<bigint>();
+  private freshCalls = new Set<string>();
+  private copied = false;
+
+  update(events: readonly Event[]): Turn[] {
+    const extends_ =
+      this.processed > 0 &&
+      events.length >= this.processed &&
+      events[0] === this.first &&
+      events[this.processed - 1] === this.last;
+    if (!extends_) {
+      if (this.processed === 0 && events.length === 0) return this.result;
+      this.reset();
     }
+    if (events.length === this.processed) return this.result;
+    this.freshTurns.clear();
+    this.freshCalls.clear();
+    this.copied = false;
+    for (let i = this.processed; i < events.length; i++) this.apply(events[i]!);
+    this.processed = events.length;
+    this.first = events[0];
+    this.last = events[events.length - 1];
+    return this.result;
+  }
+
+  private reset(): void {
+    this.processed = 0;
+    this.first = undefined;
+    this.last = undefined;
+    this.result = [];
+    this.index.clear();
+    this.calls.clear();
+    this.approvals.clear();
+  }
+
+  private writable(): Turn[] {
+    if (!this.copied) {
+      this.result = [...this.result];
+      this.copied = true;
+    }
+    return this.result;
+  }
+
+  private ensure(seq: bigint): void {
+    if (this.index.has(seq)) return;
+    const t: Turn = { seq, status: SubmissionStatus.UNSPECIFIED, entries: [] };
+    const r = this.writable();
+    this.index.set(seq, r.length);
+    r.push(t);
+    this.freshTurns.add(seq);
+  }
+
+  private edit(seq: bigint): Turn {
+    this.ensure(seq);
+    const r = this.writable();
+    const at = this.index.get(seq)!;
+    if (this.freshTurns.has(seq)) return r[at]!;
+    const t = { ...r[at]!, entries: [...r[at]!.entries] };
+    r[at] = t;
+    this.freshTurns.add(seq);
     return t;
-  };
-  const callFor = (turn: Turn, id: string, name: string, input?: string): CallEntry => {
-    let c = calls.get(id);
-    if (!c) {
-      c = { kind: "call", id, name, input, rewritten: false, isError: false };
-      calls.set(id, c);
-      turn.entries.push(c);
-    }
-    return c;
-  };
+  }
 
-  for (const e of events) {
-    const turn = turnFor(e.submission);
+  private editCall(id: string): CallEntry {
+    const ref = this.calls.get(id)!;
+    if (this.freshCalls.has(id)) return ref.call;
+    ref.call = { ...ref.call };
+    this.edit(ref.seq).entries[ref.idx] = ref.call;
+    this.freshCalls.add(id);
+    return ref.call;
+  }
+
+  private callFor(seq: bigint, id: string, name: string, input?: string): CallRef {
+    let ref = this.calls.get(id);
+    if (!ref) {
+      const turn = this.edit(seq);
+      ref = { seq, idx: turn.entries.length, call: { kind: "call", id, name, input, rewritten: false, isError: false } };
+      turn.entries.push(ref.call);
+      this.calls.set(id, ref);
+      this.freshCalls.add(id);
+    }
+    return ref;
+  }
+
+  private apply(e: Event): void {
+    const seq = e.submission;
+    this.ensure(seq);
     switch (e.kind) {
-      case EventKind.SUBMISSION:
-        turn.status = e.status;
-        if (e.requestId) turn.requestId = e.requestId;
-        if (e.error) turn.error = e.error;
+      case EventKind.SUBMISSION: {
+        const t = this.edit(seq);
+        t.status = e.status;
+        if (e.requestId) t.requestId = e.requestId;
+        if (e.error) t.error = e.error;
         break;
+      }
       case EventKind.MESSAGE: {
         const m = e.message;
         if (!m) break;
         if (m.role === Role.USER) {
-          turn.entries.push({ kind: m.note ? "notice" : "user", text: m.text });
+          this.edit(seq).entries.push({ kind: m.note ? "notice" : "user", text: m.text });
         } else if (m.role === Role.ASSISTANT) {
-          if (m.text) turn.entries.push({ kind: "assistant", text: m.text });
-          for (const tc of m.toolCalls) callFor(turn, tc.id, tc.name, decode(tc.input));
+          if (m.text) this.edit(seq).entries.push({ kind: "assistant", text: m.text });
+          for (const tc of m.toolCalls) this.callFor(seq, tc.id, tc.name, decode(tc.input));
         } else if (m.role === Role.TOOL) {
-          const c = callFor(turn, m.toolCallId, "tool");
+          const id = m.toolCallId;
+          this.callFor(seq, id, "tool");
+          const c = this.editCall(id);
           c.result = m.text;
           c.isError = m.isError;
         }
@@ -78,9 +159,10 @@ export function buildTranscript(events: readonly Event[]): Turn[] {
       }
       case EventKind.APPROVAL_REQUESTED: {
         if (!e.call) break;
-        const c = callFor(turn, e.call.id, e.call.name, decode(e.call.input));
+        const ref = this.callFor(seq, e.call.id, e.call.name, decode(e.call.input));
+        const c = this.editCall(e.call.id);
         c.approval = { seq: e.approvalSeq, status: ApprovalStatus.PENDING, decidedBy: "" };
-        approvals.set(e.approvalSeq, c);
+        this.approvals.set(e.approvalSeq, ref);
         if (e.rewritten) {
           c.rewritten = true;
           c.input = undefined;
@@ -88,29 +170,38 @@ export function buildTranscript(events: readonly Event[]): Turn[] {
         break;
       }
       case EventKind.APPROVAL_DECIDED: {
-        const c = approvals.get(e.approvalSeq) ?? (e.call ? calls.get(e.call.id) : undefined);
-        if (c) c.approval = { seq: e.approvalSeq, status: e.approval, decidedBy: e.decidedBy };
+        const ref = this.approvals.get(e.approvalSeq) ?? (e.call ? this.calls.get(e.call.id) : undefined);
+        if (ref) this.editCall(ref.call.id).approval = { seq: e.approvalSeq, status: e.approval, decidedBy: e.decidedBy };
         break;
       }
       case EventKind.CALL_STARTED:
         if (e.call) {
-          const c = callFor(turn, e.call.id, e.call.name, decode(e.call.input));
-          if (c.input === undefined && !c.rewritten) c.input = decode(e.call.input);
+          const ref = this.callFor(seq, e.call.id, e.call.name, decode(e.call.input));
+          if (ref.call.input === undefined && !ref.call.rewritten) this.editCall(e.call.id).input = decode(e.call.input);
         }
         break;
       case EventKind.CALL_REPLAYED:
-        turn.entries.push({ kind: "notice", text: `${e.call?.name ?? "A tool call"} ran again after a restart` });
+        this.edit(seq).entries.push({ kind: "notice", text: `${e.call?.name ?? "A tool call"} ran again after a restart` });
         break;
       case EventKind.CALL_DONE:
-        if (e.call) callFor(turn, e.call.id, e.call.name).isError = e.isError;
+        if (e.call) {
+          this.callFor(seq, e.call.id, e.call.name);
+          this.editCall(e.call.id).isError = e.isError;
+        }
         break;
       case EventKind.COMPACTED:
-        turn.entries.push({ kind: "notice", text: "Earlier messages were compacted" });
+        this.edit(seq).entries.push({ kind: "notice", text: "Earlier messages were compacted" });
         break;
       case EventKind.COMPACTION_FAILED:
-        turn.entries.push({ kind: "notice", text: `Compaction failed${e.error ? `: ${e.error}` : ""}` });
+        this.edit(seq).entries.push({
+          kind: "notice",
+          text: `Compaction failed${e.error ? `: ${e.error}` : ""}`,
+        });
         break;
     }
   }
-  return [...turns.values()];
+}
+
+export function buildTranscript(events: readonly Event[]): Turn[] {
+  return new TranscriptBuilder().update(events);
 }
