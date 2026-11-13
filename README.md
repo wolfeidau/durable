@@ -83,8 +83,12 @@ durable-server url   # prints the browser link, with the token in the URL fragme
 
 - **Web UI:** a `go install` build serves a placeholder page. To embed the UI, build from a checkout
   with `mise run web:build` first, then `go build ./cmd/durable-server`.
-- **Models:** `--provider`, `--protocol` and `--model` set the route for new sessions, as in
-  `durable chat`. Existing sessions keep their pin.
+- **Config:** settings live in `~/.durable/config.json`, which is checked against a published
+  [JSON Schema](schema/durable-server.schema.json). Flags override it. `durable-server config check`
+  validates the file and shows each effective setting and where it came from. See
+  [server config](docs/remote-execution.md#server-config).
+- **Models:** `provider` in the config, or `--provider`, `--protocol` and `--model`, set the route for new
+  sessions, as in `durable chat`. Existing sessions keep their pin.
 - **Sessions:** without a sandbox, a session is a directory on your machine, typed as an absolute
   path, and its tools run as you. It is the same session `durable chat` opens there, and a lease
   hands it between the two.
@@ -99,6 +103,18 @@ need a running OpenShell gateway and the worker image, built from a checkout:
 
 ```sh
 mise run image:worker
+```
+
+```json
+{
+  "git": { "hosts": { "github": { "token": "gh" } } },
+  "environments": { "default": { "image": "durable-worker:dev" } }
+}
+```
+
+Save that as `~/.durable/config.json`, or pass the same settings as flags:
+
+```sh
 durable-server serve --sandbox-image durable-worker:dev --git-host-token github=gh
 ```
 
@@ -112,8 +128,8 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
 - **Project context:** a repo session pins the clone's `AGENTS.md` and its `.durable/skills` and
   `.agents/skills` when it is created.
 - **Go development:** `mise run image:worker-go` builds a worker image with Go and golangci-lint.
-  Put `{ "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] } }` in
-  `~/.durable/environments.json` and create sessions with `environment: "go"`. The grant lets only
+  Put `"go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] }` under `environments` in
+  `~/.durable/config.json` and create sessions with `environment: "go"`. The grant lets only
   the `go` binary reach the module proxy. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
 - **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
 - **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open

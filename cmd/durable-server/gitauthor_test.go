@@ -11,7 +11,7 @@ import (
 )
 
 func TestInvalidGitAuthorFailsStartup(t *testing.T) {
-	for _, v := range []string{"nobody", "<durable@localhost>", ""} {
+	for _, v := range []string{"nobody", "<durable@localhost>"} {
 		out := runFailingIn(t, t.TempDir(), nil, "--git-author", v)
 
 		require.Contains(t, out, "--git-author")

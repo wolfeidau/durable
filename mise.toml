@@ -30,6 +30,13 @@ buf generate
 test -z "$(git status --porcelain api/)" || { git status --porcelain api/; exit 1; }
 """
 
+[tasks."gen:schema"]
+run = "go generate ./internal/config"
+
+[tasks."check:schema"]
+# Fails when the committed schema differs from what the Go types generate; fix it with mise run gen:schema.
+run = "go test -count=1 -run TestGeneratedSchemaMatchesTheCommittedFile ./internal/config"
+
 [tasks."check:lint"]
 run = "golangci-lint run --timeout 3m"
 

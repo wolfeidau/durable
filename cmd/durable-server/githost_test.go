@@ -126,7 +126,7 @@ func TestGitHostTokenConfigurationErrors(t *testing.T) {
 		{name: "unsupported kind", args: []string{"--sandbox-image", "img", "--git-host-token", "gitlab=gh"}, want: "supported kinds: github"},
 		{name: "duplicate kind", args: []string{"--sandbox-image", "img", "--git-host-token", "github=gh", "--git-host-token", "github=" + gitTestRef}, want: "more than once"},
 		{name: "no equals sign", args: []string{"--sandbox-image", "img", "--git-host-token", gitTestToken}, want: "<kind>=<source>"},
-		{name: "literal source", args: []string{"--sandbox-image", "img", "--git-host-token", "github=" + gitTestToken}, want: "op:// secret reference or gh"},
+		{name: "literal source", args: []string{"--sandbox-image", "img", "--git-host-token", "github=" + gitTestToken}, want: "op:// secret reference, gh or env:NAME"},
 		{name: "no sandbox image", args: []string{"--git-host-token", "github=gh"}, want: "needs --sandbox-image"},
 		{name: "environment without sandbox image", env: []string{"DURABLE_GITHUB_TOKEN=" + gitTestToken}, want: "needs --sandbox-image"},
 	}

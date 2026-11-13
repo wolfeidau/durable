@@ -82,6 +82,18 @@ func TestResolveSources(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "env-secret", got)
 	})
+	t.Run("env reference", func(t *testing.T) {
+		t.Setenv("DURABLE_TEST_REF", " ref-secret\n")
+		got, err := Resolve(ctx, src("env:DURABLE_TEST_REF"))
+		require.NoError(t, err)
+		require.Equal(t, "ref-secret", got)
+	})
+	t.Run("unset env reference names the variable only", func(t *testing.T) {
+		t.Setenv("DURABLE_TEST_REF", "")
+		_, err := Resolve(ctx, src("env:DURABLE_TEST_REF"))
+		require.ErrorContains(t, err, "--tok")
+		require.ErrorContains(t, err, "DURABLE_TEST_REF")
+	})
 	t.Run("nothing set", func(t *testing.T) {
 		t.Setenv("DURABLE_TEST_TOK", "")
 		_, err := Resolve(ctx, src(""))

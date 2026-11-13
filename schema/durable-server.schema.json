@@ -1,0 +1,138 @@
+{
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this schema, so editors can validate the file."
+    },
+    "listen": {
+      "type": "object",
+      "properties": {
+        "addr": {
+          "type": "string",
+          "description": "Address to listen on, as host:port. Defaults to 127.0.0.1:7878."
+        },
+        "idle_timeout": {
+          "type": "string",
+          "description": "Close a session with no clients and no work after this long, as a Go duration. Defaults to 5m.",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+        },
+        "open_timeout": {
+          "type": "string",
+          "description": "Give up opening a session after this long, as a Go duration. Defaults to 10s.",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+        },
+        "heartbeat": {
+          "type": "string",
+          "description": "Send a heartbeat on an idle event stream this often, as a Go duration. Defaults to 20s.",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+        }
+      },
+      "description": "Where the server listens and how it times out clients.",
+      "additionalProperties": false
+    },
+    "provider": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Model provider. Empty uses anthropic.",
+          "enum": [
+            "anthropic",
+            "openrouter"
+          ]
+        },
+        "protocol": {
+          "type": "string",
+          "description": "Wire protocol. Empty uses the provider's default.",
+          "enum": [
+            "anthropic-messages",
+            "openai-responses"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "description": "Model name. Required for openrouter; for anthropic, empty uses the built-in default."
+        },
+        "api_key": {
+          "type": "string",
+          "description": "Where to read the provider's API key: an op:// 1Password reference or env:NAME. Never the key itself. Empty uses the provider's default credentials.",
+          "pattern": "^(op://.+|env:[A-Za-z_][A-Za-z0-9_]*)$"
+        }
+      },
+      "description": "The model provider for new sessions. Existing sessions keep their pin.",
+      "additionalProperties": false
+    },
+    "git": {
+      "type": "object",
+      "properties": {
+        "author": {
+          "type": "string",
+          "description": "The git user.name and user.email for commits in new sandboxed sessions, as NAME \u003cEMAIL\u003e."
+        },
+        "hosts": {
+          "type": "object",
+          "description": "Git hosts by kind. A host with a token lets sandboxed sessions clone and push to it.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "token": {
+                "type": "string",
+                "description": "Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, or env:NAME. Never the token itself.",
+                "pattern": "^(op://.+|gh|env:[A-Za-z_][A-Za-z0-9_]*)$"
+              }
+            },
+            "required": [
+              "token"
+            ],
+            "additionalProperties": false
+          },
+          "propertyNames": {
+            "enum": [
+              "github"
+            ]
+          }
+        }
+      },
+      "description": "Git settings for sandboxed sessions.",
+      "additionalProperties": false
+    },
+    "environments": {
+      "type": "object",
+      "description": "Sandbox environments, by name. A session picks one; default is used when it names none.",
+      "patternProperties": {
+        "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$": {
+          "type": "object",
+          "properties": {
+            "image": {
+              "type": "string",
+              "description": "The worker image sessions in this environment run.",
+              "minLength": 1
+            },
+            "grants": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "go-modules"
+                ]
+              },
+              "description": "Network grants for sessions in this environment.",
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "image"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$id": "https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "durable-server config",
+  "description": "Settings for durable-server, read from ~/.durable/config.json. Command line flags override them.",
+  "additionalProperties": false
+}
