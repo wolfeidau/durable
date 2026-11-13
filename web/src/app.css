@@ -126,6 +126,10 @@ label input, label select { margin-top: 0.25rem; }
 .crumbs .brand { font-weight: 700; font-size: 1.1rem; }
 .crumbs .sep { color: var(--faint); }
 
+.topbar-right { display: flex; align-items: center; gap: 1rem; flex-shrink: 0; }
+.nav-link { color: var(--muted); font-size: 0.9rem; text-decoration: none; }
+.nav-link:hover, .nav-link[aria-current] { color: var(--text); text-decoration: underline; }
+
 .crumb-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -272,6 +276,14 @@ label input, label select { margin-top: 0.25rem; }
 }
 
 .created { width: 8rem; font-size: 0.85rem; }
+
+/* Server page */
+.server-page h3 { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--muted); }
+.server-page section { margin-bottom: 0.5rem; }
+.table-wrap.static tbody tr { cursor: default; }
+.table-wrap.static tbody tr:hover { background: none; }
+.table-wrap.static td { overflow-wrap: anywhere; }
+.table-wrap.static .badge { margin: 0 0.3rem 0.2rem 0; }
 
 /* New session form */
 .new-session { padding: 1rem 1.25rem; }

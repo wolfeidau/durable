@@ -99,6 +99,14 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	var shown []server.Setting
+	for _, e := range settings.Entries() {
+		shown = append(shown, server.Setting{Field: e.Field, Value: e.Value, Source: string(e.Source)})
+	}
+	var warnings []string
+	for _, w := range settings.Warnings {
+		warnings = append(warnings, w.Message)
+	}
 	gitSources := settings.GitHostSources()
 	environments := settings.Environments
 	gitAuthor := settings.GitIdentity()
@@ -172,7 +180,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	defer registry.Close()
 	draining := make(chan struct{})
 	srv := &http.Server{
-		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: settings.Heartbeat, Draining: draining}).Handler(),
+		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: settings.Heartbeat, Draining: draining, Settings: shown, Warnings: warnings}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}

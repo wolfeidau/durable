@@ -12,7 +12,7 @@ import type { Message as Message$1 } from "@bufbuild/protobuf";
  * Describes the file durable/v1/durable.proto.
  */
 export const file_durable_v1_durable: GenFile = /*@__PURE__*/
-  fileDesc("ChhkdXJhYmxlL3YxL2R1cmFibGUucHJvdG8SCmR1cmFibGUudjEiFgoUR2V0U2VydmVySW5mb1JlcXVlc3QidQoVR2V0U2VydmVySW5mb1Jlc3BvbnNlEikKCndvcmtzcGFjZXMYASADKA4yFS5kdXJhYmxlLnYxLldvcmtzcGFjZRIxCgxlbnZpcm9ubWVudHMYAiADKAsyGy5kdXJhYmxlLnYxLkVudmlyb25tZW50SW5mbyI+Cg9FbnZpcm9ubWVudEluZm8SDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIOCgZncmFudHMYAyADKAkiogEKFENyZWF0ZVNlc3Npb25SZXF1ZXN0EgsKA2N3ZBgBIAEoCRIMCgRuYW1lGAIgASgJEigKCXdvcmtzcGFjZRgDIAEoDjIVLmR1cmFibGUudjEuV29ya3NwYWNlEhIKCnJlcXVlc3RfaWQYBCABKAkSDAoEcmVwbxgFIAEoCRIOCgZicmFuY2gYBiABKAkSEwoLZW52aXJvbm1lbnQYByABKAkiUgoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEigKB3Nlc3Npb24YASABKAsyFy5kdXJhYmxlLnYxLlNlc3Npb25JbmZvEg8KB2NyZWF0ZWQYAiABKAgiFQoTTGlzdFNlc3Npb25zUmVxdWVzdCJTChRMaXN0U2Vzc2lvbnNSZXNwb25zZRIpCghzZXNzaW9ucxgBIAMoCzIXLmR1cmFibGUudjEuU2Vzc2lvbkluZm8SEAoId2FybmluZ3MYAiADKAki/AEKC1Nlc3Npb25JbmZvEgoKAmlkGAEgASgJEgsKA2N3ZBgCIAEoCRIMCgRuYW1lGAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhkKEXBlbmRpbmdfYXBwcm92YWxzGAUgASgFEh4KFnVuZmluaXNoZWRfc3VibWlzc2lvbnMYBiABKAUSKAoJd29ya3NwYWNlGAcgASgOMhUuZHVyYWJsZS52MS5Xb3Jrc3BhY2USDAoEcmVwbxgIIAEoCRIOCgZicmFuY2gYCSABKAkSEwoLZW52aXJvbm1lbnQYCiABKAkiRQoNU3VibWl0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhIKCnJlcXVlc3RfaWQYAiABKAkSDAoEdGV4dBgDIAEoCSI8Cg5TdWJtaXRSZXNwb25zZRIqCgpzdWJtaXNzaW9uGAEgASgLMhYuZHVyYWJsZS52MS5TdWJtaXNzaW9uIjcKDUNhbmNlbFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJIjwKDkNhbmNlbFJlc3BvbnNlEioKCnN1Ym1pc3Npb24YASABKAsyFi5kdXJhYmxlLnYxLlN1Ym1pc3Npb24iXAoVRGVjaWRlQXBwcm92YWxSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSFAoMYXBwcm92YWxfc2VxGAIgASgDEg0KBWFsbG93GAMgASgIEgoKAmJ5GAQgASgJIkAKFkRlY2lkZUFwcHJvdmFsUmVzcG9uc2USJgoIYXBwcm92YWwYASABKAsyFC5kdXJhYmxlLnYxLkFwcHJvdmFsImIKEldhdGNoRXZlbnRzUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWVwb2NoGAIgASgJEhEKCWFmdGVyX3NlcRgDIAEoAxIWCg5pbmNsdWRlX2RlbHRhcxgEIAEoCCKRAQoTV2F0Y2hFdmVudHNSZXNwb25zZRIiCgVldmVudBgBIAEoCzIRLmR1cmFibGUudjEuRXZlbnRIABIqCgloZWFydGJlYXQYAiABKAsyFS5kdXJhYmxlLnYxLkhlYXJ0YmVhdEgAEiIKBWRlbHRhGAMgASgLMhEuZHVyYWJsZS52MS5EZWx0YUgAQgYKBGl0ZW0iCwoJSGVhcnRiZWF0InEKBURlbHRhEhAKCGxhc3Rfc2VxGAEgASgDEiMKBGtpbmQYAiABKA4yFS5kdXJhYmxlLnYxLkRlbHRhS2luZBISCgpzdWJtaXNzaW9uGAMgASgDEg8KB2NhbGxfaWQYBCABKAkSDAoEdGV4dBgFIAEoCSKIAQoKU3VibWlzc2lvbhILCgNzZXEYASABKAMSEgoKcmVxdWVzdF9pZBgCIAEoCRIMCgR0ZXh0GAMgASgJEiwKBnN0YXR1cxgEIAEoDjIcLmR1cmFibGUudjEuU3VibWlzc2lvblN0YXR1cxIOCgZyZXN1bHQYBSABKAkSDQoFZXJyb3IYBiABKAkiogEKCEFwcHJvdmFsEgsKA3NlcRgBIAEoAxISCgpzdWJtaXNzaW9uGAIgASgDEiIKBGNhbGwYAyABKAsyFC5kdXJhYmxlLnYxLlRvb2xDYWxsEhEKCXJld3JpdHRlbhgEIAEoCBIqCgZzdGF0dXMYBSABKA4yGi5kdXJhYmxlLnYxLkFwcHJvdmFsU3RhdHVzEhIKCmRlY2lkZWRfYnkYBiABKAkiMwoIVG9vbENhbGwSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVpbnB1dBgDIAEoDCKvAQoHTWVzc2FnZRIeCgRyb2xlGAEgASgOMhAuZHVyYWJsZS52MS5Sb2xlEgwKBHRleHQYAiABKAkSKAoKdG9vbF9jYWxscxgDIAMoCzIULmR1cmFibGUudjEuVG9vbENhbGwSFAoMdG9vbF9jYWxsX2lkGAQgASgJEhAKCGlzX2Vycm9yGAUgASgIEhYKDmNvbnRleHRfdG9rZW5zGAYgASgDEgwKBG5vdGUYByABKAgi9AIKBUV2ZW50EgsKA3NlcRgBIAEoAxINCgVlcG9jaBgCIAEoCRIjCgRraW5kGAMgASgOMhUuZHVyYWJsZS52MS5FdmVudEtpbmQSEgoKc3VibWlzc2lvbhgEIAEoAxIsCgZzdGF0dXMYBSABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDQoFZXJyb3IYBiABKAkSJAoHbWVzc2FnZRgHIAEoCzITLmR1cmFibGUudjEuTWVzc2FnZRIiCgRjYWxsGAggASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YCSABKAgSEAoIaXNfZXJyb3IYCiABKAgSFAoMYXBwcm92YWxfc2VxGAsgASgDEiwKCGFwcHJvdmFsGAwgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GA0gASgJEhIKCnJlcXVlc3RfaWQYDiABKAkiMAoNRXBvY2hNaXNtYXRjaBINCgVlcG9jaBgBIAEoCRIQCghsYXN0X3NlcRgCIAEoAypoCglXb3Jrc3BhY2USGQoVV09SS1NQQUNFX1VOU1BFQ0lGSUVEEAASFwoTV09SS1NQQUNFX0RJUkVDVE9SWRABEhMKD1dPUktTUEFDRV9FTVBUWRACEhIKDldPUktTUEFDRV9SRVBPEAMqbgoJRGVsdGFLaW5kEhoKFkRFTFRBX0tJTkRfVU5TUEVDSUZJRUQQABIUChBERUxUQV9LSU5EX1JFU0VUEAESEwoPREVMVEFfS0lORF9URVhUEAISGgoWREVMVEFfS0lORF9UT09MX09VVFBVVBADKs0BChBTdWJtaXNzaW9uU3RhdHVzEiEKHVNVQk1JU1NJT05fU1RBVFVTX1VOU1BFQ0lGSUVEEAASHAoYU1VCTUlTU0lPTl9TVEFUVVNfUVVFVUVEEAESHQoZU1VCTUlTU0lPTl9TVEFUVVNfUlVOTklORxACEhoKFlNVQk1JU1NJT05fU1RBVFVTX0RPTkUQAxIcChhTVUJNSVNTSU9OX1NUQVRVU19GQUlMRUQQBBIfChtTVUJNSVNTSU9OX1NUQVRVU19DQU5DRUxMRUQQBSqoAQoOQXBwcm92YWxTdGF0dXMSHwobQVBQUk9WQUxfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGwoXQVBQUk9WQUxfU1RBVFVTX1BFTkRJTkcQARIbChdBUFBST1ZBTF9TVEFUVVNfQUxMT1dFRBACEhwKGEFQUFJPVkFMX1NUQVRVU19ERUNMSU5FRBADEh0KGUFQUFJPVkFMX1NUQVRVU19DQU5DRUxMRUQQBCqvAgoJRXZlbnRLaW5kEhoKFkVWRU5UX0tJTkRfVU5TUEVDSUZJRUQQABIZChVFVkVOVF9LSU5EX1NVQk1JU1NJT04QARIWChJFVkVOVF9LSU5EX01FU1NBR0UQAhIbChdFVkVOVF9LSU5EX0NBTExfU1RBUlRFRBADEhwKGEVWRU5UX0tJTkRfQ0FMTF9SRVBMQVlFRBAEEhgKFEVWRU5UX0tJTkRfQ0FMTF9ET05FEAUSGAoURVZFTlRfS0lORF9DT01QQUNURUQQBhIgChxFVkVOVF9LSU5EX0NPTVBBQ1RJT05fRkFJTEVEEAcSIQodRVZFTlRfS0lORF9BUFBST1ZBTF9SRVFVRVNURUQQCBIfChtFVkVOVF9LSU5EX0FQUFJPVkFMX0RFQ0lERUQQCSpOCgRSb2xlEhQKEFJPTEVfVU5TUEVDSUZJRUQQABINCglST0xFX1VTRVIQARISCg5ST0xFX0FTU0lTVEFOVBACEg0KCVJPTEVfVE9PTBADMrwECg5TZXNzaW9uU2VydmljZRI/CgZTdWJtaXQSGS5kdXJhYmxlLnYxLlN1Ym1pdFJlcXVlc3QaGi5kdXJhYmxlLnYxLlN1Ym1pdFJlc3BvbnNlEj8KBkNhbmNlbBIZLmR1cmFibGUudjEuQ2FuY2VsUmVxdWVzdBoaLmR1cmFibGUudjEuQ2FuY2VsUmVzcG9uc2USVwoORGVjaWRlQXBwcm92YWwSIS5kdXJhYmxlLnYxLkRlY2lkZUFwcHJvdmFsUmVxdWVzdBoiLmR1cmFibGUudjEuRGVjaWRlQXBwcm92YWxSZXNwb25zZRJQCgtXYXRjaEV2ZW50cxIeLmR1cmFibGUudjEuV2F0Y2hFdmVudHNSZXF1ZXN0Gh8uZHVyYWJsZS52MS5XYXRjaEV2ZW50c1Jlc3BvbnNlMAESUQoMTGlzdFNlc3Npb25zEh8uZHVyYWJsZS52MS5MaXN0U2Vzc2lvbnNSZXF1ZXN0GiAuZHVyYWJsZS52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJUCg1DcmVhdGVTZXNzaW9uEiAuZHVyYWJsZS52MS5DcmVhdGVTZXNzaW9uUmVxdWVzdBohLmR1cmFibGUudjEuQ3JlYXRlU2Vzc2lvblJlc3BvbnNlElQKDUdldFNlcnZlckluZm8SIC5kdXJhYmxlLnYxLkdldFNlcnZlckluZm9SZXF1ZXN0GiEuZHVyYWJsZS52MS5HZXRTZXJ2ZXJJbmZvUmVzcG9uc2VCN1o1Z2l0aHViLmNvbS93b2xmZWlkYXUvZHVyYWJsZS9hcGkvZHVyYWJsZS92MTtkdXJhYmxldjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("ChhkdXJhYmxlL3YxL2R1cmFibGUucHJvdG8SCmR1cmFibGUudjEiFgoUR2V0U2VydmVySW5mb1JlcXVlc3Qi1QEKFUdldFNlcnZlckluZm9SZXNwb25zZRIpCgp3b3Jrc3BhY2VzGAEgAygOMhUuZHVyYWJsZS52MS5Xb3Jrc3BhY2USMQoMZW52aXJvbm1lbnRzGAIgAygLMhsuZHVyYWJsZS52MS5FbnZpcm9ubWVudEluZm8SJQoIc2V0dGluZ3MYAyADKAsyEy5kdXJhYmxlLnYxLlNldHRpbmcSEAoId2FybmluZ3MYBCADKAkSJQoGZ3JhbnRzGAUgAygLMhUuZHVyYWJsZS52MS5HcmFudEluZm8iNwoHU2V0dGluZxINCgVmaWVsZBgBIAEoCRINCgV2YWx1ZRgCIAEoCRIOCgZzb3VyY2UYAyABKAkiSwoJR3JhbnRJbmZvEgwKBG5hbWUYASABKAkSDwoHc3VtbWFyeRgCIAEoCRIQCghiaW5hcmllcxgDIAMoCRINCgVob3N0cxgEIAMoCSI+Cg9FbnZpcm9ubWVudEluZm8SDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIOCgZncmFudHMYAyADKAkiogEKFENyZWF0ZVNlc3Npb25SZXF1ZXN0EgsKA2N3ZBgBIAEoCRIMCgRuYW1lGAIgASgJEigKCXdvcmtzcGFjZRgDIAEoDjIVLmR1cmFibGUudjEuV29ya3NwYWNlEhIKCnJlcXVlc3RfaWQYBCABKAkSDAoEcmVwbxgFIAEoCRIOCgZicmFuY2gYBiABKAkSEwoLZW52aXJvbm1lbnQYByABKAkiUgoVQ3JlYXRlU2Vzc2lvblJlc3BvbnNlEigKB3Nlc3Npb24YASABKAsyFy5kdXJhYmxlLnYxLlNlc3Npb25JbmZvEg8KB2NyZWF0ZWQYAiABKAgiFQoTTGlzdFNlc3Npb25zUmVxdWVzdCJTChRMaXN0U2Vzc2lvbnNSZXNwb25zZRIpCghzZXNzaW9ucxgBIAMoCzIXLmR1cmFibGUudjEuU2Vzc2lvbkluZm8SEAoId2FybmluZ3MYAiADKAki/AEKC1Nlc3Npb25JbmZvEgoKAmlkGAEgASgJEgsKA2N3ZBgCIAEoCRIMCgRuYW1lGAMgASgJEi4KCmNyZWF0ZWRfYXQYBCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhkKEXBlbmRpbmdfYXBwcm92YWxzGAUgASgFEh4KFnVuZmluaXNoZWRfc3VibWlzc2lvbnMYBiABKAUSKAoJd29ya3NwYWNlGAcgASgOMhUuZHVyYWJsZS52MS5Xb3Jrc3BhY2USDAoEcmVwbxgIIAEoCRIOCgZicmFuY2gYCSABKAkSEwoLZW52aXJvbm1lbnQYCiABKAkiRQoNU3VibWl0UmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhIKCnJlcXVlc3RfaWQYAiABKAkSDAoEdGV4dBgDIAEoCSI8Cg5TdWJtaXRSZXNwb25zZRIqCgpzdWJtaXNzaW9uGAEgASgLMhYuZHVyYWJsZS52MS5TdWJtaXNzaW9uIjcKDUNhbmNlbFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJIjwKDkNhbmNlbFJlc3BvbnNlEioKCnN1Ym1pc3Npb24YASABKAsyFi5kdXJhYmxlLnYxLlN1Ym1pc3Npb24iXAoVRGVjaWRlQXBwcm92YWxSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSFAoMYXBwcm92YWxfc2VxGAIgASgDEg0KBWFsbG93GAMgASgIEgoKAmJ5GAQgASgJIkAKFkRlY2lkZUFwcHJvdmFsUmVzcG9uc2USJgoIYXBwcm92YWwYASABKAsyFC5kdXJhYmxlLnYxLkFwcHJvdmFsImIKEldhdGNoRXZlbnRzUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEg0KBWVwb2NoGAIgASgJEhEKCWFmdGVyX3NlcRgDIAEoAxIWCg5pbmNsdWRlX2RlbHRhcxgEIAEoCCKRAQoTV2F0Y2hFdmVudHNSZXNwb25zZRIiCgVldmVudBgBIAEoCzIRLmR1cmFibGUudjEuRXZlbnRIABIqCgloZWFydGJlYXQYAiABKAsyFS5kdXJhYmxlLnYxLkhlYXJ0YmVhdEgAEiIKBWRlbHRhGAMgASgLMhEuZHVyYWJsZS52MS5EZWx0YUgAQgYKBGl0ZW0iCwoJSGVhcnRiZWF0InEKBURlbHRhEhAKCGxhc3Rfc2VxGAEgASgDEiMKBGtpbmQYAiABKA4yFS5kdXJhYmxlLnYxLkRlbHRhS2luZBISCgpzdWJtaXNzaW9uGAMgASgDEg8KB2NhbGxfaWQYBCABKAkSDAoEdGV4dBgFIAEoCSKIAQoKU3VibWlzc2lvbhILCgNzZXEYASABKAMSEgoKcmVxdWVzdF9pZBgCIAEoCRIMCgR0ZXh0GAMgASgJEiwKBnN0YXR1cxgEIAEoDjIcLmR1cmFibGUudjEuU3VibWlzc2lvblN0YXR1cxIOCgZyZXN1bHQYBSABKAkSDQoFZXJyb3IYBiABKAkiogEKCEFwcHJvdmFsEgsKA3NlcRgBIAEoAxISCgpzdWJtaXNzaW9uGAIgASgDEiIKBGNhbGwYAyABKAsyFC5kdXJhYmxlLnYxLlRvb2xDYWxsEhEKCXJld3JpdHRlbhgEIAEoCBIqCgZzdGF0dXMYBSABKA4yGi5kdXJhYmxlLnYxLkFwcHJvdmFsU3RhdHVzEhIKCmRlY2lkZWRfYnkYBiABKAkiMwoIVG9vbENhbGwSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRINCgVpbnB1dBgDIAEoDCKvAQoHTWVzc2FnZRIeCgRyb2xlGAEgASgOMhAuZHVyYWJsZS52MS5Sb2xlEgwKBHRleHQYAiABKAkSKAoKdG9vbF9jYWxscxgDIAMoCzIULmR1cmFibGUudjEuVG9vbENhbGwSFAoMdG9vbF9jYWxsX2lkGAQgASgJEhAKCGlzX2Vycm9yGAUgASgIEhYKDmNvbnRleHRfdG9rZW5zGAYgASgDEgwKBG5vdGUYByABKAgi9AIKBUV2ZW50EgsKA3NlcRgBIAEoAxINCgVlcG9jaBgCIAEoCRIjCgRraW5kGAMgASgOMhUuZHVyYWJsZS52MS5FdmVudEtpbmQSEgoKc3VibWlzc2lvbhgEIAEoAxIsCgZzdGF0dXMYBSABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDQoFZXJyb3IYBiABKAkSJAoHbWVzc2FnZRgHIAEoCzITLmR1cmFibGUudjEuTWVzc2FnZRIiCgRjYWxsGAggASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YCSABKAgSEAoIaXNfZXJyb3IYCiABKAgSFAoMYXBwcm92YWxfc2VxGAsgASgDEiwKCGFwcHJvdmFsGAwgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GA0gASgJEhIKCnJlcXVlc3RfaWQYDiABKAkiMAoNRXBvY2hNaXNtYXRjaBINCgVlcG9jaBgBIAEoCRIQCghsYXN0X3NlcRgCIAEoAypoCglXb3Jrc3BhY2USGQoVV09SS1NQQUNFX1VOU1BFQ0lGSUVEEAASFwoTV09SS1NQQUNFX0RJUkVDVE9SWRABEhMKD1dPUktTUEFDRV9FTVBUWRACEhIKDldPUktTUEFDRV9SRVBPEAMqbgoJRGVsdGFLaW5kEhoKFkRFTFRBX0tJTkRfVU5TUEVDSUZJRUQQABIUChBERUxUQV9LSU5EX1JFU0VUEAESEwoPREVMVEFfS0lORF9URVhUEAISGgoWREVMVEFfS0lORF9UT09MX09VVFBVVBADKs0BChBTdWJtaXNzaW9uU3RhdHVzEiEKHVNVQk1JU1NJT05fU1RBVFVTX1VOU1BFQ0lGSUVEEAASHAoYU1VCTUlTU0lPTl9TVEFUVVNfUVVFVUVEEAESHQoZU1VCTUlTU0lPTl9TVEFUVVNfUlVOTklORxACEhoKFlNVQk1JU1NJT05fU1RBVFVTX0RPTkUQAxIcChhTVUJNSVNTSU9OX1NUQVRVU19GQUlMRUQQBBIfChtTVUJNSVNTSU9OX1NUQVRVU19DQU5DRUxMRUQQBSqoAQoOQXBwcm92YWxTdGF0dXMSHwobQVBQUk9WQUxfU1RBVFVTX1VOU1BFQ0lGSUVEEAASGwoXQVBQUk9WQUxfU1RBVFVTX1BFTkRJTkcQARIbChdBUFBST1ZBTF9TVEFUVVNfQUxMT1dFRBACEhwKGEFQUFJPVkFMX1NUQVRVU19ERUNMSU5FRBADEh0KGUFQUFJPVkFMX1NUQVRVU19DQU5DRUxMRUQQBCqvAgoJRXZlbnRLaW5kEhoKFkVWRU5UX0tJTkRfVU5TUEVDSUZJRUQQABIZChVFVkVOVF9LSU5EX1NVQk1JU1NJT04QARIWChJFVkVOVF9LSU5EX01FU1NBR0UQAhIbChdFVkVOVF9LSU5EX0NBTExfU1RBUlRFRBADEhwKGEVWRU5UX0tJTkRfQ0FMTF9SRVBMQVlFRBAEEhgKFEVWRU5UX0tJTkRfQ0FMTF9ET05FEAUSGAoURVZFTlRfS0lORF9DT01QQUNURUQQBhIgChxFVkVOVF9LSU5EX0NPTVBBQ1RJT05fRkFJTEVEEAcSIQodRVZFTlRfS0lORF9BUFBST1ZBTF9SRVFVRVNURUQQCBIfChtFVkVOVF9LSU5EX0FQUFJPVkFMX0RFQ0lERUQQCSpOCgRSb2xlEhQKEFJPTEVfVU5TUEVDSUZJRUQQABINCglST0xFX1VTRVIQARISCg5ST0xFX0FTU0lTVEFOVBACEg0KCVJPTEVfVE9PTBADMrwECg5TZXNzaW9uU2VydmljZRI/CgZTdWJtaXQSGS5kdXJhYmxlLnYxLlN1Ym1pdFJlcXVlc3QaGi5kdXJhYmxlLnYxLlN1Ym1pdFJlc3BvbnNlEj8KBkNhbmNlbBIZLmR1cmFibGUudjEuQ2FuY2VsUmVxdWVzdBoaLmR1cmFibGUudjEuQ2FuY2VsUmVzcG9uc2USVwoORGVjaWRlQXBwcm92YWwSIS5kdXJhYmxlLnYxLkRlY2lkZUFwcHJvdmFsUmVxdWVzdBoiLmR1cmFibGUudjEuRGVjaWRlQXBwcm92YWxSZXNwb25zZRJQCgtXYXRjaEV2ZW50cxIeLmR1cmFibGUudjEuV2F0Y2hFdmVudHNSZXF1ZXN0Gh8uZHVyYWJsZS52MS5XYXRjaEV2ZW50c1Jlc3BvbnNlMAESUQoMTGlzdFNlc3Npb25zEh8uZHVyYWJsZS52MS5MaXN0U2Vzc2lvbnNSZXF1ZXN0GiAuZHVyYWJsZS52MS5MaXN0U2Vzc2lvbnNSZXNwb25zZRJUCg1DcmVhdGVTZXNzaW9uEiAuZHVyYWJsZS52MS5DcmVhdGVTZXNzaW9uUmVxdWVzdBohLmR1cmFibGUudjEuQ3JlYXRlU2Vzc2lvblJlc3BvbnNlElQKDUdldFNlcnZlckluZm8SIC5kdXJhYmxlLnYxLkdldFNlcnZlckluZm9SZXF1ZXN0GiEuZHVyYWJsZS52MS5HZXRTZXJ2ZXJJbmZvUmVzcG9uc2VCN1o1Z2l0aHViLmNvbS93b2xmZWlkYXUvZHVyYWJsZS9hcGkvZHVyYWJsZS92MTtkdXJhYmxldjFiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message durable.v1.GetServerInfoRequest
@@ -44,6 +44,27 @@ export type GetServerInfoResponse = Message$1<"durable.v1.GetServerInfoResponse"
    * @generated from field: repeated durable.v1.EnvironmentInfo environments = 2;
    */
   environments: EnvironmentInfo[];
+
+  /**
+   * settings are the effective server settings in display order; display-only, and values never include secret references.
+   *
+   * @generated from field: repeated durable.v1.Setting settings = 3;
+   */
+  settings: Setting[];
+
+  /**
+   * warnings are the config warnings the server logged at startup.
+   *
+   * @generated from field: repeated string warnings = 4;
+   */
+  warnings: string[];
+
+  /**
+   * grants is the network grant catalog environments can name.
+   *
+   * @generated from field: repeated durable.v1.GrantInfo grants = 5;
+   */
+  grants: GrantInfo[];
 };
 
 /**
@@ -52,6 +73,71 @@ export type GetServerInfoResponse = Message$1<"durable.v1.GetServerInfoResponse"
  */
 export const GetServerInfoResponseSchema: GenMessage<GetServerInfoResponse> = /*@__PURE__*/
   messageDesc(file_durable_v1_durable, 1);
+
+/**
+ * Setting is one effective server setting and where its value came from.
+ *
+ * @generated from message durable.v1.Setting
+ */
+export type Setting = Message$1<"durable.v1.Setting"> & {
+  /**
+   * @generated from field: string field = 1;
+   */
+  field: string;
+
+  /**
+   * @generated from field: string value = 2;
+   */
+  value: string;
+
+  /**
+   * @generated from field: string source = 3;
+   */
+  source: string;
+};
+
+/**
+ * Describes the message durable.v1.Setting.
+ * Use `create(SettingSchema)` to create a new message.
+ */
+export const SettingSchema: GenMessage<Setting> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 2);
+
+/**
+ * GrantInfo is a network grant environments can name.
+ *
+ * @generated from message durable.v1.GrantInfo
+ */
+export type GrantInfo = Message$1<"durable.v1.GrantInfo"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string summary = 2;
+   */
+  summary: string;
+
+  /**
+   * @generated from field: repeated string binaries = 3;
+   */
+  binaries: string[];
+
+  /**
+   * hosts are the endpoints the grant opens, as host:port or host:port/path.
+   *
+   * @generated from field: repeated string hosts = 4;
+   */
+  hosts: string[];
+};
+
+/**
+ * Describes the message durable.v1.GrantInfo.
+ * Use `create(GrantInfoSchema)` to create a new message.
+ */
+export const GrantInfoSchema: GenMessage<GrantInfo> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 3);
 
 /**
  * EnvironmentInfo is a sandbox environment: a worker image and the network grants a session gets.
@@ -80,7 +166,7 @@ export type EnvironmentInfo = Message$1<"durable.v1.EnvironmentInfo"> & {
  * Use `create(EnvironmentInfoSchema)` to create a new message.
  */
 export const EnvironmentInfoSchema: GenMessage<EnvironmentInfo> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 2);
+  messageDesc(file_durable_v1_durable, 4);
 
 /**
  * @generated from message durable.v1.CreateSessionRequest
@@ -144,7 +230,7 @@ export type CreateSessionRequest = Message$1<"durable.v1.CreateSessionRequest"> 
  * Use `create(CreateSessionRequestSchema)` to create a new message.
  */
 export const CreateSessionRequestSchema: GenMessage<CreateSessionRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 3);
+  messageDesc(file_durable_v1_durable, 5);
 
 /**
  * @generated from message durable.v1.CreateSessionResponse
@@ -168,7 +254,7 @@ export type CreateSessionResponse = Message$1<"durable.v1.CreateSessionResponse"
  * Use `create(CreateSessionResponseSchema)` to create a new message.
  */
 export const CreateSessionResponseSchema: GenMessage<CreateSessionResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 4);
+  messageDesc(file_durable_v1_durable, 6);
 
 /**
  * @generated from message durable.v1.ListSessionsRequest
@@ -181,7 +267,7 @@ export type ListSessionsRequest = Message$1<"durable.v1.ListSessionsRequest"> & 
  * Use `create(ListSessionsRequestSchema)` to create a new message.
  */
 export const ListSessionsRequestSchema: GenMessage<ListSessionsRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 5);
+  messageDesc(file_durable_v1_durable, 7);
 
 /**
  * @generated from message durable.v1.ListSessionsResponse
@@ -205,7 +291,7 @@ export type ListSessionsResponse = Message$1<"durable.v1.ListSessionsResponse"> 
  * Use `create(ListSessionsResponseSchema)` to create a new message.
  */
 export const ListSessionsResponseSchema: GenMessage<ListSessionsResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 6);
+  messageDesc(file_durable_v1_durable, 8);
 
 /**
  * @generated from message durable.v1.SessionInfo
@@ -279,7 +365,7 @@ export type SessionInfo = Message$1<"durable.v1.SessionInfo"> & {
  * Use `create(SessionInfoSchema)` to create a new message.
  */
 export const SessionInfoSchema: GenMessage<SessionInfo> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 7);
+  messageDesc(file_durable_v1_durable, 9);
 
 /**
  * @generated from message durable.v1.SubmitRequest
@@ -306,7 +392,7 @@ export type SubmitRequest = Message$1<"durable.v1.SubmitRequest"> & {
  * Use `create(SubmitRequestSchema)` to create a new message.
  */
 export const SubmitRequestSchema: GenMessage<SubmitRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 8);
+  messageDesc(file_durable_v1_durable, 10);
 
 /**
  * @generated from message durable.v1.SubmitResponse
@@ -323,7 +409,7 @@ export type SubmitResponse = Message$1<"durable.v1.SubmitResponse"> & {
  * Use `create(SubmitResponseSchema)` to create a new message.
  */
 export const SubmitResponseSchema: GenMessage<SubmitResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 9);
+  messageDesc(file_durable_v1_durable, 11);
 
 /**
  * @generated from message durable.v1.CancelRequest
@@ -345,7 +431,7 @@ export type CancelRequest = Message$1<"durable.v1.CancelRequest"> & {
  * Use `create(CancelRequestSchema)` to create a new message.
  */
 export const CancelRequestSchema: GenMessage<CancelRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 10);
+  messageDesc(file_durable_v1_durable, 12);
 
 /**
  * @generated from message durable.v1.CancelResponse
@@ -362,7 +448,7 @@ export type CancelResponse = Message$1<"durable.v1.CancelResponse"> & {
  * Use `create(CancelResponseSchema)` to create a new message.
  */
 export const CancelResponseSchema: GenMessage<CancelResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 11);
+  messageDesc(file_durable_v1_durable, 13);
 
 /**
  * @generated from message durable.v1.DecideApprovalRequest
@@ -396,7 +482,7 @@ export type DecideApprovalRequest = Message$1<"durable.v1.DecideApprovalRequest"
  * Use `create(DecideApprovalRequestSchema)` to create a new message.
  */
 export const DecideApprovalRequestSchema: GenMessage<DecideApprovalRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 12);
+  messageDesc(file_durable_v1_durable, 14);
 
 /**
  * @generated from message durable.v1.DecideApprovalResponse
@@ -413,7 +499,7 @@ export type DecideApprovalResponse = Message$1<"durable.v1.DecideApprovalRespons
  * Use `create(DecideApprovalResponseSchema)` to create a new message.
  */
 export const DecideApprovalResponseSchema: GenMessage<DecideApprovalResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 13);
+  messageDesc(file_durable_v1_durable, 15);
 
 /**
  * @generated from message durable.v1.WatchEventsRequest
@@ -453,7 +539,7 @@ export type WatchEventsRequest = Message$1<"durable.v1.WatchEventsRequest"> & {
  * Use `create(WatchEventsRequestSchema)` to create a new message.
  */
 export const WatchEventsRequestSchema: GenMessage<WatchEventsRequest> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 14);
+  messageDesc(file_durable_v1_durable, 16);
 
 /**
  * @generated from message durable.v1.WatchEventsResponse
@@ -488,7 +574,7 @@ export type WatchEventsResponse = Message$1<"durable.v1.WatchEventsResponse"> & 
  * Use `create(WatchEventsResponseSchema)` to create a new message.
  */
 export const WatchEventsResponseSchema: GenMessage<WatchEventsResponse> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 15);
+  messageDesc(file_durable_v1_durable, 17);
 
 /**
  * @generated from message durable.v1.Heartbeat
@@ -501,7 +587,7 @@ export type Heartbeat = Message$1<"durable.v1.Heartbeat"> & {
  * Use `create(HeartbeatSchema)` to create a new message.
  */
 export const HeartbeatSchema: GenMessage<Heartbeat> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 16);
+  messageDesc(file_durable_v1_durable, 18);
 
 /**
  * Delta is a live view of work in progress; the committed events stay authoritative.
@@ -544,7 +630,7 @@ export type Delta = Message$1<"durable.v1.Delta"> & {
  * Use `create(DeltaSchema)` to create a new message.
  */
 export const DeltaSchema: GenMessage<Delta> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 17);
+  messageDesc(file_durable_v1_durable, 19);
 
 /**
  * @generated from message durable.v1.Submission
@@ -590,7 +676,7 @@ export type Submission = Message$1<"durable.v1.Submission"> & {
  * Use `create(SubmissionSchema)` to create a new message.
  */
 export const SubmissionSchema: GenMessage<Submission> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 18);
+  messageDesc(file_durable_v1_durable, 20);
 
 /**
  * @generated from message durable.v1.Approval
@@ -632,7 +718,7 @@ export type Approval = Message$1<"durable.v1.Approval"> & {
  * Use `create(ApprovalSchema)` to create a new message.
  */
 export const ApprovalSchema: GenMessage<Approval> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 19);
+  messageDesc(file_durable_v1_durable, 21);
 
 /**
  * ToolCall omits input when a gate rewrote it, because the rewrite can hold secrets.
@@ -663,7 +749,7 @@ export type ToolCall = Message$1<"durable.v1.ToolCall"> & {
  * Use `create(ToolCallSchema)` to create a new message.
  */
 export const ToolCallSchema: GenMessage<ToolCall> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 20);
+  messageDesc(file_durable_v1_durable, 22);
 
 /**
  * Message omits Raw: provider content is replayed server side only.
@@ -714,7 +800,7 @@ export type Message = Message$1<"durable.v1.Message"> & {
  * Use `create(MessageSchema)` to create a new message.
  */
 export const MessageSchema: GenMessage<Message> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 21);
+  messageDesc(file_durable_v1_durable, 23);
 
 /**
  * @generated from message durable.v1.Event
@@ -806,7 +892,7 @@ export type Event = Message$1<"durable.v1.Event"> & {
  * Use `create(EventSchema)` to create a new message.
  */
 export const EventSchema: GenMessage<Event> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 22);
+  messageDesc(file_durable_v1_durable, 24);
 
 /**
  * EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.
@@ -830,7 +916,7 @@ export type EpochMismatch = Message$1<"durable.v1.EpochMismatch"> & {
  * Use `create(EpochMismatchSchema)` to create a new message.
  */
 export const EpochMismatchSchema: GenMessage<EpochMismatch> = /*@__PURE__*/
-  messageDesc(file_durable_v1_durable, 23);
+  messageDesc(file_durable_v1_durable, 25);
 
 /**
  * Workspace is the kind of workspace a session runs in.

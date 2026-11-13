@@ -26,15 +26,51 @@ var environmentNameRE = regexp.MustCompile(EnvironmentNamePattern)
 // grantFunc builds a grant for a session; false means the grant doesn't apply to it.
 type grantFunc func(workspace string, access []sandbox.GitAccess) (sandbox.Grant, bool)
 
+// grantSpec is a catalog grant: build makes it for a session, the rest is shown to operators.
+type grantSpec struct {
+	build    grantFunc
+	summary  string
+	binaries []string
+	hosts    []sandbox.Endpoint
+}
+
+var (
+	goBinaries  = []string{"/usr/local/go/bin/go"}
+	goEndpoints = []sandbox.Endpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
+)
+
 // grantCatalog is the grants an environment can name. The hosts are fixed here, not in the file, so a file can't widen egress.
-var grantCatalog = map[string]grantFunc{
-	"go-modules": func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
-		return sandbox.Grant{
-			Name:      "go-modules",
-			Binaries:  []string{"/usr/local/go/bin/go"},
-			Endpoints: []sandbox.Endpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}},
-		}, true
+var grantCatalog = map[string]grantSpec{
+	"go-modules": {
+		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
+			return sandbox.Grant{Name: "go-modules", Binaries: goBinaries, Endpoints: goEndpoints}, true
+		},
+		summary:  "go may download modules from the Go module proxy and checksum database",
+		binaries: goBinaries,
+		hosts:    goEndpoints,
 	},
+}
+
+// GrantInfo describes a catalog grant for display; Hosts are host:port.
+type GrantInfo struct {
+	Name     string
+	Summary  string
+	Binaries []string
+	Hosts    []string
+}
+
+// GrantCatalog returns the grants an environment can name, sorted by name.
+func GrantCatalog() []GrantInfo {
+	var out []GrantInfo
+	for _, n := range GrantNames() {
+		g := grantCatalog[n]
+		info := GrantInfo{Name: n, Summary: g.summary, Binaries: slices.Clone(g.binaries)}
+		for _, h := range g.hosts {
+			info.Hosts = append(info.Hosts, fmt.Sprintf("%s:%d", h.Host, h.Port))
+		}
+		out = append(out, info)
+	}
+	return out
 }
 
 // GrantNames returns the grants an environment can name, sorted.
@@ -115,7 +151,7 @@ func environmentNames(envs map[string]Environment) string {
 func buildGrants(names []string, workspace string, access []sandbox.GitAccess) []sandbox.Grant {
 	var out []sandbox.Grant
 	for _, n := range names {
-		if g, ok := grantCatalog[n](workspace, access); ok {
+		if g, ok := grantCatalog[n].build(workspace, access); ok {
 			out = append(out, g)
 		}
 	}
