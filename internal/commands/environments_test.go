@@ -160,7 +160,6 @@ func TestGitHubAPIGrantRESTRulesAreScopedToTheRepo(t *testing.T) {
 		{Method: "HEAD", Path: "/repos/octo/hello/**"},
 		{Method: "POST", Path: "/repos/octo/hello/pulls"},
 		{Method: "PATCH", Path: "/repos/octo/hello/pulls/*"},
-		{Method: "POST", Path: "/repos/octo/hello/pulls/*/reviews"},
 		{Method: "POST", Path: "/repos/octo/hello/issues/*/comments"},
 		{Method: "DELETE", Path: "/repos/octo/hello/issues/*/labels/*"},
 	} {
@@ -174,6 +173,7 @@ func TestGitHubAPIGrantRESTRulesAreScopedToTheRepo(t *testing.T) {
 		require.NotContains(t, r.Path, "merge")
 		require.NotContains(t, r.Path, "releases")
 		require.NotContains(t, r.Path, "contents")
+		require.NotContains(t, r.Path, "reviews", "a review can approve a PR")
 	}
 }
 
@@ -206,11 +206,12 @@ func TestGitHubAPIGrantGraphQLQueriesAndNamedMutationsOnly(t *testing.T) {
 		}
 	}
 	require.ElementsMatch(t, []string{
-		"createPullRequest", "updatePullRequest", "addComment", "addPullRequestReview",
+		"createPullRequest", "updatePullRequest", "addComment",
 		"createIssue", "updateIssue", "addLabelsToLabelable", "removeLabelsFromLabelable",
 	}, fields)
 	require.NotContains(t, fields, "mergePullRequest")
 	require.NotContains(t, fields, "enablePullRequestAutoMerge")
+	require.NotContains(t, fields, "addPullRequestReview", "a review can approve a PR")
 }
 
 func TestBuildGrantsSkipsGitHubAPIWithoutGitHubAccess(t *testing.T) {

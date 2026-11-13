@@ -154,6 +154,15 @@ func TestGatewayGitHubAPIGrantAllowsTheRepoAndDeniesMerge(t *testing.T) {
 	require.NotContains(t, out, "rc=0", out)
 	require.Contains(t, out, "policy_denied", "the policy, not GitHub, must refuse the mutation: "+out)
 
+	// An allowed mutation with a bogus id reaches GitHub, which rejects the id; the policy lets it through.
+	out = run(`gh api graphql -f query='mutation { addComment(input: {subjectId: "x", body: "y"}) { clientMutationId } }'`)
+	require.NotContains(t, out, "policy_denied", out)
+	require.Contains(t, out, "NOT_FOUND", "GitHub, not the policy, must answer the allowed mutation: "+out)
+
+	out = run(`gh api graphql -f query='mutation { addPullRequestReview(input: {pullRequestId: "x", event: APPROVE}) { clientMutationId } }'`)
+	require.NotContains(t, out, "rc=0", out)
+	require.Contains(t, out, "policy_denied", "a review can approve a PR, so the policy must refuse it: "+out)
+
 	out = run("gh api repos/cli/cli")
 	require.NotContains(t, out, "rc=0", out)
 	require.Contains(t, out, "policy_denied", out)

@@ -323,8 +323,8 @@ The `go-modules` grant is one plain L4 rule, `durable-grant-go-modules`. It lets
 reach `proxy.golang.org:443` and `sum.golang.org:443`. `go mod tidy`, `download`, `build` and `test` work with
 it, and so does `golangci-lint run`, whose `go list` runs as the go binary. Other binaries and other hosts stay denied.
 
-The `github-api` grant lets `/usr/local/bin/gh` (in `durable-worker:dev`) open pull requests, comment, review and read
-CI for a repo session's repository. It applies only to a repo session with a GitHub token, because `gh` authenticates
+The `github-api` grant lets `/usr/local/bin/gh` (in `durable-worker:dev`) open pull requests and issues, comment, and read
+CI status for a repo session's repository. It applies only to a repo session with a GitHub token, because `gh` authenticates
 with the same provider credential as git; otherwise it is skipped. The server warns at startup when an environment
 names it but no GitHub token is configured. Example:
 
@@ -335,13 +335,14 @@ names it but no GitHub token is configured. Example:
 It is one rule, `durable-grant-github-api`, with two enforced endpoints on `api.github.com:443`:
 
 - **REST** allows `GET` and `HEAD` on `/repos/OWNER/REPO` and below, `GET /user` and `GET /rate_limit`, and writes to
-  create or edit pull requests and issues, their reviews and comments, and issue labels.
+  create or edit pull requests and issues, comment on them, and change issue labels.
 - **GraphQL** on `/graphql` allows every query and only these mutations: `createPullRequest`, `updatePullRequest`,
-  `addComment`, `addPullRequestReview`, `createIssue`, `updateIssue`, `addLabelsToLabelable` and
-  `removeLabelsFromLabelable`.
+  `addComment`, `createIssue`, `updateIssue`, `addLabelsToLabelable` and `removeLabelsFromLabelable`.
 
-It never allows merging (`PUT .../merge`, `mergePullRequest`, `enablePullRequestAutoMerge`), releases, repository
-contents, settings, hooks or workflow dispatch, and `curl` still can't reach `api.github.com`.
+It never allows merging (`PUT .../merge`, `mergePullRequest`, `enablePullRequestAutoMerge`) or reviews, because a
+review can approve a PR and stand in for the human a merge needs. Releases, repository contents, settings, hooks and
+workflow dispatch are denied too, and `curl` still can't reach `api.github.com`. Run and check status is readable, but
+log downloads redirect to Actions storage hosts the grant doesn't allow, so `gh run view --log` fails.
 
 GraphQL has a limit: OpenShell checks the operation type and top-level fields, not arguments. A query or an allowed
 mutation can therefore name any repository the token can see, and the REST rules' per-repo scoping doesn't carry over.

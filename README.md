@@ -132,7 +132,7 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
   `~/.durable/config.json` and create sessions with `environment: "go"`. The grant lets only
   the `go` binary reach the module proxy. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
 - **GitHub CLI:** the worker image has `gh`. Add `"github-api"` to an environment's `grants` and a repo session can
-  open PRs, comment and read CI but never merge. Use a fine-grained token limited to the repos sessions use, because
+  open PRs and issues, comment and read CI status, but never review or merge. Use a fine-grained token limited to the repos sessions use, because
   GraphQL calls aren't scoped to one repo. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
 - **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
 - **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open

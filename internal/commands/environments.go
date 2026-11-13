@@ -61,10 +61,10 @@ var grantCatalog = map[string]grantSpec{
 
 const githubAPIHost = "api.github.com"
 
-// githubAPIMutations are the GraphQL mutations gh uses to open and edit pull requests and issues, comment and review.
-// mergePullRequest and enablePullRequestAutoMerge are deliberately absent.
+// githubAPIMutations are the GraphQL mutations gh uses to open and edit pull requests and issues and comment. Merging
+// and reviews are absent, because a review can approve a PR and so stand in for the human a merge needs.
 var githubAPIMutations = []string{
-	"createPullRequest", "updatePullRequest", "addComment", "addPullRequestReview",
+	"createPullRequest", "updatePullRequest", "addComment",
 	"createIssue", "updateIssue", "addLabelsToLabelable", "removeLabelsFromLabelable",
 }
 
@@ -88,7 +88,6 @@ func githubAPIGrant(_ string, access []sandbox.GitAccess) (sandbox.Grant, bool) 
 		rules = append(rules,
 			sandbox.HTTPRule{Method: "POST", Path: base + "/pulls"},
 			sandbox.HTTPRule{Method: "PATCH", Path: base + "/pulls/*"},
-			sandbox.HTTPRule{Method: "POST", Path: base + "/pulls/*/reviews"},
 			sandbox.HTTPRule{Method: "POST", Path: base + "/pulls/*/comments"},
 			sandbox.HTTPRule{Method: "POST", Path: base + "/issues"},
 			sandbox.HTTPRule{Method: "PATCH", Path: base + "/issues/*"},
