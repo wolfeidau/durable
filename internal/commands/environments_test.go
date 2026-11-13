@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -296,4 +297,14 @@ func TestAssembleNewSessionResolvesEnvironment(t *testing.T) {
 
 		require.Equal(t, "r", f.Specs()[0].Image)
 	})
+}
+
+func TestGrantCatalogShowsTheGitHubAPIPaths(t *testing.T) {
+	i := slices.IndexFunc(GrantCatalog(), func(g GrantInfo) bool { return g.Name == "github-api" })
+	require.GreaterOrEqual(t, i, 0)
+	g := GrantCatalog()[i]
+
+	require.Equal(t, []string{"/usr/local/bin/gh"}, g.Binaries)
+	require.Equal(t, []string{"api.github.com:443", "api.github.com:443/graphql"}, g.Hosts)
+	require.Contains(t, g.Summary, "never review or merge")
 }
