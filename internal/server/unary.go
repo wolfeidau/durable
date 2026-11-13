@@ -265,7 +265,17 @@ func (s sessionService) GetServerInfo(context.Context, *connect.Request[v1.GetSe
 	for _, e := range s.reg.Environments() {
 		envs = append(envs, &v1.EnvironmentInfo{Name: e.Name, Image: e.Image, Grants: e.Grants})
 	}
-	return connect.NewResponse(&v1.GetServerInfoResponse{Workspaces: kinds, Environments: envs}), nil
+	var settings []*v1.Setting
+	for _, st := range s.settings {
+		settings = append(settings, &v1.Setting{Field: st.Field, Value: st.Value, Source: st.Source})
+	}
+	var grants []*v1.GrantInfo
+	for _, g := range commands.GrantCatalog() {
+		grants = append(grants, &v1.GrantInfo{Name: g.Name, Summary: g.Summary, Binaries: g.Binaries, Hosts: g.Hosts})
+	}
+	return connect.NewResponse(&v1.GetServerInfoResponse{
+		Workspaces: kinds, Environments: envs, Settings: settings, Warnings: s.warnings, Grants: grants,
+	}), nil
 }
 
 // leaseLost marks the session lost and returns Unavailable for an ErrLeaseLost, or nil for any other error.

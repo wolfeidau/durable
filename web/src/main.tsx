@@ -9,7 +9,8 @@ import { SessionList } from "./SessionList";
 import { SessionView } from "./SessionView";
 import { ConnectionPill, TokenInput, type WatchSummary } from "./StatusLine";
 import { getToken, setToken } from "./token";
-import { useSelectedSession } from "./useSelectedSession";
+import { ServerPage } from "./ServerPage";
+import { serverHref, useRoute } from "./route";
 import "./app.css";
 
 const bearer: Interceptor = (next) => (req) => {
@@ -35,7 +36,9 @@ function Crumb({ sessionId }: { sessionId: string }): ReactElement {
 }
 
 function App(): ReactElement {
-  const [sessionId, select] = useSelectedSession();
+  const [route, select, openServer] = useRoute();
+  const sessionId = route.view === "session" ? route.id : "";
+  const onServer = route.view === "server";
   const [authNeeded, setAuthNeeded] = useState(false);
   const [watch, setWatch] = useState<WatchSummary | undefined>();
 
@@ -81,13 +84,38 @@ function App(): ReactElement {
               <Crumb sessionId={sessionId} />
             </>
           )}
+          {onServer && (
+            <>
+              <span className="sep" aria-hidden="true">
+                /
+              </span>
+              <span className="crumb-name" aria-current="page">
+                Server
+              </span>
+            </>
+          )}
         </nav>
-        <ConnectionPill watch={activeWatch} authNeeded={authNeeded} />
+        <div className="topbar-right">
+          <a
+            className="nav-link"
+            href={serverHref}
+            aria-current={onServer ? "page" : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              openServer();
+            }}
+          >
+            Server
+          </a>
+          <ConnectionPill watch={activeWatch} authNeeded={authNeeded} />
+        </div>
       </header>
       {needToken && <TokenInput onApply={onToken} />}
       <main className={`page${sessionId ? " page-session" : ""}`}>
         {sessionId ? (
           <SessionView key={sessionId} sessionId={sessionId} onWatch={setWatch} />
+        ) : onServer ? (
+          <ServerPage />
         ) : (
           <SessionList onSelect={select} />
         )}

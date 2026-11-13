@@ -50,6 +50,14 @@ type Config struct {
 	Heartbeat time.Duration
 	// Draining is closed when shutdown begins, so open streams end instead of stalling the drain. Nil never closes.
 	Draining <-chan struct{}
+	// Settings and Warnings are shown by GetServerInfo; Settings values must not hold secret references.
+	Settings []Setting
+	Warnings []string
+}
+
+// Setting is one effective server setting for display.
+type Setting struct {
+	Field, Value, Source string
 }
 
 // Server is the HTTP handler for the API and UI.
@@ -70,6 +78,8 @@ type sessionService struct {
 	heartbeat time.Duration
 	draining  <-chan struct{}
 	logger    *slog.Logger
+	settings  []Setting
+	warnings  []string
 }
 
 // Handler returns the API and UI behind the token, Host and Origin checks.
@@ -81,6 +91,7 @@ func (s *Server) Handler() http.Handler {
 	}
 	path, h := durablev1connect.NewSessionServiceHandler(sessionService{
 		reg: s.cfg.Registry, home: s.cfg.Home, heartbeat: heartbeat, draining: s.cfg.Draining, logger: s.logger(),
+		settings: s.cfg.Settings, warnings: s.cfg.Warnings,
 	})
 	mux.Handle(path, s.requireToken(h))
 

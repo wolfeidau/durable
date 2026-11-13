@@ -46,6 +46,28 @@ message GetServerInfoResponse {
   repeated Workspace workspaces = 1;
   // environments lists the sandbox environments CreateSession accepts; empty for a server without a sandbox.
   repeated EnvironmentInfo environments = 2;
+  // settings are the effective server settings in display order; display-only, and values never include secret references.
+  repeated Setting settings = 3;
+  // warnings are the config warnings the server logged at startup.
+  repeated string warnings = 4;
+  // grants is the network grant catalog environments can name.
+  repeated GrantInfo grants = 5;
+}
+
+// Setting is one effective server setting and where its value came from.
+message Setting {
+  string field = 1;
+  string value = 2;
+  string source = 3;
+}
+
+// GrantInfo is a network grant environments can name.
+message GrantInfo {
+  string name = 1;
+  string summary = 2;
+  repeated string binaries = 3;
+  // hosts are the endpoints the grant opens, as host:port or host:port/path.
+  repeated string hosts = 4;
 }
 
 // EnvironmentInfo is a sandbox environment: a worker image and the network grants a session gets.

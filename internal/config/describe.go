@@ -21,10 +21,18 @@ func describeRef(ref string) string {
 	return "unset"
 }
 
-// Describe writes each effective setting with its source. It never resolves a secret.
-func (s *Settings) Describe(w io.Writer) {
+// Entry is one effective setting for display. Value never holds a secret reference.
+type Entry struct {
+	Field  string
+	Value  string
+	Source Source
+}
+
+// Entries returns each effective setting with its source in display order. It never resolves a secret.
+func (s *Settings) Entries() []Entry {
+	var out []Entry
 	line := func(field, value string) {
-		fmt.Fprintf(w, "%-34s %s  [%s]\n", field, value, s.Sources[field])
+		out = append(out, Entry{Field: field, Value: value, Source: s.Sources[field]})
 	}
 	orDefault := func(v, def string) string {
 		if v == "" {
@@ -53,9 +61,6 @@ func (s *Settings) Describe(w io.Writer) {
 	for _, kind := range slices.Sorted(maps.Keys(s.GitHosts)) {
 		line("git.hosts."+kind+".token", describeRef(s.GitHosts[kind]))
 	}
-	if len(s.Environments) == 0 {
-		fmt.Fprintln(w, "environments                       none")
-	}
 	for _, name := range slices.Sorted(maps.Keys(s.Environments)) {
 		e := s.Environments[name]
 		value := "image=" + e.Image
@@ -63,5 +68,16 @@ func (s *Settings) Describe(w io.Writer) {
 			value += " grants=" + strings.Join(e.Grants, ",")
 		}
 		line("environments."+name, value)
+	}
+	return out
+}
+
+// Describe writes each effective setting with its source.
+func (s *Settings) Describe(w io.Writer) {
+	for _, e := range s.Entries() {
+		fmt.Fprintf(w, "%-34s %s  [%s]\n", e.Field, e.Value, e.Source)
+	}
+	if len(s.Environments) == 0 {
+		fmt.Fprintln(w, "environments                       none")
 	}
 }
