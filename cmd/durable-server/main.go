@@ -144,7 +144,9 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	}
 	addr := ln.Addr().String()
 	if !isLoopback(ln.Addr()) {
-		logger.Warn("listening on a non-loopback address: other machines can reach the API over plain HTTP, guarded only by the bearer token", slog.String("addr", addr))
+		const msg = "listening on a non-loopback address: other machines can reach the API over plain HTTP, guarded only by the bearer token"
+		logger.Warn(msg, slog.String("addr", addr))
+		warnings = append(warnings, msg+" ("+addr+")")
 	}
 	infoPath := filepath.Join(home, ".durable", "server.json")
 	if err := writeServerInfo(infoPath, serverInfo{Addr: addr, Token: token}); err != nil {

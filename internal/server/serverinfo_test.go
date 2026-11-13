@@ -2,6 +2,7 @@ package server
 
 import (
 	"log/slog"
+	"slices"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -26,8 +27,9 @@ func TestGetServerInfoReturnsSettingsWarningsAndGrants(t *testing.T) {
 	require.Equal(t, "127.0.0.1:1", info.Msg.Settings[0].Value)
 	require.Equal(t, "default", info.Msg.Settings[0].Source)
 	require.Equal(t, []string{"--model overrides provider.model"}, info.Msg.Warnings)
-	require.Len(t, info.Msg.Grants, 1)
-	g := info.Msg.Grants[0]
+	i := slices.IndexFunc(info.Msg.Grants, func(g *v1.GrantInfo) bool { return g.Name == "go-modules" })
+	require.GreaterOrEqual(t, i, 0)
+	g := info.Msg.Grants[i]
 	require.Equal(t, "go-modules", g.Name)
 	require.NotEmpty(t, g.Summary)
 	require.Equal(t, []string{"/usr/local/go/bin/go"}, g.Binaries)

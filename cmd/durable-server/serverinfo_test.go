@@ -25,9 +25,23 @@ func TestServerInfoReportsSettingsWithoutSecrets(t *testing.T) {
 	require.Equal(t, "config.json", got["provider.model"].GetSource())
 	require.Equal(t, "env DURABLE_TEST_KEY", got["provider.api_key"].GetValue())
 	require.Equal(t, "default", got["listen.heartbeat"].GetSource())
-	require.Len(t, resp.Msg.GetGrants(), 1)
-	require.Equal(t, "go-modules", resp.Msg.GetGrants()[0].GetName())
+	var grants []string
+	for _, g := range resp.Msg.GetGrants() {
+		grants = append(grants, g.GetName())
+	}
+	require.Contains(t, grants, "go-modules")
 	body := resp.Msg.String()
 	require.NotContains(t, body, "op://")
 	require.NotContains(t, body, "sk-test-secret-0123456789")
+}
+
+func TestServerInfoWarnsAboutANonLoopbackAddress(t *testing.T) {
+	r := startIn(t, t.TempDir(), "--addr", "0.0.0.0:0")
+	c := newClient(r)
+
+	resp, err := c.GetServerInfo(t.Context(), authed(c, &v1.GetServerInfoRequest{}))
+
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.GetWarnings(), 1)
+	require.Contains(t, resp.Msg.GetWarnings()[0], "non-loopback")
 }

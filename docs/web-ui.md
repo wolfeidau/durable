@@ -30,7 +30,7 @@ empty or repo workspace; with one environment the form shows its name instead of
 view show each session's environment.
 
 A read-only Server page (`?view=server`, linked from the header) shows `GetServerInfo`: the config
-warnings logged at startup, each effective setting with its source (default, `config.json`, flag),
+warnings logged at startup, each effective setting with its source (default, `config.json`, flag, or the deprecated `environments.json`),
 the sandbox environments, and the network grant catalog with the binaries and hosts each grant
 opens. Secrets show only where they come from (`1Password`, `gh`, `env NAME`, `set by flag`),
 never the reference or the value.
