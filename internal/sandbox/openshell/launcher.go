@@ -160,7 +160,7 @@ func sandboxPolicy(egress []sandbox.Endpoint, access []sandbox.GitAccess, grants
 	}
 }
 
-// grantPolicyRule makes a plain rule for endpoints without request rules, else an enforced L7 rule.
+// grantPolicyRule makes a plain endpoint when it has no request rules, else an enforced REST or GraphQL one.
 func grantPolicyRule(g sandbox.Grant) types.NetworkPolicyRule {
 	name := grantRulePrefix + g.Name
 	rule := types.NetworkPolicyRule{Name: name}
@@ -168,10 +168,16 @@ func grantPolicyRule(g sandbox.Grant) types.NetworkPolicyRule {
 		rule.Binaries = append(rule.Binaries, types.PolicyNetworkBinary{Path: b})
 	}
 	for _, e := range g.Endpoints {
-		ep := types.PolicyNetworkEndpoint{Host: e.Host, Port: e.Port}
-		if len(g.Rules) > 0 {
+		ep := types.PolicyNetworkEndpoint{Host: e.Host, Port: e.Port, Path: e.Path}
+		switch {
+		case len(e.GraphQL) > 0:
+			ep.Protocol, ep.Enforcement = "graphql", types.NetworkEnforcementModeEnforce
+			for _, r := range e.GraphQL {
+				ep.Rules = append(ep.Rules, types.L7Rule{Allow: &types.L7Allow{OperationType: r.OperationType, Fields: r.Fields}})
+			}
+		case len(e.Rules) > 0:
 			ep.Protocol, ep.Enforcement = "rest", types.NetworkEnforcementModeEnforce
-			for _, r := range g.Rules {
+			for _, r := range e.Rules {
 				ep.Rules = append(ep.Rules, types.L7Rule{Allow: &types.L7Allow{Method: r.Method, Path: r.Path}})
 			}
 		}

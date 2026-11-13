@@ -167,7 +167,7 @@ func TestOpenFailureDeletesAFreshSandboxAndStopsAnExistingOne(t *testing.T) {
 
 func TestPinWithGrantsRoundTripsAndOldPinsDecodeWithNone(t *testing.T) {
 	dir := t.TempDir()
-	grants := []sandbox.Grant{{Name: "go-modules", Binaries: []string{"/usr/local/go/bin/go"}, Endpoints: []sandbox.Endpoint{{Host: "proxy.golang.org", Port: 443}}}}
+	grants := []sandbox.Grant{{Name: "go-modules", Binaries: []string{"/usr/local/go/bin/go"}, Endpoints: []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}}}}
 
 	p, err := sandbox.WritePinGit(dir, "img", nil, nil, grants, nil)
 	require.NoError(t, err)

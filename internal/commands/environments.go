@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/wolfeidau/durable/internal/githost/github"
 	"github.com/wolfeidau/durable/internal/sandbox"
 )
 
@@ -31,12 +32,13 @@ type grantSpec struct {
 	build    grantFunc
 	summary  string
 	binaries []string
-	hosts    []sandbox.Endpoint
+	hosts    []sandbox.GrantEndpoint
 }
 
 var (
 	goBinaries  = []string{"/usr/local/go/bin/go"}
-	goEndpoints = []sandbox.Endpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
+	ghBinaries  = []string{"/usr/local/bin/gh"}
+	goEndpoints = []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
 )
 
 // grantCatalog is the grants an environment can name. The hosts are fixed here, not in the file, so a file can't widen egress.
@@ -49,9 +51,72 @@ var grantCatalog = map[string]grantSpec{
 		binaries: goBinaries,
 		hosts:    goEndpoints,
 	},
+	"github-api": {
+		build:    githubAPIGrant,
+		summary:  "gh may read the session's GitHub repo and open and edit PRs and issues and comment on them, but never review or merge",
+		binaries: ghBinaries,
+		hosts:    []sandbox.GrantEndpoint{{Host: githubAPIHost, Port: 443}, {Host: githubAPIHost, Port: 443, Path: "/graphql"}},
+	},
 }
 
-// GrantInfo describes a catalog grant for display; Hosts are host:port.
+const githubAPIHost = "api.github.com"
+
+// githubAPIMutations are the GraphQL mutations gh uses to open and edit pull requests and issues and comment. Merging
+// and reviews are absent, because a review can approve a PR and so stand in for the human a merge needs.
+var githubAPIMutations = []string{
+	"createPullRequest", "updatePullRequest", "addComment",
+	"createIssue", "updateIssue", "addLabelsToLabelable", "removeLabelsFromLabelable",
+}
+
+// githubAPIGrant lets gh work on the session's GitHub repos without merging. It needs the credentialed access, because
+// the token is what gh authenticates with.
+func githubAPIGrant(_ string, access []sandbox.GitAccess) (sandbox.Grant, bool) {
+	rules := []sandbox.HTTPRule{{Method: "GET", Path: "/user"}, {Method: "GET", Path: "/rate_limit"}}
+	baseRules := len(rules)
+	for _, a := range access {
+		if a.Kind != github.Kind || a.Provider != github.Provider {
+			continue
+		}
+		repo, err := github.New("").ParseRepo(a.CloneURL)
+		if err != nil {
+			continue
+		}
+		base := "/repos/" + repo.Owner + "/" + repo.Name
+		for _, m := range []string{"GET", "HEAD"} {
+			rules = append(rules, sandbox.HTTPRule{Method: m, Path: base}, sandbox.HTTPRule{Method: m, Path: base + "/**"})
+		}
+		rules = append(rules,
+			sandbox.HTTPRule{Method: "POST", Path: base + "/pulls"},
+			sandbox.HTTPRule{Method: "PATCH", Path: base + "/pulls/*"},
+			sandbox.HTTPRule{Method: "POST", Path: base + "/pulls/*/comments"},
+			sandbox.HTTPRule{Method: "POST", Path: base + "/issues"},
+			sandbox.HTTPRule{Method: "PATCH", Path: base + "/issues/*"},
+			sandbox.HTTPRule{Method: "POST", Path: base + "/issues/*/comments"},
+			sandbox.HTTPRule{Method: "POST", Path: base + "/issues/*/labels"},
+			sandbox.HTTPRule{Method: "DELETE", Path: base + "/issues/*/labels"},
+			sandbox.HTTPRule{Method: "POST", Path: base + "/issues/*/labels/*"},
+			sandbox.HTTPRule{Method: "DELETE", Path: base + "/issues/*/labels/*"},
+		)
+	}
+	if len(rules) == baseRules {
+		return sandbox.Grant{}, false
+	}
+	graphql := []sandbox.GraphQLRule{{OperationType: "query"}}
+	for _, f := range githubAPIMutations {
+		graphql = append(graphql, sandbox.GraphQLRule{OperationType: "mutation", Fields: []string{f}})
+	}
+	return sandbox.Grant{
+		Name:     "github-api",
+		Binaries: ghBinaries,
+		Provider: github.Provider,
+		Endpoints: []sandbox.GrantEndpoint{
+			{Host: githubAPIHost, Port: 443, Rules: rules},
+			{Host: githubAPIHost, Port: 443, Path: "/graphql", GraphQL: graphql},
+		},
+	}, true
+}
+
+// GrantInfo describes a catalog grant for display; Hosts are host:port or host:port/path.
 type GrantInfo struct {
 	Name     string
 	Summary  string
@@ -66,7 +131,7 @@ func GrantCatalog() []GrantInfo {
 		g := grantCatalog[n]
 		info := GrantInfo{Name: n, Summary: g.summary, Binaries: slices.Clone(g.binaries)}
 		for _, h := range g.hosts {
-			info.Hosts = append(info.Hosts, fmt.Sprintf("%s:%d", h.Host, h.Port))
+			info.Hosts = append(info.Hosts, fmt.Sprintf("%s:%d%s", h.Host, h.Port, h.Path))
 		}
 		out = append(out, info)
 	}
@@ -147,8 +212,8 @@ func environmentNames(envs map[string]Environment) string {
 	return strings.Join(slices.Sorted(maps.Keys(envs)), ", ")
 }
 
-// buildGrants returns the catalog grants the environment names that apply to the session, in the environment's order.
-func buildGrants(names []string, workspace string, access []sandbox.GitAccess) []sandbox.Grant {
+// BuildGrants returns the catalog grants the environment names that apply to the session, in the environment's order.
+func BuildGrants(names []string, workspace string, access []sandbox.GitAccess) []sandbox.Grant {
 	var out []sandbox.Grant
 	for _, n := range names {
 		if g, ok := grantCatalog[n].build(workspace, access); ok {

@@ -323,6 +323,32 @@ The `go-modules` grant is one plain L4 rule, `durable-grant-go-modules`. It lets
 reach `proxy.golang.org:443` and `sum.golang.org:443`. `go mod tidy`, `download`, `build` and `test` work with
 it, and so does `golangci-lint run`, whose `go list` runs as the go binary. Other binaries and other hosts stay denied.
 
+The `github-api` grant lets `/usr/local/bin/gh` (in `durable-worker:dev`) open pull requests and issues, comment, and read
+CI status for a repo session's repository. It applies only to a repo session with a GitHub token, because `gh` authenticates
+with the same provider credential as git; otherwise it is skipped. The server warns at startup when an environment
+names it but no GitHub token is configured. Example:
+
+```json
+{ "environments": { "go": { "image": "durable-worker-go:dev", "grants": ["go-modules", "github-api"] } } }
+```
+
+It is one rule, `durable-grant-github-api`, with two enforced endpoints on `api.github.com:443`:
+
+- **REST** allows `GET` and `HEAD` on `/repos/OWNER/REPO` and below, `GET /user` and `GET /rate_limit`, and writes to
+  create or edit pull requests and issues, comment on them, and change issue labels.
+- **GraphQL** on `/graphql` allows every query and only these mutations: `createPullRequest`, `updatePullRequest`,
+  `addComment`, `createIssue`, `updateIssue`, `addLabelsToLabelable` and `removeLabelsFromLabelable`.
+
+It never allows merging (`PUT .../merge`, `mergePullRequest`, `enablePullRequestAutoMerge`) or reviews, because a
+review can approve a PR and stand in for the human a merge needs. Releases, repository contents, settings, hooks and
+workflow dispatch are denied too, and `curl` still can't reach `api.github.com`. Run and check status is readable, but
+log downloads redirect to Actions storage hosts the grant doesn't allow, so `gh run view --log` fails.
+
+GraphQL has a limit: OpenShell checks the operation type and top-level fields, not arguments. A query or an allowed
+mutation can therefore name any repository the token can see, and the REST rules' per-repo scoping doesn't carry over.
+The token's scope is the outer limit, so use a fine-grained token limited to the repos sessions use. Repo names are
+matched in lower case, so `gh` must be given the repo in lower case.
+
 Image notes for the Go image:
 
 - HOME is `/sandbox`, the workspace, and only `/tmp` and `/sandbox` are writable. The image sets `GOPATH`,

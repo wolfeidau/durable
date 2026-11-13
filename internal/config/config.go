@@ -441,6 +441,9 @@ func (s *Settings) Validate() error {
 		if strings.TrimSpace(s.Environments[name].Image) == "" {
 			errs = append(errs, fmt.Errorf("environment %q: image is required", name))
 		}
+		if _, ok := s.GitHosts[github.Kind]; !ok && slices.Contains(s.Environments[name].Grants, "github-api") {
+			s.warn("environments."+name, fmt.Sprintf("environment %q names the github-api grant, which never applies without a github git host token", name))
+		}
 	}
 	return errors.Join(errs...)
 }
