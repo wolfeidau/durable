@@ -13,6 +13,7 @@ import (
 const (
 	opRefPrefix = "op://"
 	ghSource    = "gh"
+	envPrefix   = "env:"
 )
 
 // Source says where a secret comes from.
@@ -21,7 +22,7 @@ type Source struct {
 	Flag string
 	// Env is read when Value is empty.
 	Env string
-	// Value is an op:// reference, the literal "gh" for the GitHub CLI's token, or empty.
+	// Value is an op:// reference, the literal "gh" for the GitHub CLI's token, env:NAME, or empty.
 	Value string
 }
 
@@ -41,8 +42,15 @@ func Resolve(ctx context.Context, s Source) (string, error) {
 			return "", fmt.Errorf("failed to read %s from 1Password: %w", s.Flag, err)
 		}
 		return secret, nil
+	case strings.HasPrefix(s.Value, envPrefix):
+		name := strings.TrimPrefix(s.Value, envPrefix)
+		secret := strings.TrimSpace(os.Getenv(name))
+		if secret == "" {
+			return "", fmt.Errorf("no secret for %s: set %s", s.Flag, name)
+		}
+		return secret, nil
 	case s.Value != "":
-		return "", fmt.Errorf("%s must be an op:// secret reference or gh", s.Flag)
+		return "", fmt.Errorf("%s must be an op:// secret reference, gh or env:NAME", s.Flag)
 	}
 	secret := strings.TrimSpace(os.Getenv(s.Env))
 	if secret == "" {

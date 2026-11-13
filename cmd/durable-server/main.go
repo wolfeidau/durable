@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/mail"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 	"github.com/alecthomas/kong"
 
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/config"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/githost"
 	"github.com/wolfeidau/durable/internal/githost/github"
@@ -28,25 +28,27 @@ import (
 	"github.com/wolfeidau/durable/internal/server"
 )
 
+// serveCmd's flags override ~/.durable/config.json, so none has a default here: zero means not given.
 type serveCmd struct {
-	Addr string `help:"Address to listen on." default:"127.0.0.1:7878"`
+	Addr string `help:"Address to listen on. Default 127.0.0.1:7878."`
 
-	IdleTimeout           time.Duration `name:"idle-timeout" help:"Close a session with no clients and no work after this long." default:"5m"`
-	OpenTimeout           time.Duration `name:"open-timeout" help:"Give up opening a session after this long, for example while durable chat holds it." default:"10s"`
-	Heartbeat             time.Duration `name:"heartbeat" help:"Send a heartbeat on an idle event stream this often." default:"20s"`
+	IdleTimeout           time.Duration `name:"idle-timeout" help:"Close a session with no clients and no work after this long. Default 5m."`
+	OpenTimeout           time.Duration `name:"open-timeout" help:"Give up opening a session after this long, for example while durable chat holds it. Default 10s."`
+	Heartbeat             time.Duration `name:"heartbeat" help:"Send a heartbeat on an idle event stream this often. Default 20s."`
 	Provider              string        `help:"Model provider for new sessions: anthropic or openrouter. Empty uses anthropic. Existing sessions keep their pin."`
 	Protocol              string        `help:"Wire protocol for new sessions: anthropic-messages or openai-responses. Empty uses the provider's default (anthropic: anthropic-messages, openrouter: openai-responses)."`
 	Model                 string        `help:"Model name for new sessions. Required for new openrouter sessions, which pin it. For anthropic, empty uses the built-in default."`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
-	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, openrouter reads OPENROUTER_API_KEY."`
-	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker), as the \"default\" environment. Environments in ~/.durable/environments.json add images and network grants. Existing sessions keep their pin."`
-	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference or gh. Only github is supported; without the flag, github reads DURABLE_GITHUB_TOKEN. Needs --sandbox-image or an environment."`
-	GitAuthor             string        `name:"git-author" placeholder:"NAME <EMAIL>" default:"durable <durable@localhost>" help:"The git user.name and user.email for commits in new sandboxed sessions. Existing sessions keep their pin."`
+	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, provider.api_key from the config file applies, then OPENROUTER_API_KEY for openrouter."`
+	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker), as the \"default\" environment. Environments in ~/.durable/config.json add images and network grants. Existing sessions keep their pin."`
+	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference, gh or env:NAME. Only github is supported; without the flag, github reads git.hosts.github.token from the config file, then DURABLE_GITHUB_TOKEN. Needs --sandbox-image or an environment."`
+	GitAuthor             string        `name:"git-author" placeholder:"NAME <EMAIL>" help:"The git user.name and user.email for commits in new sandboxed sessions. Default durable <durable@localhost>. Existing sessions keep their pin."`
 	GitHubAPIURL          string        `name:"github-api-url" env:"DURABLE_GITHUB_API_URL" hidden:"" help:"GitHub API base URL, for tests."`
 }
 
 type cli struct {
 	Serve       serveCmd         `cmd:"" default:"withargs" help:"Run the server."`
+	Config      configCmd        `cmd:"" help:"Check the server config."`
 	URL         urlCmd           `cmd:"" name:"url" help:"Print the browser link for the running server."`
 	RotateToken rotateTokenCmd   `cmd:"" name:"rotate-token" help:"Replace the stored token. It takes effect when the server next starts."`
 	SandboxDel  sandboxDeleteCmd `cmd:"" name:"sandbox-delete" help:"Delete a session's sandbox. The session keeps its pin, and its next open creates a fresh sandbox."`
@@ -63,28 +65,19 @@ type serverInfo struct {
 	Token string `json:"token"`
 }
 
-// loadEnvironments merges the environments file with --sandbox-image, which is the "default" environment.
-func loadEnvironments(path, image string) (map[string]commands.Environment, error) {
-	envs, err := commands.LoadEnvironments(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load %s: %w", filepath.Join("~", ".durable", filepath.Base(path)), err)
+func (c *serveCmd) overrides() config.Overrides {
+	o := config.Overrides{
+		Addr: c.Addr, IdleTimeout: c.IdleTimeout, OpenTimeout: c.OpenTimeout, Heartbeat: c.Heartbeat,
+		Provider: c.Provider, Protocol: c.Protocol, Model: c.Model,
+		SandboxImage: c.SandboxImage, GitHostFlags: c.GitHostTokens, GitAuthor: c.GitAuthor,
 	}
-	if image == "" {
-		return envs, nil
+	switch {
+	case c.APIToken != "":
+		o.APIKeyFlag = "--api-token"
+	case c.APITokenFrom1Password != "":
+		o.APIKeyFlag = "--api-token-from-1password"
 	}
-	if _, ok := envs[commands.DefaultEnvironment]; ok {
-		return nil, fmt.Errorf("--sandbox-image defines the %q environment, which %s also defines", commands.DefaultEnvironment, filepath.Join("~", ".durable", filepath.Base(path)))
-	}
-	envs[commands.DefaultEnvironment] = commands.Environment{Name: commands.DefaultEnvironment, Image: image}
-	return envs, nil
-}
-
-func parseGitAuthor(v string) (sandbox.GitIdentity, error) {
-	a, err := mail.ParseAddress(v)
-	if err != nil || a.Name == "" || a.Address == "" {
-		return sandbox.GitIdentity{}, fmt.Errorf("--git-author %q must be NAME <EMAIL>", v)
-	}
-	return sandbox.GitIdentity{Name: a.Name, Email: a.Address}, nil
+	return o
 }
 
 func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
@@ -93,22 +86,22 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("failed to find home directory: %w", err)
 	}
 
-	gitSources, err := gitHostSources(c.GitHostTokens)
+	// Every config problem exits here, before the server locks the home or listens.
+	settings, err := config.Load(home)
 	if err != nil {
 		return err
 	}
-	environments, err := loadEnvironments(filepath.Join(home, ".durable", "environments.json"), c.SandboxImage)
+	settings.Apply(c.overrides())
+	err = settings.Validate()
+	for _, w := range settings.Warnings {
+		logger.Warn(w.Message, slog.String("field", w.Field))
+	}
 	if err != nil {
 		return err
 	}
-	if len(gitSources) > 0 && len(environments) == 0 {
-		return errors.New("a git host token needs --sandbox-image or an environment, because repositories are only reachable from a sandbox")
-	}
-
-	gitAuthor, err := parseGitAuthor(c.GitAuthor)
-	if err != nil {
-		return err
-	}
+	gitSources := settings.GitHostSources()
+	environments := settings.Environments
+	gitAuthor := settings.GitIdentity()
 
 	// Only the lock holder writes and removes server.json, so a second server can't break discovery.
 	lock, err := lockHome(filepath.Join(home, ".durable"))
@@ -122,6 +115,11 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to resolve API token: %w", err)
 	}
+	if apiToken == "" && settings.APIKey != "" {
+		if apiToken, err = creds.Resolve(ctx, settings.APIKeySource()); err != nil {
+			return fmt.Errorf("failed to resolve API token: %w", err)
+		}
+	}
 
 	if err := checkGitHosts(ctx, logger, gitSources, c.GitHubAPIURL); err != nil {
 		return err
@@ -132,9 +130,9 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
-	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", c.Addr)
+	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", settings.Addr)
 	if err != nil {
-		return fmt.Errorf("failed to listen on %s: %w", c.Addr, err)
+		return fmt.Errorf("failed to listen on %s: %w", settings.Addr, err)
 	}
 	addr := ln.Addr().String()
 	if !isLoopback(ln.Addr()) {
@@ -162,19 +160,19 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
 		Home:        home,
-		IdleTimeout: c.IdleTimeout,
-		OpenTimeout: c.OpenTimeout,
+		IdleTimeout: settings.IdleTimeout,
+		OpenTimeout: settings.OpenTimeout,
 		APIToken:    apiToken,
-		Provider:    c.Provider,
-		Protocol:    c.Protocol,
-		Model:       c.Model,
+		Provider:    settings.Provider,
+		Protocol:    settings.Protocol,
+		Model:       settings.Model,
 		Sandbox:     sandboxCfg,
 		Logger:      logger,
 	})
 	defer registry.Close()
 	draining := make(chan struct{})
 	srv := &http.Server{
-		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: c.Heartbeat, Draining: draining}).Handler(),
+		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: settings.Heartbeat, Draining: draining}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}

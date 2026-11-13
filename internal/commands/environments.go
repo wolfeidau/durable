@@ -18,7 +18,10 @@ import (
 // DefaultEnvironment is the name --sandbox-image gives its image, and the one an empty environment resolves to.
 const DefaultEnvironment = "default"
 
-var environmentNameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+// EnvironmentNamePattern is the regular expression an environment name must match.
+const EnvironmentNamePattern = `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
+
+var environmentNameRE = regexp.MustCompile(EnvironmentNamePattern)
 
 // grantFunc builds a grant for a session; false means the grant doesn't apply to it.
 type grantFunc func(workspace string, access []sandbox.GitAccess) (sandbox.Grant, bool)
@@ -33,6 +36,9 @@ var grantCatalog = map[string]grantFunc{
 		}, true
 	},
 }
+
+// GrantNames returns the grants an environment can name, sorted.
+func GrantNames() []string { return slices.Sorted(maps.Keys(grantCatalog)) }
 
 // Environment pairs a worker image with the network grants a session gets.
 type Environment struct {
@@ -66,7 +72,7 @@ func LoadEnvironments(path string) (map[string]Environment, error) {
 		}
 		for _, g := range e.Grants {
 			if _, ok := grantCatalog[g]; !ok {
-				return nil, fmt.Errorf("environment %q: unknown grant %q (known: %s)", name, g, strings.Join(slices.Sorted(maps.Keys(grantCatalog)), ", "))
+				return nil, fmt.Errorf("environment %q: unknown grant %q (known: %s)", name, g, strings.Join(GrantNames(), ", "))
 			}
 		}
 		e.Name = name

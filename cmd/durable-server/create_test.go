@@ -97,7 +97,8 @@ func TestCreateSessionRejectsBadCWD(t *testing.T) {
 func TestCreateSessionWithMisconfiguredProviderFailsGenerically(t *testing.T) {
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, textReply("DONE"), 0)
-	bad := startEnv(t, home, apiEnv(api), "--provider", "openrouter", "--api-token", "dummy")
+	// A missing model now fails startup, so this uses a missing key, which only a session creation can see.
+	bad := startEnv(t, home, append(apiEnv(api), "OPENROUTER_API_KEY="), "--provider", "openrouter", "--model", "vendor/model")
 	_, err := newClient(bad).create(t, ws, "")
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	require.EqualError(t, err, "failed_precondition: server can't create sessions: see its log")

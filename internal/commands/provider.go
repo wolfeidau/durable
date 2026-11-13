@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,6 +21,9 @@ const (
 
 	providerAnthropic  = "anthropic"
 	providerOpenRouter = "openrouter"
+
+	// ProviderOpenRouter is the provider that needs a pinned model.
+	ProviderOpenRouter = providerOpenRouter
 
 	protocolMessages  = "anthropic-messages"
 	protocolResponses = "openai-responses"
@@ -59,6 +63,18 @@ type routeFlags struct {
 }
 
 var legacyRoute = route{Provider: providerAnthropic, Protocol: protocolMessages}
+
+// ProviderNames returns the known providers, sorted.
+func ProviderNames() []string { return slices.Sorted(maps.Keys(providers)) }
+
+// ProtocolNames returns the wire protocols, sorted.
+func ProtocolNames() []string { return []string{protocolMessages, protocolResponses} }
+
+// CheckProtocol rejects a provider and protocol pair a session can't pin; empty means the default.
+func CheckProtocol(provider, protocol string) error {
+	_, err := newRoute(routeFlags{Provider: provider, Protocol: protocol, Model: "-"})
+	return err
+}
 
 func providerNames() string {
 	names := make([]string, 0, len(providers))

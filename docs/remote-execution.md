@@ -214,6 +214,40 @@ Persisting results would add a store the agent can write to, for a case the harn
   which clients retry. A configuration problem, such as a missing image, provider or profile, returns
   `FAILED_PRECONDITION`, which they don't. Neither is an internal error.
 
+### Server config
+
+The server reads `~/.durable/config.json`. A missing file means the defaults. Precedence is default, then file,
+then flag, and each flag that overrides a file value logs a warning naming the flag and the field, never the value.
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json",
+  "listen": { "addr": "127.0.0.1:7878", "idle_timeout": "5m", "open_timeout": "10s", "heartbeat": "20s" },
+  "provider": { "name": "openrouter", "model": "anthropic/claude-haiku-5.5", "api_key": "op://<vault>/<item>/<field>" },
+  "git": { "author": "durable <durable@localhost>", "hosts": { "github": { "token": "gh" } } },
+  "environments": {
+    "default": { "image": "durable-worker:dev" },
+    "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] }
+  }
+}
+```
+
+- **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` are an `op://` 1Password reference,
+  `env:NAME` for an environment variable, or, for a git token only, `gh`. A pasted token fails validation, and
+  errors never quote the value. Without `api_key`, openrouter reads `OPENROUTER_API_KEY` and anthropic uses the
+  SDK's credentials. Without a github token, `DURABLE_GITHUB_TOKEN` is read if set.
+- **Schema:** [`schema/durable-server.schema.json`](../schema/durable-server.schema.json) is generated from the Go
+  types by `mise run gen:schema`, and `mise run check:schema` fails when it is stale. The `$schema` line lets
+  editors check the file. Unknown keys, bad enums and names, and literal secrets are errors, and so are an
+  openrouter provider with no model, a bad `git.author`, and a git token with no environment.
+- **Startup:** the first schema error, or every other error joined, exits non-zero before the server locks the
+  home or listens.
+- **`durable-server config check`** validates the file, prints the warnings, and prints each effective setting
+  with its source (`default`, `config.json`, `environments.json`). Secrets show as `1Password`, `gh` or
+  `env NAME`. It never resolves a secret or contacts GitHub. `durable-server config schema` prints the schema.
+- **Legacy `environments.json`:** still read, with a deprecation warning, when `config.json` defines no
+  environments. If both define them, startup fails.
+
 ### Running it
 
 Prerequisites: an OpenShell gateway, and the worker image from `mise run image:worker`.
@@ -242,8 +276,8 @@ durable-server --sandbox-image durable-worker:dev --git-host-token github=op://<
 ```
 
 - `--git-host-token github=<source>` is repeatable, one per host kind. The source is an `op://`
-  reference or `gh`, which runs `gh auth token`. Without the flag, `DURABLE_GITHUB_TOKEN` is read if it
-  is set. `GITHUB_TOKEN` and `GH_TOKEN` are never read. A token without `--sandbox-image` is an error.
+  reference, `env:NAME` or `gh`, which runs `gh auth token`. Without the flag, `git.hosts.github.token` in the
+  [config file](#server-config) applies, then `DURABLE_GITHUB_TOKEN` if it is set. `GITHUB_TOKEN` and `GH_TOKEN` are never read. A token without `--sandbox-image` is an error.
 - Use a fine-grained token with contents read and write on the repos durable should reach. A classic
   or `gh` token usually reaches every repo you can.
 - At startup the server resolves each token and checks it with `GET /user`, then logs the login, the
@@ -266,12 +300,13 @@ An environment pairs a worker image with the network grants a session gets. Ther
   `mise run image:worker-go`, adds the Go toolchain and golangci-lint on top of it.
 - **Grants** are named network allowances built into the server. A grant names the binaries that may
   connect and the hosts they may reach. The environments file picks grants by name and can't add hosts.
-- **Environments** are named in `~/.durable/environments.json`. `--sandbox-image REF` adds one named
+- **Environments** are named under `environments` in `~/.durable/config.json`; see [server config](#server-config).
+  The deprecated `~/.durable/environments.json` still works. `--sandbox-image REF` adds one named
   `default`, and a file entry with that name as well is a startup error. The server is sandboxed when it has any
-  environment. A missing file has none.
+  environment. With none configured, it has none.
 
 ```json
-{ "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] } }
+{ "environments": { "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] } } }
 ```
 
 ```sh

@@ -11,6 +11,7 @@ steps:
         commands:
           - mise run check:tidy
           - mise run check:api
+          - mise run check:schema
           - golangci-lint run --verbose --timeout 3m
         plugins:
           - ./.buildkite/plugins/mise-cache: ~
