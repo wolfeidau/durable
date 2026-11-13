@@ -101,19 +101,46 @@ func validateDocument(doc any) error {
 	return nil
 }
 
+// redact rewrites the library's message without the value it quotes, because that value can be a pasted secret.
+func redact(problem string) string {
+	keyword, rest, _ := strings.Cut(problem, ": ")
+	after := func(sep string) string {
+		_, tail, _ := strings.CutLast(rest, sep)
+		return tail
+	}
+	switch keyword {
+	case "required", "uniqueItems", "minItems", "maxItems", "minProperties", "maxProperties":
+		return problem
+	case "type":
+		if t := after(" has type "); t != "" {
+			return "wrong type: has type " + t
+		}
+	case "enum":
+		return "must be one of " + after(" does not equal any of: ")
+	case "pattern":
+		return "does not match " + after(" does not match regular expression ")
+	case "minLength":
+		return "must not be empty"
+	}
+	if strings.HasPrefix(problem, "unexpected additional properties ") {
+		return problem
+	}
+	return "does not match the schema"
+}
+
 // trimPath turns the library's chain of "validating <schema pointer>:" wrappers into "path: problem".
 func trimPath(err error) error {
-	msg := err.Error()
-	_, last, found := strings.CutLast(msg, "validating ")
+	_, last, found := strings.CutLast(err.Error(), "validating ")
 	if !found {
-		return err
+		return errors.New("does not match the schema")
 	}
 	ptr, problem, ok := strings.Cut(last, ": ")
+	problem = redact(problem)
 	if ptr == SchemaID {
 		return errors.New(problem)
 	}
 	if !ok || !strings.HasPrefix(ptr, "/") {
-		return err
+		return errors.New(problem)
 	}
 	var path strings.Builder
 	segs := strings.Split(strings.TrimPrefix(ptr, "/"), "/")

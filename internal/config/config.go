@@ -327,6 +327,9 @@ func (s *Settings) Apply(o Overrides) {
 			*d.to = d.v
 		}
 	}
+	if o.Provider != "" && providerName(o.Provider) != providerName(s.Provider) {
+		s.dropForProvider(o.Provider)
+	}
 	for _, v := range []struct {
 		field, flag, in string
 		to              *string
@@ -347,6 +350,33 @@ func (s *Settings) Apply(o Overrides) {
 	}
 	s.applyGitHostFlags(o.GitHostFlags)
 	s.applySandboxImage(o.SandboxImage)
+}
+
+// providerName treats empty as anthropic, the default provider.
+func providerName(p string) string {
+	if p == "" {
+		return "anthropic"
+	}
+	return p
+}
+
+// dropForProvider clears the file's protocol, model and key, which belong to the provider --provider replaces.
+func (s *Settings) dropForProvider(provider string) {
+	for _, d := range []struct {
+		field string
+		to    *string
+	}{
+		{"provider.protocol", &s.Protocol},
+		{"provider.model", &s.Model},
+		{"provider.api_key", &s.APIKey},
+	} {
+		if s.Sources[d.field] != SourceFile {
+			continue
+		}
+		*d.to = ""
+		s.Sources[d.field] = SourceDefault
+		s.warn(d.field, fmt.Sprintf("--provider %s ignores %s from %s, which is for another provider", provider, d.field, configLabel))
+	}
 }
 
 // applyGitHostFlags never echoes a flag value, because a token pasted there by mistake must not reach the log.
@@ -394,7 +424,7 @@ func (s *Settings) applySandboxImage(image string) {
 func (s *Settings) Validate() error {
 	errs := slices.Clone(s.errs)
 	if err := commands.CheckProtocol(s.Provider, s.Protocol); err != nil {
-		errs = append(errs, fmt.Errorf("invalid provider settings: %w", err))
+		errs = append(errs, fmt.Errorf("%s and %s: %w", s.label("provider.name", "--provider"), s.label("provider.protocol", "--protocol"), err))
 	}
 	if s.Provider == commands.ProviderOpenRouter && s.Model == "" {
 		errs = append(errs, fmt.Errorf("provider openrouter needs a model; set provider.model in %s or pass --model", configLabel))

@@ -217,7 +217,8 @@ Persisting results would add a store the agent can write to, for a case the harn
 ### Server config
 
 The server reads `~/.durable/config.json`. A missing file means the defaults. Precedence is default, then file,
-then flag, and each flag that overrides a file value logs a warning naming the flag and the field, never the value.
+then flag, and each flag that overrides a file value logs a warning naming the flag and the field, never the value. A
+`--provider` that names a different provider also drops the file's `protocol`, `model` and `api_key`, with a warning.
 
 ```json
 {
@@ -244,7 +245,7 @@ then flag, and each flag that overrides a file value logs a warning naming the f
   home or listens.
 - **`durable-server config check`** validates the file, prints the warnings, and prints each effective setting
   with its source (`default`, `config.json`, `environments.json`). Secrets show as `1Password`, `gh` or
-  `env NAME`. It never resolves a secret or contacts GitHub. `durable-server config schema` prints the schema.
+  `env NAME`. It reads only the files, not flags, and never resolves a secret or contacts GitHub. `durable-server config schema` prints the schema.
 - **Legacy `environments.json`:** still read, with a deprecation warning, when `config.json` defines no
   environments. If both define them, startup fails.
 

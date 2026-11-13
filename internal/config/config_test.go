@@ -109,11 +109,18 @@ func TestSchemaFailuresNameThePathAndNeverEchoASecret(t *testing.T) {
 		"unknown grant":     {`{"environments": {"go": {"image": "i", "grants": ["nope"]}}}`, "grants"},
 		"missing image":     {`{"environments": {"go": {}}}`, "image"},
 		"bad duration":      {`{"listen": {"idle_timeout": "soon"}}`, "idle_timeout"},
-		"bad host kind":     {`{"git": {"hosts": {"gitlab": {"token": "gh"}}}}`, "gitlab"},
+		"bad host kind":     {`{"git": {"hosts": {"gitlab": {"token": "gh"}}}}`, "git.hosts: must be one of [github]"},
 		"literal api key":   {`{"provider": {"api_key": "` + secret + `"}}`, "provider.api_key"},
 		"literal git token": {`{"git": {"hosts": {"github": {"token": "` + secret + `"}}}}`, "git.hosts.github.token"},
 		"gh api key":        {`{"provider": {"api_key": "gh"}}`, "provider.api_key"},
 		"object token":      {`{"git": {"hosts": {"github": {"token": {"v": "` + secret + `"}}}}}`, "git.hosts.github.token"},
+		"string provider":   {`{"provider": "` + secret + `"}`, "provider: wrong type"},
+		"string git":        {`{"git": "` + secret + `"}`, "git: wrong type"},
+		"string host":       {`{"git": {"hosts": {"github": "` + secret + `"}}}`, "git.hosts.<name>: wrong type"},
+		"secret host kind":  {`{"git": {"hosts": {"` + secret + `": {"token": "gh"}}}}`, "git.hosts: must be one of"},
+		"secret provider":   {`{"provider": {"name": "` + secret + `"}}`, "provider.name: must be one of"},
+		"secret duration":   {`{"listen": {"heartbeat": "` + secret + `"}}`, "listen.heartbeat: does not match"},
+		"top-level array":   {`["` + secret + `"]`, "wrong type"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -176,6 +183,37 @@ func TestFlagsOverrideTheFileAndWarnWithoutValues(t *testing.T) {
 	require.Contains(t, fields, "provider.api_key")
 	require.Contains(t, fields, "git.hosts.github.token")
 	require.Len(t, s.Warnings, 5)
+}
+
+func TestProviderFlagDropsTheOtherProvidersSettings(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	s, err := Load(writeHome(t, map[string]string{"config.json": fullFile}))
+	require.NoError(t, err)
+
+	s.Apply(Overrides{Provider: "anthropic"})
+
+	require.NoError(t, s.Validate())
+	require.Equal(t, "anthropic", s.Provider)
+	require.Empty(t, s.Protocol)
+	require.Empty(t, s.Model)
+	require.Empty(t, s.APIKey)
+	fields := map[string]string{}
+	for _, w := range s.Warnings {
+		fields[w.Field] = w.Message
+	}
+	require.Equal(t, "--provider anthropic ignores provider.model from ~/.durable/config.json, which is for another provider", fields["provider.model"])
+	require.Contains(t, fields, "provider.protocol")
+	require.Contains(t, fields, "provider.api_key")
+}
+
+func TestProviderFlagKeepsSettingsForTheSameProvider(t *testing.T) {
+	s, err := Load(writeHome(t, map[string]string{"config.json": `{"provider": {"model": "claude-x"}}`}))
+	require.NoError(t, err)
+
+	s.Apply(Overrides{Provider: "anthropic"})
+
+	require.NoError(t, s.Validate())
+	require.Equal(t, "claude-x", s.Model)
 }
 
 func TestFlagOverDefaultDoesNotWarn(t *testing.T) {
@@ -271,6 +309,7 @@ func TestUnknownProviderAndProtocolMismatchAreErrors(t *testing.T) {
 	s, err = Load(t.TempDir())
 	require.NoError(t, err)
 	s.Apply(Overrides{Protocol: "openai-responses"})
+	require.ErrorContains(t, s.Validate(), "provider.name and --protocol: ")
 	require.ErrorContains(t, s.Validate(), "does not support protocol")
 }
 
