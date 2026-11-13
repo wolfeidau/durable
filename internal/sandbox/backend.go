@@ -54,13 +54,27 @@ func (g GitIdentity) Config() map[string]string {
 
 // Grant is a named network allowance for specific binaries, as neutral data a backend turns into policy.
 type Grant struct {
-	Name      string     `json:"name"`
-	Binaries  []string   `json:"binaries"`
-	Endpoints []Endpoint `json:"endpoints"`
-	// Rules restrict Endpoints to these requests; without them the endpoints are plain connections.
-	Rules []HTTPRule `json:"rules,omitempty"`
+	Name      string          `json:"name"`
+	Binaries  []string        `json:"binaries"`
+	Endpoints []GrantEndpoint `json:"endpoints"`
 	// Provider binds the credential of a provider that is also in Git.
 	Provider string `json:"provider,omitempty"`
+}
+
+// GrantEndpoint is one host a grant reaches; with rules it is enforced at layer 7.
+type GrantEndpoint struct {
+	Host string `json:"host"`
+	Port uint32 `json:"port"`
+	// Path routes requests under it to this endpoint's rules, for an API that shares a host.
+	Path    string        `json:"path,omitempty"`
+	Rules   []HTTPRule    `json:"rules,omitempty"`
+	GraphQL []GraphQLRule `json:"graphql,omitempty"`
+}
+
+// GraphQLRule allows operations of one type, limited to the top-level fields when given.
+type GraphQLRule struct {
+	OperationType string   `json:"operation_type"`
+	Fields        []string `json:"fields,omitempty"`
 }
 
 // GitAccess is a sandbox's access to one repository on a git host, as neutral data a backend turns into policy.

@@ -137,7 +137,7 @@ func TestCreateWithEnvironmentPinsImageAndGrants(t *testing.T) {
 	require.Equal(t, []sandbox.Grant{{
 		Name:      "go-modules",
 		Binaries:  []string{"/usr/local/go/bin/go"},
-		Endpoints: []sandbox.Endpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}},
+		Endpoints: []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}},
 	}}, pin.Grants)
 	raw, err := os.ReadFile(filepath.Join(filepath.Dir(pins[0]), "session.json"))
 	require.NoError(t, err)

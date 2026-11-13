@@ -281,6 +281,23 @@ func TestLegacyEnvironmentsFileIsUsedWithAWarning(t *testing.T) {
 	require.ErrorContains(t, s2.Validate(), "which ~/.durable/environments.json also defines")
 }
 
+func TestGitHubAPIGrantWithoutAGitHubTokenWarns(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	env := `"environments": {"go": {"image": "img", "grants": ["go-modules", "github-api"]}}`
+
+	s, err := Load(writeHome(t, map[string]string{"config.json": `{` + env + `}`}))
+	require.NoError(t, err)
+	require.NoError(t, s.Validate())
+	require.Len(t, s.Warnings, 1)
+	require.Equal(t, "environments.go", s.Warnings[0].Field)
+	require.Contains(t, s.Warnings[0].Message, "github-api")
+
+	s, err = Load(writeHome(t, map[string]string{"config.json": `{"git": {"hosts": {"github": {"token": "gh"}}}, ` + env + `}`}))
+	require.NoError(t, err)
+	require.NoError(t, s.Validate())
+	require.Empty(t, s.Warnings)
+}
+
 func TestBothEnvironmentSourcesIsAnError(t *testing.T) {
 	s, err := Load(writeHome(t, map[string]string{
 		"config.json":       `{"environments": {"a": {"image": "i"}}}`,

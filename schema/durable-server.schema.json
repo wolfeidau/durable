@@ -114,6 +114,7 @@
               "items": {
                 "type": "string",
                 "enum": [
+                  "github-api",
                   "go-modules"
                 ]
               },
