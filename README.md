@@ -136,8 +136,9 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
 - **GitHub CLI:** the worker image has `gh`. Add `"github-api"` to an environment's `grants` and a repo session can
   open PRs and issues, comment and read CI status, but never review or merge. Use a fine-grained token limited to the repos sessions use, because
   GraphQL calls aren't scoped to one repo. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
-- **mise:** the worker image has `mise` locked to `mise.lock`. Add `"mise"` to an environment's `grants` and a session can
-  install the tools a repo's lockfile names, with no version lookups. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
+- **mise:** the worker image has `mise`, set to install from a repo's `mise.lock` by default. Add `"mise"` to an
+  environment's `grants` and a session can download tools by GET from GitHub releases, nodejs.org and dl.google.com.
+  Lock with the image's mise version. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
 - **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
 - **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open
   creates a fresh one, and a repo session clones its branch again.

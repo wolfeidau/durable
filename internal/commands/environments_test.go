@@ -338,5 +338,5 @@ func TestGrantCatalogShowsMise(t *testing.T) {
 	require.Equal(t, []string{"/usr/local/bin/mise"}, g.Binaries)
 	require.Contains(t, g.Hosts, "github.com:443")
 	require.NotContains(t, g.Hosts, "api.github.com:443")
-	require.Contains(t, g.Summary, "never looks up versions")
+	require.Contains(t, g.Summary, "installs from mise.lock by default")
 }

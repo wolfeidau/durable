@@ -329,7 +329,7 @@ ask. The boundary in a sandbox is the environment's grants, not each call. Examp
 
 - **Not pinned:** the server reads the setting each time it opens a session, by the environment name in the session's
   metadata. Tightening the config applies to existing sessions on their next open. An environment that no longer exists
-  means `ask`.
+  means `ask`, and so does a session from before environments, which recorded none.
 - **Directory sessions** never auto-approve, whatever the config says.
 - **Warning:** an environment with `auto` and the `github-api` grant lets its sessions push, open PRs and comment with no
   human in the loop, so `durable-server config check` and startup warn about the combination.
@@ -338,21 +338,33 @@ The `go-modules` grant is one plain L4 rule, `durable-grant-go-modules`. It lets
 reach `proxy.golang.org:443` and `sum.golang.org:443`. `go mod tidy`, `download`, `build` and `test` work with
 it, and so does `golangci-lint run`, whose `go list` runs as the go binary. Other binaries and other hosts stay denied.
 
-The `mise` grant lets `/usr/local/bin/mise` (in `durable-worker:dev`) download the tools a repo's `mise.lock` names.
-It applies to every session and binds no credential. Example:
+The `mise` grant lets `/usr/local/bin/mise` (in `durable-worker:dev`) download tools. It applies to every session and
+binds no credential. Example:
 
 ```json
 { "environments": { "go": { "image": "durable-worker-go:dev", "grants": ["go-modules", "mise"] } } }
 ```
 
-It is one rule, `durable-grant-mise`, with `GET`-only endpoints: `github.com` for `/OWNER/REPO/releases/download/**`,
-`release-assets.githubusercontent.com` (where GitHub redirects release assets), `nodejs.org` for `/dist/**` and
-`dl.google.com` for `/go/**`. The image sets `MISE_LOCKED=1`, so mise installs only from the URLs and checksums in
-`mise.lock` and never looks a version up; an install whose lockfile has no URL for the platform fails. Version lookups
-(`api.github.com`, the mise versions host) stay denied, as does `curl` to the same URLs. The lockfile needs entries for the
-sandbox's platform (`linux-x64` and `linux-arm64`), so run `mise lock --platform linux-arm64,linux-x64` with the same mise
-version as the image. OpenShell matches a grant's binary against the process and its ancestors, so anything run under
-`mise exec` or a shim also reaches these hosts, still `GET`-only.
+It is one rule, `durable-grant-mise`, with `GET`-only endpoints:
+
+- `github.com` for `/OWNER/REPO/releases/download/**`, any public repo's release assets;
+- `release-assets.githubusercontent.com`, where GitHub redirects release assets;
+- `nodejs.org` for `/dist/**`;
+- `dl.google.com` for `/go/**`.
+
+The grant is the boundary: GET downloads from those paths, and nothing else. `api.github.com`, the mise versions host and
+every other host stay denied, as does `curl` run on its own.
+
+- **Lockfile installs are the image's default, not a guarantee.** The image sets `MISE_LOCKED=1`, so mise installs from
+  the URLs and checksums in `mise.lock` and doesn't look versions up. The model can unset it, and then mise can list
+  versions through the allowed hosts (for example node's index under `nodejs.org/dist`).
+- **Ancestors share the grant.** OpenShell matches a grant's binary against the process and its ancestors, so anything
+  run under `mise exec` or a shim can make the same GET requests, `curl` included.
+- **Lock with the image's mise.** The image ships mise 2026.10.25, which reads lockfile format 3. A newer mise writes
+  format 4, which the image rejects with "this mise supports up to version 3", so `mise install` fails in the sandbox.
+  Lock with the same version, for example `mise exec mise@2026.10.25 -- mise lock --platform linux-arm64,linux-x64`, or
+  set `min_version` in the repo's `mise.toml`. The lockfile also needs the sandbox's platforms, `linux-arm64` and
+  `linux-x64`; an install with no URL for the platform fails.
 
 The `github-api` grant lets `/usr/local/bin/gh` (in `durable-worker:dev`) open pull requests and issues, comment, and read
 CI status for a repo session's repository. It applies only to a repo session with a GitHub token, because `gh` authenticates

@@ -41,7 +41,7 @@ var (
 	goEndpoints = []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
 
 	miseBinaries = []string{"/usr/local/bin/mise"}
-	// Every endpoint is GET-only, and mise runs locked, so it downloads only the URLs in a repo's mise.lock.
+	// Every endpoint is GET-only; the image runs mise locked, but that is a default the model can change, so these paths are the boundary.
 	miseEndpoints = []sandbox.GrantEndpoint{
 		// Release asset URLs in mise.lock, which redirect to the host below.
 		{Host: "github.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/*/*/releases/download/**"}}},
@@ -68,7 +68,7 @@ var grantCatalog = map[string]grantSpec{
 		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
 			return sandbox.Grant{Name: "mise", Binaries: miseBinaries, Endpoints: miseEndpoints}, true
 		},
-		summary:  "mise may download the tools a repo's mise.lock names, by GET from GitHub releases, nodejs.org and dl.google.com, and never looks up versions",
+		summary:  "mise, and what it runs, may GET release assets from GitHub, nodejs.org/dist and dl.google.com/go; the image installs from mise.lock by default",
 		binaries: miseBinaries,
 		hosts:    miseEndpoints,
 	},

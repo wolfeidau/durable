@@ -119,3 +119,16 @@ func TestAssembleAutoApprovalsStillLetsAHookDeny(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, durable.ActionDeny, d.Action)
 }
+
+func TestAssembleSessionWithNoRecordedEnvironmentAsks(t *testing.T) {
+	assembleHome(t)
+	cfg := approvalsCfg(sandboxtest.New(t), ApprovalsAuto)
+	cfg.Sandbox.Environments = map[string]Environment{DefaultEnvironment: {Name: DefaultEnvironment, Image: "img:1", Approvals: ApprovalsAuto}}
+	cfg.Environment = ""
+
+	a, err := Assemble(t.Context(), cfg)
+	require.NoError(t, err)
+	defer a.Close()
+
+	require.NotNil(t, a.Options.Gate, "an unnamed environment is never resolved to today's default for approvals")
+}

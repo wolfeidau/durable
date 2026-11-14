@@ -298,8 +298,9 @@ func (c AssembleConfig) autoApproves(dir string, useSandbox bool) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	// A directory session works in the host's checkout, so it never auto-approves.
-	if meta.Workspace == "" {
+	// A directory session works in the host's checkout, so it never auto-approves. A session with no recorded
+	// environment predates them, and resolving it to today's default could auto-approve a sandbox built from another.
+	if meta.Workspace == "" || meta.Environment == "" {
 		return false, nil
 	}
 	env, err := ResolveEnvironment(c.Sandbox.Environments, meta.Environment)
