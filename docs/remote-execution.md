@@ -71,7 +71,7 @@ call detached from the connection.
 ### The OpenShell launcher uses the Go SDK
 
 [`github.com/ai-openshell/sdk-go`](https://github.com/ai-openshell/sdk-go), pinned to the gateway's
-version (`v0.1.7` today). It lives in its own package, which only `durable-server` imports, so
+version (`v0.1.8` today). It lives in its own package, which only `durable-server` imports, so
 `durable chat` and the library don't link it. It adds `grpc`, `genproto` and a few `x/` modules; the
 worker binary links none of it.
 
@@ -550,7 +550,7 @@ Giving each MCP server its own sandbox would separate its credentials and egress
   above; providers, or a sandbox per MCP server, would close it.
 - **`env` and headers are visible to the agent.** It runs as the same user, so it can read them.
   OAuth and OpenShell providers are the way out later.
-- **Gateway behaviour the launcher depends on** (probed on OpenShell v0.1.7): a policy keeps the
+- **Gateway behaviour the launcher depends on** (probed on OpenShell v0.1.7; the gateway tests pass on v0.1.8): a policy keeps the
   default filesystem and process settings (user 1500, writable `/sandbox`), but drops the default
   Landlock `best_effort`, so the launcher sets it again. The rule's binary is matched by exact path
   against the process and its ancestors: a copy of `curl` started outside the worker was refused.
