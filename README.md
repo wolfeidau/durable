@@ -131,6 +131,8 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
   Put `"go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] }` under `environments` in
   `~/.durable/config.json` and create sessions with `environment: "go"`. The grant lets only
   the `go` binary reach the module proxy. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
+- **Auto-approval:** add `"approvals": "auto"` to an environment and its sandboxed sessions run tool calls without
+  asking; hooks still apply. The default is `ask`. See [approvals](docs/remote-execution.md#environments-images-and-network-grants).
 - **GitHub CLI:** the worker image has `gh`. Add `"github-api"` to an environment's `grants` and a repo session can
   open PRs and issues, comment and read CI status, but never review or merge. Use a fine-grained token limited to the repos sessions use, because
   GraphQL calls aren't scoped to one repo. See [environments](docs/remote-execution.md#environments-images-and-network-grants).

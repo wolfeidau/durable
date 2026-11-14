@@ -26,12 +26,13 @@ Assistant messages render as Markdown, and tool calls collapse to a one-line sum
 chip, with the running, waiting and failed ones open.
 
 The new-session form picks a sandbox environment from `GetServerInfo`. The control shows only for an
-empty or repo workspace; with one environment the form shows its name instead of a control. The list and the session
+empty or repo workspace; with one environment the form shows its name instead of a control. An environment with
+`"approvals": "auto"` shows "auto-approve" beside its name. The list and the session
 view show each session's environment.
 
 A read-only Server page (`?view=server`, linked from the header) shows `GetServerInfo`: the config
 warnings logged at startup, each effective setting with its source (default, `config.json`, flag, or the deprecated `environments.json`),
-the sandbox environments, and the network grant catalog with the binaries and hosts each grant
+the sandbox environments (name, image, grants, an Approvals column showing `ask` or `auto`, and source), and the network grant catalog with the binaries and hosts each grant
 opens. Secrets show only where they come from (`1Password`, `gh`, `env NAME`, `set by flag`),
 never the reference or the value.
 

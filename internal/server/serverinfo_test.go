@@ -9,7 +9,20 @@ import (
 	"github.com/stretchr/testify/require"
 
 	v1 "github.com/wolfeidau/durable/api/durable/v1"
+	"github.com/wolfeidau/durable/internal/commands"
 )
+
+func TestGetServerInfoReturnsEnvironmentApprovals(t *testing.T) {
+	e := newSandboxEnv(t)
+	e.cfg.Sandbox.Environments = map[string]commands.Environment{"go": {Name: "go", Image: "img:1", Approvals: "auto"}}
+	svc := sessionService{reg: e.registry(t), home: e.home, logger: slog.New(slog.DiscardHandler)}
+
+	info, err := svc.GetServerInfo(t.Context(), connect.NewRequest(&v1.GetServerInfoRequest{}))
+
+	require.NoError(t, err)
+	require.Len(t, info.Msg.Environments, 1)
+	require.Equal(t, "auto", info.Msg.Environments[0].Approvals)
+}
 
 func TestGetServerInfoReturnsSettingsWarningsAndGrants(t *testing.T) {
 	e := newEnv(t)

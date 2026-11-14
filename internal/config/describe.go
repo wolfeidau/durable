@@ -6,6 +6,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/wolfeidau/durable/internal/commands"
 )
 
 // describeRef names where a secret comes from without printing the reference, which can name a vault and item.
@@ -66,6 +68,9 @@ func (s *Settings) Entries() []Entry {
 		value := "image=" + e.Image
 		if len(e.Grants) > 0 {
 			value += " grants=" + strings.Join(e.Grants, ",")
+		}
+		if e.Approvals == commands.ApprovalsAuto {
+			value += " approvals=auto"
 		}
 		line("environments."+name, value)
 	}

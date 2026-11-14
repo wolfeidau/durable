@@ -3,6 +3,7 @@ import { useQuery } from "@connectrpc/connect-query";
 import { type ReactElement } from "react";
 import { getServerInfo } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { type EnvironmentInfo, type GrantInfo } from "./gen/durable/v1/durable_pb";
+import { approvalsLabel } from "./newSession";
 import { groupSettings, shortField, sourceLabel, sourceTone } from "./server";
 
 function Environments({
@@ -23,6 +24,7 @@ function Environments({
             <th>Name</th>
             <th>Image</th>
             <th>Grants</th>
+            <th>Approvals</th>
             <th>Source</th>
           </tr>
         </thead>
@@ -39,6 +41,7 @@ function Environments({
                   </span>
                 ))}
               </td>
+              <td>{approvalsLabel(e)}</td>
               <td>
                 <SourceBadge source={sources.get(`environments.${e.name}`) ?? ""} />
               </td>

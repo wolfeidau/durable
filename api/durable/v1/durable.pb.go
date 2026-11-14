@@ -616,10 +616,12 @@ func (x *GrantInfo) GetHosts() []string {
 
 // EnvironmentInfo is a sandbox environment: a worker image and the network grants a session gets.
 type EnvironmentInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Image         string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
-	Grants        []string               `protobuf:"bytes,3,rep,name=grants,proto3" json:"grants,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Name   string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Image  string                 `protobuf:"bytes,2,opt,name=image,proto3" json:"image,omitempty"`
+	Grants []string               `protobuf:"bytes,3,rep,name=grants,proto3" json:"grants,omitempty"`
+	// "ask" or "auto"; empty means ask.
+	Approvals     string `protobuf:"bytes,4,opt,name=approvals,proto3" json:"approvals,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -673,6 +675,13 @@ func (x *EnvironmentInfo) GetGrants() []string {
 		return x.Grants
 	}
 	return nil
+}
+
+func (x *EnvironmentInfo) GetApprovals() string {
+	if x != nil {
+		return x.Approvals
+	}
+	return ""
 }
 
 type CreateSessionRequest struct {
@@ -2336,11 +2345,12 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\asummary\x18\x02 \x01(\tR\asummary\x12\x1a\n" +
 	"\bbinaries\x18\x03 \x03(\tR\bbinaries\x12\x14\n" +
-	"\x05hosts\x18\x04 \x03(\tR\x05hosts\"S\n" +
+	"\x05hosts\x18\x04 \x03(\tR\x05hosts\"q\n" +
 	"\x0fEnvironmentInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05image\x18\x02 \x01(\tR\x05image\x12\x16\n" +
-	"\x06grants\x18\x03 \x03(\tR\x06grants\"\xde\x01\n" +
+	"\x06grants\x18\x03 \x03(\tR\x06grants\x12\x1c\n" +
+	"\tapprovals\x18\x04 \x01(\tR\tapprovals\"\xde\x01\n" +
 	"\x14CreateSessionRequest\x12\x10\n" +
 	"\x03cwd\x18\x01 \x01(\tR\x03cwd\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x123\n" +

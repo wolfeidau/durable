@@ -9,6 +9,7 @@ import {
   canCreate,
   defaultBranch,
   environmentHint,
+  environmentLabel,
   modesFor,
   pickEnvironment,
   RequestIds,
@@ -91,7 +92,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
       ) : (
         <p className="kind">{modeLabels[mode]}</p>
       )}
-      {showEnvironment && environments.length === 1 && <p className="kind">Environment: {environment}</p>}
+      {showEnvironment && environments.length === 1 && <p className="kind">Environment: {environments.map(environmentLabel)}</p>}
       {showEnvironment && environments.length > 1 && environments.length <= 4 && (
         <div className="env-row">
           <span className="caption" id="environment-caption">
@@ -111,7 +112,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
                     setChosenEnv(e.name);
                   }}
                 />
-                <label htmlFor={`env-${e.name}`}>{e.name}</label>
+                <label htmlFor={`env-${e.name}`}>{environmentLabel(e)}</label>
               </span>
             ))}
           </div>
@@ -130,7 +131,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
             >
               {environments.map((e) => (
                 <option key={e.name} value={e.name} title={environmentHint(e)}>
-                  {e.name}
+                  {environmentLabel(e)}
                 </option>
               ))}
             </select>

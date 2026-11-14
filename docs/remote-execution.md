@@ -319,6 +319,21 @@ durable-server
 An unknown or ambiguous name, or an environment on a directory workspace, returns `INVALID_ARGUMENT`.
 `GetServerInfo` lists the environments, and `ListSessions` reports each session's.
 
+**Approvals.** An environment's `approvals` is `ask` (the default) or `auto`. With `auto`, tool calls in its sandboxed
+sessions run without approval, the way `--yes` does for the CLI, and hooks still apply: a `PreToolUse` hook can deny or
+ask. The boundary in a sandbox is the environment's grants, not each call. Example:
+
+```json
+{ "environments": { "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"], "approvals": "auto" } } }
+```
+
+- **Not pinned:** the server reads the setting each time it opens a session, by the environment name in the session's
+  metadata. Tightening the config applies to existing sessions on their next open. An environment that no longer exists
+  means `ask`.
+- **Directory sessions** never auto-approve, whatever the config says.
+- **Warning:** an environment with `auto` and the `github-api` grant lets its sessions push, open PRs and comment with no
+  human in the loop, so `durable-server config check` and startup warn about the combination.
+
 The `go-modules` grant is one plain L4 rule, `durable-grant-go-modules`. It lets `/usr/local/go/bin/go`
 reach `proxy.golang.org:443` and `sum.golang.org:443`. `go mod tidy`, `download`, `build` and `test` work with
 it, and so does `golangci-lint run`, whose `go list` runs as the go binary. Other binaries and other hosts stay denied.

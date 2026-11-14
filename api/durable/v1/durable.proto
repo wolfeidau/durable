@@ -75,6 +75,8 @@ message EnvironmentInfo {
   string name = 1;
   string image = 2;
   repeated string grants = 3;
+  // "ask" or "auto"; empty means ask.
+  string approvals = 4;
 }
 
 message CreateSessionRequest {

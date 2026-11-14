@@ -120,6 +120,14 @@
               },
               "description": "Network grants for sessions in this environment.",
               "uniqueItems": true
+            },
+            "approvals": {
+              "type": "string",
+              "description": "Whether tool calls in sandboxed sessions of this environment ask for approval: ask (default) or auto. With auto calls run without approval; hooks still apply.",
+              "enum": [
+                "ask",
+                "auto"
+              ]
             }
           },
           "required": [

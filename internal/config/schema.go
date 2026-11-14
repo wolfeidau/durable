@@ -55,6 +55,7 @@ func Schema() (*jsonschema.Schema, error) {
 	grants.Types, grants.Type = nil, "array"
 	grants.Items.Enum = enum(commands.GrantNames())
 	grants.UniqueItems = true
+	env.Properties["approvals"].Enum = enum([]string{commands.ApprovalsAsk, commands.ApprovalsAuto})
 	envs.PatternProperties = map[string]*jsonschema.Schema{commands.EnvironmentNamePattern: env}
 	falseSchema := &jsonschema.Schema{Not: &jsonschema.Schema{}}
 	envs.AdditionalProperties = falseSchema

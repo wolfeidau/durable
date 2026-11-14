@@ -146,7 +146,15 @@ type Environment struct {
 	Name   string   `json:"-"`
 	Image  string   `json:"image"`
 	Grants []string `json:"grants"`
+	// Approvals is "ask" (also when empty) or "auto"; auto skips the approval gate in sandboxed sessions, and hooks still apply.
+	Approvals string `json:"approvals,omitempty"`
 }
+
+// Values of Environment.Approvals.
+const (
+	ApprovalsAsk  = "ask"
+	ApprovalsAuto = "auto"
+)
 
 // LoadEnvironments reads the environments file; a missing file has none.
 func LoadEnvironments(path string) (map[string]Environment, error) {
@@ -175,6 +183,9 @@ func LoadEnvironments(path string) (map[string]Environment, error) {
 			if _, ok := grantCatalog[g]; !ok {
 				return nil, fmt.Errorf("environment %q: unknown grant %q (known: %s)", name, g, strings.Join(GrantNames(), ", "))
 			}
+		}
+		if e.Approvals != "" && e.Approvals != ApprovalsAsk && e.Approvals != ApprovalsAuto {
+			return nil, fmt.Errorf("environment %q: approvals must be %q or %q", name, ApprovalsAsk, ApprovalsAuto)
 		}
 		e.Name = name
 		out[name] = e
