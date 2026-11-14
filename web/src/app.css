@@ -338,6 +338,32 @@ label input, label select { margin-top: 0.25rem; }
 
 .info-where .kind { flex-shrink: 0; }
 .session-id { font-size: 0.75rem; overflow-wrap: anywhere; }
+
+.stats { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin-top: 0.5rem; font-size: 0.85rem; }
+.stats .meter { flex: 1 1 14rem; display: flex; align-items: center; gap: 0.5rem; min-width: 0; }
+.stats meter { flex: 1; min-width: 4rem; height: 0.6rem; }
+.stats .stat-label { color: var(--muted); }
+
+.tabs { display: flex; gap: 0.25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); }
+
+.tabs button {
+  min-height: 32px;
+  padding: 0 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--link); }
+.report h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+.table-wrap.report { overflow-x: auto; border: 1px solid var(--border); background: var(--surface); }
+.table-wrap.report table { table-layout: auto; }
+.table-wrap.report tbody tr { cursor: default; }
+.table-wrap.report th, .table-wrap.report td { white-space: nowrap; }
+.table-wrap.report .num { text-align: right; font-variant-numeric: tabular-nums; }
+.turn-usage { font-size: 0.8rem; }
 .turn { margin-bottom: 1.5rem; content-visibility: auto; contain-intrinsic-size: auto 400px; }
 .msg, .notice { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 0.5rem; }
 
@@ -517,6 +543,12 @@ details[open] > .call-head::before { transform: rotate(90deg); }
 
   .table-wrap td, .table-wrap tbody tr:last-child td { padding: 0.3rem 0.9rem; border: none; }
   .workspace { width: auto; }
+  .table-wrap.report table { display: table; }
+  .table-wrap.report thead { display: table-header-group; }
+  .table-wrap.report tbody { display: table-row-group; }
+  .table-wrap.report tr { display: table-row; margin: 0; border: none; border-radius: 0; background: none; }
+  .table-wrap.report td { display: table-cell; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .table-wrap.report tbody tr:last-child td { border-bottom: none; }
   .msg.user { max-width: 92%; }
 }
 

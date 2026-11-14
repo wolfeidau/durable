@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Route = { view: "list" } | { view: "server" } | { view: "session"; id: string };
+export type Route = { view: "list" } | { view: "server" } | { view: "session"; id: string; tab?: "report" };
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
   const id = params.get("session");
-  if (id) return { view: "session", id };
+  if (id) return params.get("tab") === "report" ? { view: "session", id, tab: "report" } : { view: "session", id };
   if (params.get("view") === "server") return { view: "server" };
   return { view: "list" };
 }
@@ -14,7 +14,7 @@ const read = () => parseRoute(location.search);
 
 export const serverHref = "?view=server";
 
-export function useRoute(): [Route, (id: string) => void, () => void] {
+export function useRoute(): [Route, (id: string) => void, () => void, (id: string, tab: "report" | undefined) => void] {
   const [route, setRoute] = useState(read);
 
   useEffect(() => {
@@ -33,5 +33,10 @@ export function useRoute(): [Route, (id: string) => void, () => void] {
     setRoute(read());
   }, []);
 
-  return [route, select, openServer];
+  const selectTab = useCallback((id: string, tab: "report" | undefined) => {
+    history.replaceState(null, "", `?session=${encodeURIComponent(id)}${tab ? `&tab=${tab}` : ""}`);
+    setRoute(read());
+  }, []);
+
+  return [route, select, openServer, selectTab];
 }

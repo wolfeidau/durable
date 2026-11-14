@@ -14,6 +14,12 @@ describe("route", () => {
     expect(parseRoute("?session=s-1&view=server")).toEqual({ view: "session", id: "s-1" });
   });
 
+  test("tab=report opens the report on a session", () => {
+    expect(parseRoute("?session=s-1&tab=report")).toEqual({ view: "session", id: "s-1", tab: "report" });
+    expect(parseRoute("?session=s-1&tab=other")).toEqual({ view: "session", id: "s-1" });
+    expect(parseRoute("?tab=report")).toEqual({ view: "list" });
+  });
+
   test("an unknown view is the list", () => {
     expect(parseRoute("?view=other")).toEqual({ view: "list" });
   });
