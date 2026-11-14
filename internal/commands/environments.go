@@ -39,6 +39,19 @@ var (
 	goBinaries  = []string{"/usr/local/go/bin/go"}
 	ghBinaries  = []string{"/usr/local/bin/gh"}
 	goEndpoints = []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
+
+	miseBinaries = []string{"/usr/local/bin/mise"}
+	// Every endpoint is GET-only, and mise runs locked, so it downloads only the URLs in a repo's mise.lock.
+	miseEndpoints = []sandbox.GrantEndpoint{
+		// Release asset URLs in mise.lock, which redirect to the host below.
+		{Host: "github.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/*/*/releases/download/**"}}},
+		// Where GitHub redirects release asset downloads; seen in the gateway log for aqua tools.
+		{Host: "release-assets.githubusercontent.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
+		// Node.js binaries, from mise's core node backend.
+		{Host: "nodejs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/dist/**"}}},
+		// Go toolchains, from mise's core go backend.
+		{Host: "dl.google.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/go/**"}}},
+	}
 )
 
 // grantCatalog is the grants an environment can name. The hosts are fixed here, not in the file, so a file can't widen egress.
@@ -50,6 +63,14 @@ var grantCatalog = map[string]grantSpec{
 		summary:  "go may download modules from the Go module proxy and checksum database",
 		binaries: goBinaries,
 		hosts:    goEndpoints,
+	},
+	"mise": {
+		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
+			return sandbox.Grant{Name: "mise", Binaries: miseBinaries, Endpoints: miseEndpoints}, true
+		},
+		summary:  "mise may download the tools a repo's mise.lock names, by GET from GitHub releases, nodejs.org and dl.google.com, and never looks up versions",
+		binaries: miseBinaries,
+		hosts:    miseEndpoints,
 	},
 	"github-api": {
 		build:    githubAPIGrant,

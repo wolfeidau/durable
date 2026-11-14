@@ -297,7 +297,7 @@ durable-server --sandbox-image durable-worker:dev --git-host-token github=gh
 
 An environment pairs a worker image with the network grants a session gets. There are three layers.
 
-- **Images** hold the tools. `durable-worker:dev` has bash, git and curl. `durable-worker-go:dev`, from
+- **Images** hold the tools. `durable-worker:dev` has bash, git, curl, `gh` and `mise`. `durable-worker-go:dev`, from
   `mise run image:worker-go`, adds the Go toolchain and golangci-lint on top of it.
 - **Grants** are named network allowances built into the server. A grant names the binaries that may
   connect and the hosts they may reach. The environments file picks grants by name and can't add hosts.
@@ -337,6 +337,22 @@ ask. The boundary in a sandbox is the environment's grants, not each call. Examp
 The `go-modules` grant is one plain L4 rule, `durable-grant-go-modules`. It lets `/usr/local/go/bin/go`
 reach `proxy.golang.org:443` and `sum.golang.org:443`. `go mod tidy`, `download`, `build` and `test` work with
 it, and so does `golangci-lint run`, whose `go list` runs as the go binary. Other binaries and other hosts stay denied.
+
+The `mise` grant lets `/usr/local/bin/mise` (in `durable-worker:dev`) download the tools a repo's `mise.lock` names.
+It applies to every session and binds no credential. Example:
+
+```json
+{ "environments": { "go": { "image": "durable-worker-go:dev", "grants": ["go-modules", "mise"] } } }
+```
+
+It is one rule, `durable-grant-mise`, with `GET`-only endpoints: `github.com` for `/OWNER/REPO/releases/download/**`,
+`release-assets.githubusercontent.com` (where GitHub redirects release assets), `nodejs.org` for `/dist/**` and
+`dl.google.com` for `/go/**`. The image sets `MISE_LOCKED=1`, so mise installs only from the URLs and checksums in
+`mise.lock` and never looks a version up; an install whose lockfile has no URL for the platform fails. Version lookups
+(`api.github.com`, the mise versions host) stay denied, as does `curl` to the same URLs. The lockfile needs entries for the
+sandbox's platform (`linux-x64` and `linux-arm64`), so run `mise lock --platform linux-arm64,linux-x64` with the same mise
+version as the image. OpenShell matches a grant's binary against the process and its ancestors, so anything run under
+`mise exec` or a shim also reaches these hosts, still `GET`-only.
 
 The `github-api` grant lets `/usr/local/bin/gh` (in `durable-worker:dev`) open pull requests and issues, comment, and read
 CI status for a repo session's repository. It applies only to a repo session with a GitHub token, because `gh` authenticates

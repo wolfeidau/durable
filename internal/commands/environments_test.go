@@ -308,3 +308,35 @@ func TestGrantCatalogShowsTheGitHubAPIPaths(t *testing.T) {
 	require.Equal(t, []string{"api.github.com:443", "api.github.com:443/graphql"}, g.Hosts)
 	require.Contains(t, g.Summary, "never review or merge")
 }
+
+func TestMiseGrantIsGetOnlyDownloads(t *testing.T) {
+	g, ok := grantCatalog["mise"].build("", nil)
+	require.True(t, ok)
+	require.Equal(t, "mise", g.Name)
+	require.Equal(t, []string{"/usr/local/bin/mise"}, g.Binaries)
+	require.Empty(t, g.Provider)
+
+	var hosts []string
+	for _, e := range g.Endpoints {
+		hosts = append(hosts, e.Host)
+		require.EqualValues(t, 443, e.Port)
+		require.NotEmpty(t, e.Rules, e.Host)
+		for _, r := range e.Rules {
+			require.Equal(t, "GET", r.Method, e.Host)
+		}
+	}
+	require.Equal(t, []string{"github.com", "release-assets.githubusercontent.com", "nodejs.org", "dl.google.com"}, hosts)
+	require.NotContains(t, hosts, "api.github.com")
+	require.Equal(t, "/*/*/releases/download/**", g.Endpoints[0].Rules[0].Path)
+}
+
+func TestGrantCatalogShowsMise(t *testing.T) {
+	i := slices.IndexFunc(GrantCatalog(), func(g GrantInfo) bool { return g.Name == "mise" })
+	require.GreaterOrEqual(t, i, 0)
+	g := GrantCatalog()[i]
+
+	require.Equal(t, []string{"/usr/local/bin/mise"}, g.Binaries)
+	require.Contains(t, g.Hosts, "github.com:443")
+	require.NotContains(t, g.Hosts, "api.github.com:443")
+	require.Contains(t, g.Summary, "never looks up versions")
+}

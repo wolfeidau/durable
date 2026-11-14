@@ -115,7 +115,8 @@
                 "type": "string",
                 "enum": [
                   "github-api",
-                  "go-modules"
+                  "go-modules",
+                  "mise"
                 ]
               },
               "description": "Network grants for sessions in this environment.",
