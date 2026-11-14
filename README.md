@@ -106,7 +106,7 @@ the field, never the value. A `--provider` that names a different provider also 
   "git": { "author": "durable <durable@localhost>", "hosts": { "github": { "token": "gh" } } },
   "environments": {
     "default": { "image": "durable-worker:dev" },
-    "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"], "approvals": "auto" }
+    "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] }
   }
 }
 ```
@@ -138,7 +138,8 @@ durable-server serve --sandbox-image durable-worker:dev --git-host-token github=
 ```
 
 `--sandbox-image REF` is shorthand for an environment named `default`. Without any environment the
-server never contacts a gateway and creates directory sessions only.
+server creates directory sessions only, and contacts a gateway only to reopen an existing sandboxed
+session.
 
 - **Workspaces:** a sandboxed session starts empty, or as a clone of a repo and branch (a URL or
   `github.com/owner/name`). Work comes back through `git push`, which needs no approval of its own.
@@ -182,7 +183,8 @@ GitHub is the only git host so far.
 
 An environment pairs a worker image with named network grants and an approval mode.
 `CreateSession` takes an `environment`; empty means `default`, or the only one when there is
-exactly one. Sandboxes deny all egress except what grants allow.
+exactly one. A sandbox denies all egress except git to its own repo, the hosts of its HTTP MCP
+servers, and its grants.
 
 | Image | Built by | Has |
 |---|---|---|

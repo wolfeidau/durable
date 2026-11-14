@@ -3,7 +3,8 @@
 Run your own commands around tool calls to allow, deny, rewrite or annotate them.
 
 **Hooks run as you and aren't sandboxed, and they aren't a security boundary:** an approved `bash`
-command can edit `~/.durable/hooks.json`, and the change applies at the next start.
+command can edit `~/.durable/hooks.json`, and the change applies at the next start. A sandboxed
+session's `bash` can't reach the host, so there hooks are a boundary.
 
 **For a sandboxed session, hook input comes from a sandbox the agent controls.** A hook that runs
 its input, for example through `eval`, is a host escape. Treat tool inputs and results as untrusted
