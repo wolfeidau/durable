@@ -70,7 +70,7 @@ func New(cfg Config) (*Launcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load gateway config: %w", err)
 	}
-	// The SDK has no mTLS auth mode, so the client certificate goes through the TLS config (see the OpenShell gaps in docs/remote-execution.md).
+	// The SDK has no mTLS auth mode, so the client certificate goes through the TLS config (gateway.NewClient rejects mTLS gateways).
 	c, err := gateway.NewClient(gw.Name,
 		gateway.WithAuth(v1.NoAuth()),
 		gateway.WithTLS(&types.TLSConfig{
