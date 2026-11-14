@@ -36,7 +36,8 @@ func forget(t *testing.T, url string) {
 	t.Cleanup(func() {
 		cache.mu.Lock()
 		defer cache.mu.Unlock()
-		delete(cache.lists, url)
+		delete(cache.lists, url+"|false")
+		delete(cache.lists, url+"|true")
 	})
 }
 
@@ -207,7 +208,7 @@ func TestWaiterStopsWaitingWhenItsContextEnds(t *testing.T) {
 	require.Eventually(t, func() bool {
 		cache.mu.Lock()
 		defer cache.mu.Unlock()
-		return cache.lists[srv.URL] != nil
+		return cache.lists[srv.URL+"|false"] != nil
 	}, 5*time.Second, 5*time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
@@ -326,4 +327,22 @@ func TestPendingNilDoneAndParentCancel(t *testing.T) {
 
 	<-ready
 	require.Eventually(t, func() bool { _, ok := p.Info(); return ok }, 5*time.Second, time.Millisecond, "an ended parent context doesn't cancel the lookup")
+}
+
+func TestKeylessFailureDoesNotAffectKeyedLookup(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"id":"m","context_length":10}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	forget(t, srv.URL)
+
+	_, err := OpenRouter{BaseURL: srv.URL, Client: srv.Client()}.Lookup(context.Background(), "m")
+	require.Error(t, err)
+	info, err := OpenRouter{BaseURL: srv.URL, Key: "k", Client: srv.Client()}.Lookup(context.Background(), "m")
+	require.NoError(t, err)
+	require.EqualValues(t, 10, info.ContextWindow)
 }

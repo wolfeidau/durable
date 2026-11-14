@@ -57,9 +57,15 @@ func (o OpenRouter) Lookup(ctx context.Context, model string) (Info, error) {
 	return info, nil
 }
 
+// cacheKey separates keyless from keyed fetches, because a gateway can answer them differently; the key itself is never stored.
+func (o OpenRouter) cacheKey() string {
+	return o.BaseURL + "|" + strconv.FormatBool(o.Key != "")
+}
+
 func (o OpenRouter) list(ctx context.Context) (map[string]Info, error) {
+	key := o.cacheKey()
 	cache.mu.Lock()
-	l := cache.lists[o.BaseURL]
+	l := cache.lists[key]
 	if l != nil {
 		select {
 		case <-l.done:
@@ -76,7 +82,7 @@ func (o OpenRouter) list(ctx context.Context) (map[string]Info, error) {
 	fetch := l == nil
 	if fetch {
 		l = &list{done: make(chan struct{})}
-		cache.lists[o.BaseURL] = l
+		cache.lists[key] = l
 	}
 	cache.mu.Unlock()
 

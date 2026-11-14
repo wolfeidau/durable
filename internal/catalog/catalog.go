@@ -3,6 +3,7 @@ package catalog
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -54,32 +55,62 @@ func (p *Price) Estimate(u *durable.Usage) float64 {
 }
 
 // Pending is a lookup running in the background.
-type Pending struct{ info atomic.Pointer[Info] }
+type Pending struct {
+	info atomic.Pointer[Info]
+
+	c     Catalog
+	model string
+	ctx   context.Context
+	done  func(Info, error)
+
+	mu       sync.Mutex
+	inFlight bool
+	failedAt time.Time
+}
 
 // Start looks the model up without blocking, so opening a session never waits on the network.
-// done, if set, runs once on the lookup goroutine.
+// done, if set, runs on the lookup goroutine for the first attempt's outcome, and after that only
+// when a retry succeeds, so a long outage doesn't repeat the notice.
 func Start(ctx context.Context, c Catalog, model string, done func(Info, error)) *Pending {
-	p := &Pending{}
 	// A server's request context ends when the response is sent, long before the lookup should.
-	ctx = context.WithoutCancel(ctx)
-	go func() {
-		ctx, cancel := context.WithTimeout(ctx, lookupTimeout)
-		defer cancel()
-		info, err := c.Lookup(ctx, model)
-		if err == nil {
-			p.info.Store(&info)
-		}
-		if done != nil {
-			done(info, err)
-		}
-	}()
+	p := &Pending{c: c, model: model, ctx: context.WithoutCancel(ctx), done: done, inFlight: true}
+	go p.run(true)
 	return p
 }
 
-// Info never blocks, and is false until a lookup has succeeded.
+func (p *Pending) run(first bool) {
+	ctx, cancel := context.WithTimeout(p.ctx, lookupTimeout)
+	defer cancel()
+	info, err := p.c.Lookup(ctx, p.model)
+	if err == nil {
+		p.info.Store(&info)
+	}
+	p.mu.Lock()
+	p.inFlight = false
+	if err != nil {
+		p.failedAt = cache.now()
+	}
+	p.mu.Unlock()
+	if p.done != nil && (first || err == nil) {
+		p.done(info, err)
+	}
+}
+
+// Info never blocks, and is false until a lookup has succeeded. A failed lookup is retried in the
+// background on a call at least retryAfter after the last failure.
 func (p *Pending) Info() (Info, bool) {
 	if i := p.info.Load(); i != nil {
 		return *i, true
+	}
+	p.mu.Lock()
+	// Re-check under the lock: a lookup that just succeeded must not start another.
+	retry := p.info.Load() == nil && !p.inFlight && cache.now().Sub(p.failedAt) >= retryAfter
+	if retry {
+		p.inFlight = true
+	}
+	p.mu.Unlock()
+	if retry {
+		go p.run(false)
 	}
 	return Info{}, false
 }

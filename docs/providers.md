@@ -48,8 +48,8 @@ wrote them.
 The direct `anthropic` provider uses server-side compaction. On OpenRouter, durable compacts on the
 client for both protocols, so it works on any model.
 
-- It reads the model's `context_length` from the same cached model list as [usage and cost](#usage-and-cost)
-  when the session opens, and compacts before a request when the context would exceed that window minus
+- It reads the model's `context_length` from the same cached model list as [usage and cost](#usage-and-cost),
+  looked up in the background when the session opens, and compacts before a request when the context would exceed that window minus
   16,384 tokens, or half the window if that's larger. It also compacts and retries once when the
   provider reports a context overflow.
 - It keeps about the last 20,000 tokens and summarises everything older with the session's own model,
@@ -58,7 +58,8 @@ client for both protocols, so it works on any model.
   history is never rewritten, so `History` still returns the full transcript.
 - The window comes from the model list, looked up in the background when the session opens. Until it
   lands, compaction runs only on a reported overflow. If the list can't be fetched, or doesn't list the
-  model or its context length, the agent prints `[compaction] warning: ...` and keeps doing so.
+  model or its context length, the agent prints `[compaction] warning: ...` once, and compaction runs
+  only on a reported overflow until a retry succeeds (see below), when the window notice prints.
 - A summary failure doesn't fail the prompt: the agent prints a warning and carries on, since the
   request may still fit. A transient failure pauses the session like any model error.
 - OpenRouter's `/messages` schema accepts `compact_20260112`, which could move Claude models to the
@@ -86,8 +87,10 @@ have neither.
   before it lands have no window and no estimate (a provider cost is still kept), and they get the
   model and duration only. The agent prints `[compaction] context window N tokens` when it lands.
 - The parsed list is cached in the process for an hour per base URL, and sessions opened together
-  share one fetch, so a server fetches it once rather than per session. A failed fetch is retried
-  after a minute, and the window isn't pinned.
+  share one fetch, so a server fetches it once rather than per session. The cached list is
+  refetched a minute after a failure, and an open session retries its lookup on its next use after
+  that, so the window isn't pinned. A server session logs a failed lookup, as the notice only goes
+  to the CLI.
 - If a direct `anthropic` lookup fails or the model is not listed, the agent prints one
   `[usage] warning: ...` line and cost and window stay unknown. It never enables client-side
   compaction.
