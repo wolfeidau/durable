@@ -152,7 +152,9 @@ export function buildReport(events: readonly Event[]): Report {
         }
         break;
       }
+      // A replay after a crash restarts the clock, so downtime isn't counted as tool time.
       case EventKind.CALL_STARTED:
+      case EventKind.CALL_REPLAYED:
         if (e.call && when !== undefined) started.set(`${e.submission}/${e.call.id}`, when);
         break;
       case EventKind.CALL_DONE: {

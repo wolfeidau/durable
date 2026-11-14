@@ -38,12 +38,15 @@ never the reference or the value.
 The session header shows a context meter (the latest context size against the model's window, for
 example "42% of 1M"), the session's total cost and the cache-hit share of input tokens. Cost is
 the sum of replies whose cost is known; a provider-reported cost shows as is, and a total that
-includes any estimate from the price table is prefixed with "~". Each finished turn ends with a
+includes any estimate from the provider's model prices is prefixed with "~". Each finished turn ends with a
 quiet line such as "$0.0042 · 12.3 s · 5 calls" that leaves out whatever is unknown. A Report tab
 (`?session=<id>&tab=report`) lists tool timings (calls, errors, total, average, p95 and max, with
 p95 as nearest-rank), model reply timings with output tokens per second, and each turn's cost,
 wall time, calls, model time and tool time. Tool time runs from `call_started` to `call_done`,
-which the harness commits after the approval decision, so waiting for approval is not counted.
+which the harness commits after the approval decision, so waiting for approval is not counted, and a
+call replayed after a crash is timed from the replay. A turn's wall time runs from when it starts to
+when it ends, so it also includes approval waits and any time the session was down, and can exceed
+model time plus tool time.
 Everything is computed in the browser from the replayed events. Sessions from before usage was
 stored, and replies whose price isn't known yet, show "—" rather than 0.
 

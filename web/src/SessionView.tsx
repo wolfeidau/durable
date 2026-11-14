@@ -359,11 +359,11 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
           </button>
         </div>
       </div>
-      <div className="tabs" role="tablist">
-        <button role="tab" className="secondary" aria-selected={tab !== "report"} onClick={() => onTab(undefined)}>
+      <div className="tabs" role="group" aria-label="View">
+        <button className="secondary" aria-pressed={tab !== "report"} onClick={() => onTab(undefined)}>
           Transcript
         </button>
-        <button role="tab" className="secondary" aria-selected={tab === "report"} onClick={() => onTab("report")}>
+        <button className="secondary" aria-pressed={tab === "report"} onClick={() => onTab("report")}>
           Report
         </button>
       </div>

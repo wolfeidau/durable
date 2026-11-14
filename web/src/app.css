@@ -356,7 +356,7 @@ label input, label select { margin-top: 0.25rem; }
   color: var(--muted);
 }
 
-.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--link); }
+.tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--link); }
 .report h2 { margin: 0 0 0.5rem; font-size: 1rem; }
 .table-wrap.report { overflow-x: auto; border: 1px solid var(--border); background: var(--surface); }
 .table-wrap.report table { table-layout: auto; }

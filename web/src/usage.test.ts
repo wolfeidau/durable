@@ -102,6 +102,15 @@ describe("buildReport", () => {
     expect(r.tools[0]!.total).toBe(100);
   });
 
+  test("a replayed call is timed from the replay", () => {
+    const r = buildReport([
+      started(1000, "a"),
+      ev(900_000, { kind: EventKind.CALL_REPLAYED, call: { id: "a", name: "bash" } }),
+      done(900_250, "a"),
+    ]);
+    expect(r.tools[0]!.total).toBe(250);
+  });
+
   test("model stats", () => {
     const r = buildReport([
       reply({ durationMs: 1000n, outputTokens: 50n }),
