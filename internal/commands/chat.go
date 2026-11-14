@@ -115,9 +115,6 @@ func (a *Assembled) printReport(out io.Writer) {
 	printMCP(out, a.mcpServers, a.mcpWarnings, a.mcp)
 	printSkills(out, a.skills)
 	printHooks(out, a.hooks, a.hookWarnings, a.toolset)
-	if a.CompactionNotice != "" {
-		fmt.Fprintln(out, a.CompactionNotice)
-	}
 }
 
 // printText streams model text to the terminal and ignores the other delta kinds.

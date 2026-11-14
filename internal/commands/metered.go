@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/catalog"
 )
 
 // meteredModel stamps each reply with its model, window, duration and, when the provider sent no cost, an estimate.
@@ -12,7 +13,8 @@ import (
 type meteredModel struct {
 	inner durable.Model
 	model string
-	info  modelInfo
+	// info is not ready until the background lookup lands.
+	info func() (catalog.Info, bool)
 }
 
 func (m meteredModel) Generate(ctx context.Context, history []durable.Message, tools []durable.ToolSpec) (durable.Message, error) {
@@ -27,24 +29,12 @@ func (m meteredModel) Generate(ctx context.Context, history []durable.Message, t
 	u := msg.Usage
 	u.DurationMs = time.Since(start).Milliseconds()
 	u.Model = m.model
-	u.ContextWindow = m.info.ContextWindow
-	if u.CostSource == "" && m.info.Price != nil {
-		u.CostUSD = m.info.Price.estimate(u)
-		u.CostSource = durable.CostEstimate
-	}
-	return msg, nil
-}
-
-// estimate prices u at the tier with the highest threshold its prompt reaches.
-func (p *modelPrice) estimate(u *durable.Usage) float64 {
-	r := p.Base
-	prompt := u.InputTokens + u.CacheReadTokens + u.CacheWriteTokens
-	var best int64 = -1
-	for _, t := range p.Overrides {
-		if t.MinPromptTokens <= prompt && t.MinPromptTokens > best {
-			r, best = t.Rates, t.MinPromptTokens
+	if info, ok := m.info(); ok {
+		u.ContextWindow = info.ContextWindow
+		if u.CostSource == "" && info.Price != nil {
+			u.CostUSD = info.Price.Estimate(u)
+			u.CostSource = durable.CostEstimate
 		}
 	}
-	return r.Prompt*float64(u.InputTokens) + r.CacheRead*float64(u.CacheReadTokens) +
-		r.CacheWrite*float64(u.CacheWriteTokens) + r.Completion*float64(u.OutputTokens)
+	return msg, nil
 }

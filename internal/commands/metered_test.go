@@ -3,12 +3,14 @@ package commands
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/catalog"
 )
 
 type replyModel struct {
@@ -22,40 +24,43 @@ func (m replyModel) Generate(context.Context, []durable.Message, []durable.ToolS
 	return m.msg, m.err
 }
 
-var haikuPrice = &modelPrice{
-	Base: rates{Prompt: 1e-7, Completion: 5e-7, CacheRead: 1e-8, CacheWrite: 1.25e-7},
-	Overrides: []priceTier{
-		{MinPromptTokens: 100000, Rates: rates{Prompt: 5e-7, Completion: 2.5e-6, CacheRead: 5e-8, CacheWrite: 6.25e-7}},
-		{MinPromptTokens: 50000, Rates: rates{Prompt: 3e-7, Completion: 1e-6, CacheRead: 3e-8, CacheWrite: 3e-7}},
-	},
+var haikuPrice = &catalog.Price{
+	Base:  catalog.Rates{Prompt: 1e-7, Completion: 5e-7, CacheRead: 1e-8, CacheWrite: 1.25e-7},
+	Tiers: []catalog.Tier{{MinPromptTokens: 100000, Rates: catalog.Rates{Prompt: 5e-7, Completion: 2.5e-6, CacheRead: 5e-8, CacheWrite: 6.25e-7}}},
 }
 
-func TestMeteredModelEstimates(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		usage durable.Usage
-		want  float64
-	}{
-		{"base tier", durable.Usage{InputTokens: 1000, CacheReadTokens: 2000, CacheWriteTokens: 400, OutputTokens: 100},
-			1000*1e-7 + 2000*1e-8 + 400*1.25e-7 + 100*5e-7},
-		{"highest reached tier wins", durable.Usage{InputTokens: 10, CacheReadTokens: 120000, OutputTokens: 100},
-			10*5e-7 + 120000*5e-8 + 100*2.5e-6},
-		{"middle tier counts the whole prompt", durable.Usage{InputTokens: 20000, CacheReadTokens: 30000, CacheWriteTokens: 0, OutputTokens: 10},
-			20000*3e-7 + 30000*3e-8 + 10*1e-6},
-		{"threshold is inclusive", durable.Usage{InputTokens: 100000, OutputTokens: 1}, 100000*5e-7 + 2.5e-6},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := meteredModel{inner: replyModel{msg: durable.Message{Role: durable.RoleAssistant, Usage: &tc.usage}}, model: "m", info: modelInfo{ContextWindow: 500, Price: haikuPrice}}
-			got, err := m.Generate(context.Background(), nil, nil)
-			require.NoError(t, err)
-			require.InDelta(t, tc.want, got.Usage.CostUSD, 1e-12)
-			require.Equal(t, durable.CostEstimate, got.Usage.CostSource)
-		})
-	}
+func ready(info catalog.Info) func() (catalog.Info, bool) {
+	return func() (catalog.Info, bool) { return info, true }
+}
+
+func TestMeteredModelEstimatesOnceTheLookupLands(t *testing.T) {
+	usage := durable.Usage{InputTokens: 1000, CacheReadTokens: 2000, CacheWriteTokens: 400, OutputTokens: 100}
+	var info atomic.Pointer[catalog.Info]
+	m := meteredModel{inner: replyModel{msg: durable.Message{Role: durable.RoleAssistant, Usage: &usage}}, model: "m", info: func() (catalog.Info, bool) {
+		if i := info.Load(); i != nil {
+			return *i, true
+		}
+		return catalog.Info{}, false
+	}}
+
+	got, err := m.Generate(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.Equal(t, "m", got.Usage.Model)
+	require.Zero(t, got.Usage.ContextWindow)
+	require.Empty(t, got.Usage.CostSource)
+	require.Zero(t, got.Usage.CostUSD)
+
+	info.Store(&catalog.Info{ContextWindow: 500, Price: haikuPrice})
+	usage = durable.Usage{InputTokens: 1000, CacheReadTokens: 2000, CacheWriteTokens: 400, OutputTokens: 100}
+	got, err = m.Generate(context.Background(), nil, nil)
+	require.NoError(t, err)
+	require.EqualValues(t, 500, got.Usage.ContextWindow)
+	require.Equal(t, durable.CostEstimate, got.Usage.CostSource)
+	require.InDelta(t, 1000*1e-7+2000*1e-8+400*1.25e-7+100*5e-7, got.Usage.CostUSD, 1e-12)
 }
 
 func TestMeteredModelStampsMetadataAndTimes(t *testing.T) {
-	m := meteredModel{inner: replyModel{delay: 15 * time.Millisecond, msg: durable.Message{Role: durable.RoleAssistant, Text: "hi"}}, model: "vendor/m", info: modelInfo{ContextWindow: 500}}
+	m := meteredModel{inner: replyModel{delay: 15 * time.Millisecond, msg: durable.Message{Role: durable.RoleAssistant, Text: "hi"}}, model: "vendor/m", info: ready(catalog.Info{ContextWindow: 500})}
 	got, err := m.Generate(context.Background(), nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, got.Usage, "allocated when the adapter reported none")
@@ -68,7 +73,7 @@ func TestMeteredModelStampsMetadataAndTimes(t *testing.T) {
 
 func TestMeteredModelKeepsProviderCost(t *testing.T) {
 	u := durable.Usage{InputTokens: 1000, OutputTokens: 100, CostUSD: 0.42, CostSource: durable.CostProvider}
-	m := meteredModel{inner: replyModel{msg: durable.Message{Usage: &u}}, model: "m", info: modelInfo{Price: haikuPrice}}
+	m := meteredModel{inner: replyModel{msg: durable.Message{Usage: &u}}, model: "m", info: ready(catalog.Info{Price: haikuPrice})}
 	got, err := m.Generate(context.Background(), nil, nil)
 	require.NoError(t, err)
 	require.InDelta(t, 0.42, got.Usage.CostUSD, 1e-12)
@@ -77,7 +82,7 @@ func TestMeteredModelKeepsProviderCost(t *testing.T) {
 
 func TestMeteredModelReturnsErrorsUnchanged(t *testing.T) {
 	boom := durable.Transient(errors.New("boom"))
-	m := meteredModel{inner: replyModel{err: boom}, model: "m", info: modelInfo{Price: haikuPrice}}
+	m := meteredModel{inner: replyModel{err: boom}, model: "m", info: ready(catalog.Info{Price: haikuPrice})}
 	got, err := m.Generate(context.Background(), nil, nil)
 	require.Equal(t, boom, err)
 	require.Nil(t, got.Usage)

@@ -56,8 +56,9 @@ client for both protocols, so it works on any model.
   so each compaction costs one extra model call. A later compaction folds the previous summary in.
 - Later requests send the summary and the kept messages in place of the older ones. The stored
   history is never rewritten, so `History` still returns the full transcript.
-- If the model list can't be fetched, or doesn't list the model or its context length, the agent prints
-  `[compaction] warning: ...` and compacts only on a reported overflow.
+- The window comes from the model list, looked up in the background when the session opens. Until it
+  lands, compaction runs only on a reported overflow. If the list can't be fetched, or doesn't list the
+  model or its context length, the agent prints `[compaction] warning: ...` and keeps doing so.
 - A summary failure doesn't fail the prompt: the agent prints a warning and carries on, since the
   request may still fit. A transient failure pauses the session like any model error.
 - OpenRouter's `/messages` schema accepts `compact_20260112`, which could move Claude models to the
@@ -76,15 +77,20 @@ have neither.
   tier with the highest `min_prompt_tokens` the prompt reaches, then sums prompt (uncached input) x
   input price, cache read, cache write (the 5-minute price) and completion x output price. With no
   price the cost is unknown.
-- Prices and windows come from OpenRouter's model list (`GET /v1/models`, with the key on an OpenRouter
-  session). The parsed list is cached in the process for an hour per base URL, so a server fetches it
-  once rather than per session. Failures aren't cached, and the window isn't pinned.
-- A direct `anthropic` session also asks `GET /v1/models` at OpenRouter's base URL
-  (`OPENROUTER_BASE_URL` if set), with no key. It maps `claude-sonnet-5-5` to
-  `anthropic/claude-sonnet-5.5`, and an empty `--model` to the default Claude model. That is an
-  outbound request to `openrouter.ai` on session open. If it fails or the model is not listed, the
-  agent prints one `[usage] warning: ...` line and cost and window stay unknown. It never enables
-  client-side compaction.
+- Each provider owns its model catalog. OpenRouter's is its model list (`GET /v1/models`, with the key
+  on an OpenRouter session). A direct `anthropic` session has none of its own, so it borrows
+  OpenRouter's prices from the same list at `OPENROUTER_BASE_URL` (or the default), with no key. It
+  maps `claude-sonnet-5-5` to `anthropic/claude-sonnet-5.5`, and an empty `--model` to the default
+  Claude model. That is an outbound request to `openrouter.ai` on session open.
+- The lookup runs in the background, so opening a session never waits on it. Replies that finish
+  before it lands have no window and no estimate (a provider cost is still kept), and they get the
+  model and duration only. The agent prints `[compaction] context window N tokens` when it lands.
+- The parsed list is cached in the process for an hour per base URL, and sessions opened together
+  share one fetch, so a server fetches it once rather than per session. A failed fetch is retried
+  after a minute, and the window isn't pinned.
+- If a direct `anthropic` lookup fails or the model is not listed, the agent prints one
+  `[usage] warning: ...` line and cost and window stay unknown. It never enables client-side
+  compaction.
 - Compaction summary calls are not counted, so session cost is a lower bound after a compaction.
 
 ## Limits on OpenRouter

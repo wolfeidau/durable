@@ -369,7 +369,7 @@ func TestCutKeepsRecentWorkBeforeANewPrompt(t *testing.T) {
 		{Role: durable.RoleUser, Text: "next"},
 	}
 	c := New(Config{KeepTokens: 1500})
-	cut, ok := c.findCut(msgs, 0, false)
+	cut, ok := c.findCut(msgs, 0, 0, false)
 	require.True(t, ok)
 	require.Equal(t, 2, cut)
 }
@@ -383,13 +383,30 @@ func TestCutFallsBackBeforeTrailingToolResults(t *testing.T) {
 		{Role: durable.RoleTool, ToolCallID: "1", Text: strings.Repeat("x", 100000)},
 	}
 	c := New(Config{KeepTokens: 1000})
-	cut, ok := c.findCut(msgs, 0, false)
+	cut, ok := c.findCut(msgs, 0, 0, false)
 	require.True(t, ok)
 	require.Equal(t, 3, cut)
 }
 
 func TestThresholdNeverDropsBelowHalfTheWindow(t *testing.T) {
 	for window, want := range map[int64]int64{8192: 4096, 16384: 8192, 16385: 8192, 17000: 8500, 32768: 16384, 128000: 111616} {
-		require.Equal(t, want, New(Config{ContextWindow: window}).threshold(), "window %d", window)
+		require.Equal(t, want, thresholdFor(window, defaultReserveTokens), "window %d", window)
 	}
+}
+
+func TestWindowFuncTurnsTheThresholdOnWhenTheWindowIsLearned(t *testing.T) {
+	var window int64
+	f := newFake()
+	c := New(Config{Model: f, ContextWindow: 5, WindowFunc: func() int64 { return window }, ReserveTokens: 100})
+	msgs := convo(40, 400)
+	msgs[len(msgs)-1].ContextTokens = 901
+
+	_, ok, err := c.Compact(t.Context(), durable.CompactRequest{Messages: msgs})
+	require.NoError(t, err)
+	require.False(t, ok, "an unknown window wins over ContextWindow and disables the threshold")
+
+	window = 1000
+	_, ok, err = c.Compact(t.Context(), durable.CompactRequest{Messages: msgs})
+	require.NoError(t, err)
+	require.True(t, ok)
 }

@@ -20,6 +20,7 @@ const (
 type Config struct {
 	Model         durable.Model // summariser: the harness gives it no delta sink
 	ContextWindow int64         // 0 disables the threshold; Force still compacts
+	WindowFunc    func() int64  // read once per Compact, so a window learned later takes effect; wins over ContextWindow
 	ReserveTokens int64         // default 16384
 	KeepTokens    int64         // default 20000
 }
@@ -39,11 +40,12 @@ func New(cfg Config) *Compactor {
 }
 
 func (c *Compactor) Compact(ctx context.Context, req durable.CompactRequest) (durable.Compaction, bool, error) {
-	threshold := c.threshold()
-	if !req.Force && (c.cfg.ContextWindow <= 0 || c.estimate(req) <= threshold) {
+	window := c.window()
+	threshold := thresholdFor(window, c.cfg.ReserveTokens)
+	if !req.Force && (window <= 0 || c.estimate(req) <= threshold) {
 		return durable.Compaction{}, false, nil
 	}
-	cut, ok := c.findCut(req.Messages, threshold, req.Force)
+	cut, ok := c.findCut(req.Messages, window, threshold, req.Force)
 	if !ok {
 		return durable.Compaction{}, false, nil
 	}
@@ -60,13 +62,19 @@ func (c *Compactor) Compact(ctx context.Context, req durable.CompactRequest) (du
 	return durable.Compaction{Summary: summary, FirstKept: cut}, true, nil
 }
 
-// threshold never drops below half the window, because measured usage includes the system prompt and tools and could never fall under a tiny one.
-func (c *Compactor) threshold() int64 {
-	w := c.cfg.ContextWindow
+func (c *Compactor) window() int64 {
+	if c.cfg.WindowFunc != nil {
+		return c.cfg.WindowFunc()
+	}
+	return c.cfg.ContextWindow
+}
+
+// thresholdFor never drops below half the window, because measured usage includes the system prompt and tools and could never fall under a tiny one.
+func thresholdFor(w, reserve int64) int64 {
 	if w <= 0 {
 		return 0
 	}
-	return max(w-c.cfg.ReserveTokens, w/2)
+	return max(w-reserve, w/2)
 }
 
 func (c *Compactor) estimate(req durable.CompactRequest) int64 {
@@ -79,9 +87,9 @@ func (c *Compactor) estimate(req durable.CompactRequest) int64 {
 	return tokens(int64(len(req.Previous))) + sumTokens(msgs)
 }
 
-func (c *Compactor) findCut(msgs []durable.Message, threshold int64, force bool) (int, bool) {
+func (c *Compactor) findCut(msgs []durable.Message, window, threshold int64, force bool) (int, bool) {
 	keep := c.cfg.KeepTokens
-	if c.cfg.ContextWindow > 0 && threshold/2 < keep {
+	if window > 0 && threshold/2 < keep {
 		keep = threshold / 2
 	}
 

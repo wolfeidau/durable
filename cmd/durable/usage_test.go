@@ -82,6 +82,8 @@ func TestReplyUsageIsStored(t *testing.T) {
 			env := routerEnv(home, srv.URL, unusedAnthropic(t))
 
 			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes", "--provider", "openrouter", "--model", usageModel}, tc.args...)...)
+			// A reply that beats the background lookup has no window or estimate.
+			eventually(t, "the model lookup", func() bool { return strings.Contains(a.out.String(), "[compaction] context window") })
 			_, err := io.WriteString(a.stdin, "hi\n")
 			require.NoError(t, err)
 			eventually(t, "the reply", func() bool { return strings.Contains(a.out.String(), "hello") })
