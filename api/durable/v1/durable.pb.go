@@ -1883,7 +1883,9 @@ type Message struct {
 	IsError       bool                   `protobuf:"varint,5,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
 	ContextTokens int64                  `protobuf:"varint,6,opt,name=context_tokens,json=contextTokens,proto3" json:"context_tokens,omitempty"`
 	// note marks text the harness wrote in the user's turn, such as a cancellation notice, not the user.
-	Note          bool `protobuf:"varint,7,opt,name=note,proto3" json:"note,omitempty"`
+	Note bool `protobuf:"varint,7,opt,name=note,proto3" json:"note,omitempty"`
+	// usage is set on assistant replies from this version on.
+	Usage         *Usage `protobuf:"bytes,8,opt,name=usage,proto3" json:"usage,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1967,6 +1969,135 @@ func (x *Message) GetNote() bool {
 	return false
 }
 
+func (x *Message) GetUsage() *Usage {
+	if x != nil {
+		return x.Usage
+	}
+	return nil
+}
+
+// Usage is the metered cost of one model reply.
+type Usage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// input_tokens counts uncached input only.
+	InputTokens      int64 `protobuf:"varint,1,opt,name=input_tokens,json=inputTokens,proto3" json:"input_tokens,omitempty"`
+	CacheReadTokens  int64 `protobuf:"varint,2,opt,name=cache_read_tokens,json=cacheReadTokens,proto3" json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64 `protobuf:"varint,3,opt,name=cache_write_tokens,json=cacheWriteTokens,proto3" json:"cache_write_tokens,omitempty"`
+	// output_tokens includes reasoning_tokens.
+	OutputTokens    int64   `protobuf:"varint,4,opt,name=output_tokens,json=outputTokens,proto3" json:"output_tokens,omitempty"`
+	ReasoningTokens int64   `protobuf:"varint,5,opt,name=reasoning_tokens,json=reasoningTokens,proto3" json:"reasoning_tokens,omitempty"`
+	CostUsd         float64 `protobuf:"fixed64,6,opt,name=cost_usd,json=costUsd,proto3" json:"cost_usd,omitempty"`
+	// cost_source is "provider", "estimate", or empty when the cost is unknown.
+	CostSource string `protobuf:"bytes,7,opt,name=cost_source,json=costSource,proto3" json:"cost_source,omitempty"`
+	Model      string `protobuf:"bytes,8,opt,name=model,proto3" json:"model,omitempty"`
+	// context_window is 0 when unknown.
+	ContextWindow int64 `protobuf:"varint,9,opt,name=context_window,json=contextWindow,proto3" json:"context_window,omitempty"`
+	// duration_ms is the successful model attempt, not retries.
+	DurationMs    int64 `protobuf:"varint,10,opt,name=duration_ms,json=durationMs,proto3" json:"duration_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Usage) Reset() {
+	*x = Usage{}
+	mi := &file_durable_v1_durable_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Usage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Usage) ProtoMessage() {}
+
+func (x *Usage) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Usage.ProtoReflect.Descriptor instead.
+func (*Usage) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *Usage) GetInputTokens() int64 {
+	if x != nil {
+		return x.InputTokens
+	}
+	return 0
+}
+
+func (x *Usage) GetCacheReadTokens() int64 {
+	if x != nil {
+		return x.CacheReadTokens
+	}
+	return 0
+}
+
+func (x *Usage) GetCacheWriteTokens() int64 {
+	if x != nil {
+		return x.CacheWriteTokens
+	}
+	return 0
+}
+
+func (x *Usage) GetOutputTokens() int64 {
+	if x != nil {
+		return x.OutputTokens
+	}
+	return 0
+}
+
+func (x *Usage) GetReasoningTokens() int64 {
+	if x != nil {
+		return x.ReasoningTokens
+	}
+	return 0
+}
+
+func (x *Usage) GetCostUsd() float64 {
+	if x != nil {
+		return x.CostUsd
+	}
+	return 0
+}
+
+func (x *Usage) GetCostSource() string {
+	if x != nil {
+		return x.CostSource
+	}
+	return ""
+}
+
+func (x *Usage) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *Usage) GetContextWindow() int64 {
+	if x != nil {
+		return x.ContextWindow
+	}
+	return 0
+}
+
+func (x *Usage) GetDurationMs() int64 {
+	if x != nil {
+		return x.DurationMs
+	}
+	return 0
+}
+
 type Event struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// seq is the resume cursor within one epoch.
@@ -1987,14 +2118,16 @@ type Event struct {
 	Approval  ApprovalStatus `protobuf:"varint,12,opt,name=approval,proto3,enum=durable.v1.ApprovalStatus" json:"approval,omitempty"`
 	DecidedBy string         `protobuf:"bytes,13,opt,name=decided_by,json=decidedBy,proto3" json:"decided_by,omitempty"`
 	// request_id is set on the queued submission event only.
-	RequestId     string `protobuf:"bytes,14,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	RequestId string `protobuf:"bytes,14,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// at is when the event committed; unset on events from before it was recorded.
+	At            *timestamppb.Timestamp `protobuf:"bytes,15,opt,name=at,proto3" json:"at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_durable_v1_durable_proto_msgTypes[24]
+	mi := &file_durable_v1_durable_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2006,7 +2139,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[24]
+	mi := &file_durable_v1_durable_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2019,7 +2152,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{24}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *Event) GetSeq() int64 {
@@ -2120,6 +2253,13 @@ func (x *Event) GetRequestId() string {
 	return ""
 }
 
+func (x *Event) GetAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.At
+	}
+	return nil
+}
+
 // EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.
 type EpochMismatch struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -2131,7 +2271,7 @@ type EpochMismatch struct {
 
 func (x *EpochMismatch) Reset() {
 	*x = EpochMismatch{}
-	mi := &file_durable_v1_durable_proto_msgTypes[25]
+	mi := &file_durable_v1_durable_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2143,7 +2283,7 @@ func (x *EpochMismatch) String() string {
 func (*EpochMismatch) ProtoMessage() {}
 
 func (x *EpochMismatch) ProtoReflect() protoreflect.Message {
-	mi := &file_durable_v1_durable_proto_msgTypes[25]
+	mi := &file_durable_v1_durable_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2156,7 +2296,7 @@ func (x *EpochMismatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EpochMismatch.ProtoReflect.Descriptor instead.
 func (*EpochMismatch) Descriptor() ([]byte, []int) {
-	return file_durable_v1_durable_proto_rawDescGZIP(), []int{25}
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *EpochMismatch) GetEpoch() string {
@@ -2299,7 +2439,7 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\bToolCall\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
-	"\x05input\x18\x03 \x01(\fR\x05input\"\xf0\x01\n" +
+	"\x05input\x18\x03 \x01(\fR\x05input\"\x99\x02\n" +
 	"\aMessage\x12$\n" +
 	"\x04role\x18\x01 \x01(\x0e2\x10.durable.v1.RoleR\x04role\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x123\n" +
@@ -2309,7 +2449,22 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"toolCallId\x12\x19\n" +
 	"\bis_error\x18\x05 \x01(\bR\aisError\x12%\n" +
 	"\x0econtext_tokens\x18\x06 \x01(\x03R\rcontextTokens\x12\x12\n" +
-	"\x04note\x18\a \x01(\bR\x04note\"\xf1\x03\n" +
+	"\x04note\x18\a \x01(\bR\x04note\x12'\n" +
+	"\x05usage\x18\b \x01(\v2\x11.durable.v1.UsageR\x05usage\"\xee\x02\n" +
+	"\x05Usage\x12!\n" +
+	"\finput_tokens\x18\x01 \x01(\x03R\vinputTokens\x12*\n" +
+	"\x11cache_read_tokens\x18\x02 \x01(\x03R\x0fcacheReadTokens\x12,\n" +
+	"\x12cache_write_tokens\x18\x03 \x01(\x03R\x10cacheWriteTokens\x12#\n" +
+	"\routput_tokens\x18\x04 \x01(\x03R\foutputTokens\x12)\n" +
+	"\x10reasoning_tokens\x18\x05 \x01(\x03R\x0freasoningTokens\x12\x19\n" +
+	"\bcost_usd\x18\x06 \x01(\x01R\acostUsd\x12\x1f\n" +
+	"\vcost_source\x18\a \x01(\tR\n" +
+	"costSource\x12\x14\n" +
+	"\x05model\x18\b \x01(\tR\x05model\x12%\n" +
+	"\x0econtext_window\x18\t \x01(\x03R\rcontextWindow\x12\x1f\n" +
+	"\vduration_ms\x18\n" +
+	" \x01(\x03R\n" +
+	"durationMs\"\x9d\x04\n" +
 	"\x05Event\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x14\n" +
 	"\x05epoch\x18\x02 \x01(\tR\x05epoch\x12)\n" +
@@ -2329,7 +2484,8 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\n" +
 	"decided_by\x18\r \x01(\tR\tdecidedBy\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x0e \x01(\tR\trequestId\"@\n" +
+	"request_id\x18\x0e \x01(\tR\trequestId\x12*\n" +
+	"\x02at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"@\n" +
 	"\rEpochMismatch\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\tR\x05epoch\x12\x19\n" +
 	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*h\n" +
@@ -2394,7 +2550,7 @@ func file_durable_v1_durable_proto_rawDescGZIP() []byte {
 }
 
 var file_durable_v1_durable_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 26)
+var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
 var file_durable_v1_durable_proto_goTypes = []any{
 	(Workspace)(0),                 // 0: durable.v1.Workspace
 	(DeltaKind)(0),                 // 1: durable.v1.DeltaKind
@@ -2426,9 +2582,10 @@ var file_durable_v1_durable_proto_goTypes = []any{
 	(*Approval)(nil),               // 27: durable.v1.Approval
 	(*ToolCall)(nil),               // 28: durable.v1.ToolCall
 	(*Message)(nil),                // 29: durable.v1.Message
-	(*Event)(nil),                  // 30: durable.v1.Event
-	(*EpochMismatch)(nil),          // 31: durable.v1.EpochMismatch
-	(*timestamppb.Timestamp)(nil),  // 32: google.protobuf.Timestamp
+	(*Usage)(nil),                  // 30: durable.v1.Usage
+	(*Event)(nil),                  // 31: durable.v1.Event
+	(*EpochMismatch)(nil),          // 32: durable.v1.EpochMismatch
+	(*timestamppb.Timestamp)(nil),  // 33: google.protobuf.Timestamp
 }
 var file_durable_v1_durable_proto_depIdxs = []int32{
 	0,  // 0: durable.v1.GetServerInfoResponse.workspaces:type_name -> durable.v1.Workspace
@@ -2438,12 +2595,12 @@ var file_durable_v1_durable_proto_depIdxs = []int32{
 	0,  // 4: durable.v1.CreateSessionRequest.workspace:type_name -> durable.v1.Workspace
 	15, // 5: durable.v1.CreateSessionResponse.session:type_name -> durable.v1.SessionInfo
 	15, // 6: durable.v1.ListSessionsResponse.sessions:type_name -> durable.v1.SessionInfo
-	32, // 7: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
+	33, // 7: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 8: durable.v1.SessionInfo.workspace:type_name -> durable.v1.Workspace
 	26, // 9: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
 	26, // 10: durable.v1.CancelResponse.submission:type_name -> durable.v1.Submission
 	27, // 11: durable.v1.DecideApprovalResponse.approval:type_name -> durable.v1.Approval
-	30, // 12: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
+	31, // 12: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
 	24, // 13: durable.v1.WatchEventsResponse.heartbeat:type_name -> durable.v1.Heartbeat
 	25, // 14: durable.v1.WatchEventsResponse.delta:type_name -> durable.v1.Delta
 	1,  // 15: durable.v1.Delta.kind:type_name -> durable.v1.DeltaKind
@@ -2452,30 +2609,32 @@ var file_durable_v1_durable_proto_depIdxs = []int32{
 	3,  // 18: durable.v1.Approval.status:type_name -> durable.v1.ApprovalStatus
 	5,  // 19: durable.v1.Message.role:type_name -> durable.v1.Role
 	28, // 20: durable.v1.Message.tool_calls:type_name -> durable.v1.ToolCall
-	4,  // 21: durable.v1.Event.kind:type_name -> durable.v1.EventKind
-	2,  // 22: durable.v1.Event.status:type_name -> durable.v1.SubmissionStatus
-	29, // 23: durable.v1.Event.message:type_name -> durable.v1.Message
-	28, // 24: durable.v1.Event.call:type_name -> durable.v1.ToolCall
-	3,  // 25: durable.v1.Event.approval:type_name -> durable.v1.ApprovalStatus
-	16, // 26: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
-	18, // 27: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
-	20, // 28: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
-	22, // 29: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
-	13, // 30: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
-	11, // 31: durable.v1.SessionService.CreateSession:input_type -> durable.v1.CreateSessionRequest
-	6,  // 32: durable.v1.SessionService.GetServerInfo:input_type -> durable.v1.GetServerInfoRequest
-	17, // 33: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
-	19, // 34: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
-	21, // 35: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
-	23, // 36: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
-	14, // 37: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
-	12, // 38: durable.v1.SessionService.CreateSession:output_type -> durable.v1.CreateSessionResponse
-	7,  // 39: durable.v1.SessionService.GetServerInfo:output_type -> durable.v1.GetServerInfoResponse
-	33, // [33:40] is the sub-list for method output_type
-	26, // [26:33] is the sub-list for method input_type
-	26, // [26:26] is the sub-list for extension type_name
-	26, // [26:26] is the sub-list for extension extendee
-	0,  // [0:26] is the sub-list for field type_name
+	30, // 21: durable.v1.Message.usage:type_name -> durable.v1.Usage
+	4,  // 22: durable.v1.Event.kind:type_name -> durable.v1.EventKind
+	2,  // 23: durable.v1.Event.status:type_name -> durable.v1.SubmissionStatus
+	29, // 24: durable.v1.Event.message:type_name -> durable.v1.Message
+	28, // 25: durable.v1.Event.call:type_name -> durable.v1.ToolCall
+	3,  // 26: durable.v1.Event.approval:type_name -> durable.v1.ApprovalStatus
+	33, // 27: durable.v1.Event.at:type_name -> google.protobuf.Timestamp
+	16, // 28: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
+	18, // 29: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
+	20, // 30: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
+	22, // 31: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
+	13, // 32: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
+	11, // 33: durable.v1.SessionService.CreateSession:input_type -> durable.v1.CreateSessionRequest
+	6,  // 34: durable.v1.SessionService.GetServerInfo:input_type -> durable.v1.GetServerInfoRequest
+	17, // 35: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
+	19, // 36: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
+	21, // 37: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
+	23, // 38: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
+	14, // 39: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
+	12, // 40: durable.v1.SessionService.CreateSession:output_type -> durable.v1.CreateSessionResponse
+	7,  // 41: durable.v1.SessionService.GetServerInfo:output_type -> durable.v1.GetServerInfoResponse
+	35, // [35:42] is the sub-list for method output_type
+	28, // [28:35] is the sub-list for method input_type
+	28, // [28:28] is the sub-list for extension type_name
+	28, // [28:28] is the sub-list for extension extendee
+	0,  // [0:28] is the sub-list for field type_name
 }
 
 func init() { file_durable_v1_durable_proto_init() }
@@ -2494,7 +2653,7 @@ func file_durable_v1_durable_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_v1_durable_proto_rawDesc), len(file_durable_v1_durable_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   26,
+			NumMessages:   27,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

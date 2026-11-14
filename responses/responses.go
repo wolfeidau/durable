@@ -215,6 +215,37 @@ func contextTokens(usage json.RawMessage) int64 {
 	return u.Input + u.Output
 }
 
+// usageOf is nil when usage is absent or malformed; input_tokens includes cache reads and writes, so they are split out.
+func usageOf(usage json.RawMessage) *durable.Usage {
+	var u struct {
+		Input        int64    `json:"input_tokens"`
+		Output       int64    `json:"output_tokens"`
+		Cost         *float64 `json:"cost"`
+		InputDetails struct {
+			Cached     int64 `json:"cached_tokens"`
+			CacheWrite int64 `json:"cache_write_tokens"`
+		} `json:"input_tokens_details"`
+		OutputDetails struct {
+			Reasoning int64 `json:"reasoning_tokens"`
+		} `json:"output_tokens_details"`
+	}
+	if len(usage) == 0 || string(usage) == "null" || json.Unmarshal(usage, &u) != nil {
+		return nil
+	}
+	out := &durable.Usage{
+		InputTokens:      max(u.Input-u.InputDetails.Cached-u.InputDetails.CacheWrite, 0),
+		CacheReadTokens:  u.InputDetails.Cached,
+		CacheWriteTokens: u.InputDetails.CacheWrite,
+		OutputTokens:     u.Output,
+		ReasoningTokens:  u.OutputDetails.Reasoning,
+	}
+	if u.Cost != nil {
+		out.CostUSD = *u.Cost
+		out.CostSource = durable.CostProvider
+	}
+	return out
+}
+
 type apiError struct {
 	Code    any    `json:"code"`
 	Message string `json:"message"`
@@ -366,6 +397,7 @@ func (st *streamState) complete(ev streamEvent) (*durable.Message, error) {
 		return nil, err
 	}
 	msg.ContextTokens = contextTokens(usage)
+	msg.Usage = usageOf(usage)
 	return &msg, nil
 }
 

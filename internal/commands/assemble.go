@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,8 +14,10 @@ import (
 	"time"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/compaction"
 	"github.com/wolfeidau/durable/hooks"
+	"github.com/wolfeidau/durable/internal/catalog"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/githost"
 	"github.com/wolfeidau/durable/internal/sandbox"
@@ -105,8 +106,6 @@ type Assembled struct {
 	hooks        hooks.Config
 	hookWarnings []string
 	toolset      []durable.Tool
-	// CompactionNotice is the line to show once the compaction window is known; empty when compaction is not client-side.
-	CompactionNotice string
 }
 
 // Assemble resolves the session's pins and builds its durable.Options.
@@ -203,18 +202,20 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 
 	sessionID := filepath.Base(dir)
+	// Not pinned: the window and prices don't feed the prompt prefix, and a slow or failed lookup doesn't block the session.
+	pending := catalog.Start(ctx, spec.Catalog(spec, key), modelName(rt), lookupNotice(out, cfg.Logger, rt))
 	opts := durable.Options{
-		Model: protocolModels[rt.Protocol](rt, spec, modelArgs{
+		Model: meteredModel{model: modelName(rt), info: pending.Info, inner: protocolModels[rt.Protocol](rt, spec, modelArgs{
 			Key:       key,
 			System:    buildPrompt(pinned.Text),
 			Effort:    cfg.Effort,
 			SessionID: sessionID,
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
-		}),
+		})},
 		Tools:    toolset,
 		LeaseTTL: cfg.LeaseTTL,
 	}
-	notice := addCompaction(ctx, out, &opts, rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
+	addCompaction(out, &opts, rt, spec, pending, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)
 	var base durable.ToolGate
 	if !cfg.Yes {
@@ -237,16 +238,15 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 			_ = pool.Close()
 			releaseSandbox(false)
 		},
-		instructions:     pinned,
-		route:            rt,
-		mcpServers:       servers,
-		mcp:              mcpPinned,
-		mcpWarnings:      mcpWarnings,
-		skills:           skillsPinned,
-		hooks:            hookCfg,
-		hookWarnings:     hookWarnings,
-		toolset:          toolset,
-		CompactionNotice: notice,
+		instructions: pinned,
+		route:        rt,
+		mcpServers:   servers,
+		mcp:          mcpPinned,
+		mcpWarnings:  mcpWarnings,
+		skills:       skillsPinned,
+		hooks:        hookCfg,
+		hookWarnings: hookWarnings,
+		toolset:      toolset,
 	}, nil
 }
 
@@ -394,22 +394,17 @@ func chainObservers(first, second func(durable.Event)) func(durable.Event) {
 }
 
 // addCompaction summarises with the session's own model, and the harness gives the Compactor no delta sink, so the summary stays off the terminal.
-// It returns the window notice for the caller to print at the right point.
-func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt route, spec providerSpec, args modelArgs) string {
+// Until the lookup lands the window is 0, so only a provider-reported overflow compacts.
+func addCompaction(out io.Writer, opts *durable.Options, rt route, spec providerSpec, pending *catalog.Pending, args modelArgs) {
 	// The direct anthropic route keeps server-side compaction.
 	if rt.Provider != providerOpenRouter {
-		return ""
+		return
 	}
-	// The window doesn't feed the prompt prefix, so it isn't pinned and a failed fetch doesn't block the session.
-	var notice string
-	window, err := fetchContextWindow(ctx, &http.Client{}, baseURL(spec), args.Key, rt.Model)
-	if err != nil {
-		notice = fmt.Sprintf("[compaction] warning: %s; compaction runs only if the provider reports an overflow", err)
-		window = 0
-	} else {
-		notice = fmt.Sprintf("[compaction] context window %d tokens", window)
+	window := func() int64 {
+		info, _ := pending.Info()
+		return info.ContextWindow
 	}
-	opts.Compactor = compaction.New(compaction.Config{Model: protocolModels[rt.Protocol](rt, spec, args), ContextWindow: window})
+	opts.Compactor = compaction.New(compaction.Config{Model: protocolModels[rt.Protocol](rt, spec, args), WindowFunc: window})
 	opts.Observer = func(e durable.Event) {
 		switch e.Kind {
 		case durable.EventCompacted:
@@ -419,7 +414,35 @@ func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt
 		default:
 		}
 	}
-	return notice
+}
+
+// lookupNotice reports the lookup's outcome on out when it lands: through the compaction notice for OpenRouter, and a usage warning for direct Anthropic.
+// A failure is also logged, because a server session's out is discarded.
+func lookupNotice(out io.Writer, logger *slog.Logger, rt route) func(catalog.Info, error) {
+	return func(info catalog.Info, err error) {
+		if err != nil && logger != nil {
+			logger.Warn("model lookup failed; cost and context window are unknown", slog.String("provider", rt.Provider), slog.String("model", modelName(rt)), slog.Any("error", err))
+		}
+		switch {
+		case rt.Provider == providerAnthropic:
+			if err != nil {
+				fmt.Fprintf(out, "[usage] warning: %s; cost and context window are unknown\n", err)
+			}
+		case err != nil:
+			fmt.Fprintf(out, "[compaction] warning: %s; compaction runs only if the provider reports an overflow\n", err)
+		case info.ContextWindow <= 0:
+			fmt.Fprintf(out, "[compaction] warning: model %s reports no context length; compaction runs only if the provider reports an overflow\n", rt.Model)
+		default:
+			fmt.Fprintf(out, "[compaction] context window %d tokens\n", info.ContextWindow)
+		}
+	}
+}
+
+func modelName(rt route) string {
+	if rt.Provider == providerAnthropic && rt.Model == "" {
+		return claude.DefaultModel
+	}
+	return rt.Model
 }
 
 // resolveRoute validates the route and its key before any pin is written, so a failed start doesn't freeze the session.

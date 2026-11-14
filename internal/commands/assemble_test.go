@@ -4,13 +4,21 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/claude"
+	"github.com/wolfeidau/durable/internal/catalog"
 )
 
 func assembleHome(t *testing.T) {
@@ -96,10 +104,13 @@ func TestAssembleInteractiveKeepsApprovalsInline(t *testing.T) {
 
 func TestAssembleChainsCallerObserver(t *testing.T) {
 	assembleHome(t)
-	srv := modelsServer(t, 200, `{"data":[{"id":"vendor/model","context_length":1000}]}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"data":[{"id":"vendor/model","context_length":1000}]}`))
+	}))
+	t.Cleanup(srv.Close)
 	t.Setenv("OPENROUTER_BASE_URL", srv.URL)
 
-	var out bytes.Buffer
+	out := &lockedBuffer{}
 	var got []durable.EventKind
 	a, err := Assemble(context.Background(), AssembleConfig{
 		CWD:      t.TempDir(),
@@ -107,15 +118,31 @@ func TestAssembleChainsCallerObserver(t *testing.T) {
 		Provider: "openrouter",
 		Model:    "vendor/model",
 		APIToken: "k",
-		Out:      &out,
+		Out:      out,
 		Observer: func(e durable.Event) { got = append(got, e.Kind) },
 	})
 	require.NoError(t, err)
 	defer a.Close()
 
 	require.NotNil(t, a.Options.Compactor)
-	require.Contains(t, a.CompactionNotice, "[compaction]")
+	require.Eventually(t, func() bool { return strings.Contains(out.String(), "[compaction] context window 1000 tokens") }, 5*time.Second, 5*time.Millisecond)
 	a.Options.Observer(durable.Event{Kind: durable.EventCompacted})
 	require.Equal(t, []durable.EventKind{durable.EventCompacted}, got)
 	require.Contains(t, out.String(), "[compacting history]")
+}
+
+func TestLookupNoticeLogsAFailure(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	var out bytes.Buffer
+
+	lookupNotice(&out, logger, route{Provider: providerAnthropic, Protocol: protocolMessages})(catalog.Info{}, errors.New("failed to list models: refused"))
+
+	require.Contains(t, out.String(), "[usage] warning: failed to list models: refused")
+	require.Contains(t, logs.String(), "model lookup failed")
+	require.Contains(t, logs.String(), "model="+claude.DefaultModel)
+
+	logs.Reset()
+	lookupNotice(&out, logger, route{Provider: providerOpenRouter, Protocol: protocolResponses, Model: "m"})(catalog.Info{ContextWindow: 10}, nil)
+	require.Empty(t, logs.String(), "a successful lookup logs nothing")
 }

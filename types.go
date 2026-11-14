@@ -54,7 +54,29 @@ type Message struct {
 	Raw json.RawMessage `json:"raw,omitempty"`
 	// ContextTokens is the provider-reported context size after this reply; 0 means unknown.
 	ContextTokens int64 `json:"context_tokens,omitempty"`
+	// Usage is for display only and is never sent to a model.
+	Usage *Usage `json:"usage,omitempty"`
 }
+
+// Usage is the metered cost of one model reply.
+type Usage struct {
+	InputTokens      int64   `json:"input_tokens,omitempty"` // uncached input only
+	CacheReadTokens  int64   `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
+	OutputTokens     int64   `json:"output_tokens,omitempty"` // includes reasoning
+	ReasoningTokens  int64   `json:"reasoning_tokens,omitempty"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
+	CostSource       string  `json:"cost_source,omitempty"` // "provider", "estimate", or empty when unknown
+	Model            string  `json:"model,omitempty"`
+	ContextWindow    int64   `json:"context_window,omitempty"`
+	DurationMs       int64   `json:"duration_ms,omitempty"` // the successful model attempt
+}
+
+// Cost sources for Usage.CostSource.
+const (
+	CostProvider = "provider"
+	CostEstimate = "estimate"
+)
 
 // ToolSpec describes a tool to the model.
 type ToolSpec struct {

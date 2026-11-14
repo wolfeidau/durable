@@ -25,6 +25,8 @@ func TestMain(m *testing.M) {
 		_ = s.Run(context.Background(), &mcpsdk.StdioTransport{})
 		return
 	}
+	// A direct Anthropic session asks OpenRouter's list, so tests point it at a closed port.
+	_ = os.Setenv("OPENROUTER_BASE_URL", "http://127.0.0.1:1")
 	os.Exit(m.Run())
 }
 

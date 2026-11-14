@@ -50,6 +50,8 @@ func runTests(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "failed to build durable: %v\n%s", err, out)
 		return 1
 	}
+	// A direct Anthropic session asks OpenRouter's public list, so tests point it at a closed port.
+	_ = os.Setenv("OPENROUTER_BASE_URL", "http://127.0.0.1:1")
 	return m.Run()
 }
 

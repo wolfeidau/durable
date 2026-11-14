@@ -143,6 +143,12 @@ func send(t *testing.T, a *agent, s string) {
 	require.NoError(t, err)
 }
 
+// waitNotice waits for the background model lookup to report, because a reply that beats it has no window.
+func waitNotice(t *testing.T, a *agent, notice string) {
+	t.Helper()
+	eventually(t, notice, func() bool { return strings.Contains(a.out.String(), notice) })
+}
+
 func waitCounts(t *testing.T, api *compactAPI, mainN, summN int) {
 	t.Helper()
 	eventually(t, fmt.Sprintf("%d main and %d summariser requests", mainN, summN), func() bool {
@@ -210,6 +216,7 @@ func TestCompactionOnEachProtocol(t *testing.T) {
 			env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
 			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
+			waitNotice(t, a, "[compaction] context window 1000 tokens")
 			send(t, a, prompt(oldestMarker))
 			waitCounts(t, api, 2, 0)
 			send(t, a, prompt(newestMarker))
@@ -245,6 +252,7 @@ func TestKillAfterCompactionResumesWithSummary(t *testing.T) {
 			env := routerEnv(home, api.srv.URL, unusedAnthropic(t))
 
 			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
+			waitNotice(t, a, "[compaction] context window 1000 tokens")
 			send(t, a, prompt(oldestMarker))
 			waitCounts(t, api, 1, 0)
 			send(t, a, prompt(newestMarker))
@@ -301,11 +309,10 @@ func TestModelsFailureStillStarts(t *testing.T) {
 			a := startRouterAgent(t, binPath, ws, env, append([]string{"--yes"}, tc.args...)...)
 			send(t, a, "hello\n")
 			waitCounts(t, api, 1, 0)
+			waitNotice(t, a, "compaction runs only if the provider reports an overflow")
 			closeAndWait(t, a)
 
-			out := a.out.String()
-			require.Contains(t, out, "[compaction] warning:")
-			require.Contains(t, out, "compaction runs only if the provider reports an overflow")
+			require.Contains(t, a.out.String(), "[compaction] warning:")
 		})
 	}
 }
@@ -347,6 +354,7 @@ func TestSummariserUsesTheSessionEffort(t *testing.T) {
 		}
 	}
 	a := startRouterAgent(t, binPath, ws, env, args...)
+	waitNotice(t, a, "[compaction] context window 1000 tokens")
 	send(t, a, prompt(oldestMarker))
 	waitCounts(t, api, 1, 0)
 	send(t, a, prompt(newestMarker))

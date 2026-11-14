@@ -278,6 +278,27 @@ message Message {
   int64 context_tokens = 6;
   // note marks text the harness wrote in the user's turn, such as a cancellation notice, not the user.
   bool note = 7;
+  // usage is set on assistant replies from this version on.
+  Usage usage = 8;
+}
+
+// Usage is the metered cost of one model reply.
+message Usage {
+  // input_tokens counts uncached input only.
+  int64 input_tokens = 1;
+  int64 cache_read_tokens = 2;
+  int64 cache_write_tokens = 3;
+  // output_tokens includes reasoning_tokens.
+  int64 output_tokens = 4;
+  int64 reasoning_tokens = 5;
+  double cost_usd = 6;
+  // cost_source is "provider", "estimate", or empty when the cost is unknown.
+  string cost_source = 7;
+  string model = 8;
+  // context_window is 0 when unknown.
+  int64 context_window = 9;
+  // duration_ms is the successful model attempt, not retries.
+  int64 duration_ms = 10;
 }
 
 message Event {
@@ -300,6 +321,8 @@ message Event {
   string decided_by = 13;
   // request_id is set on the queued submission event only.
   string request_id = 14;
+  // at is when the event committed; unset on events from before it was recorded.
+  google.protobuf.Timestamp at = 15;
 }
 
 // EpochMismatch is the FAILED_PRECONDITION error detail that carries the session's current epoch.

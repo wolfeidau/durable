@@ -13,6 +13,7 @@ import (
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/claude"
+	"github.com/wolfeidau/durable/internal/catalog"
 	"github.com/wolfeidau/durable/responses"
 )
 
@@ -37,17 +38,32 @@ type providerSpec struct {
 	KeyEnv     string
 	Default    string
 	Allowed    []string
+	// Catalog is where the provider's model windows and prices come from.
+	Catalog func(s providerSpec, key string) catalog.Catalog
+}
+
+// openRouter is separate from providers so the anthropic catalog can name it without an initialization cycle.
+var openRouter = providerSpec{
+	BaseURL:    "https://openrouter.ai/api",
+	BaseURLEnv: "OPENROUTER_BASE_URL",
+	KeyEnv:     "OPENROUTER_API_KEY",
+	Default:    protocolResponses,
+	Allowed:    []string{protocolResponses, protocolMessages},
+	Catalog: func(s providerSpec, key string) catalog.Catalog {
+		return catalog.OpenRouter{BaseURL: baseURL(s), Key: key}
+	},
 }
 
 var providers = map[string]providerSpec{
-	providerAnthropic: {Default: protocolMessages, Allowed: []string{protocolMessages}},
-	providerOpenRouter: {
-		BaseURL:    "https://openrouter.ai/api",
-		BaseURLEnv: "OPENROUTER_BASE_URL",
-		KeyEnv:     "OPENROUTER_API_KEY",
-		Default:    protocolResponses,
-		Allowed:    []string{protocolResponses, protocolMessages},
+	providerAnthropic: {
+		Default: protocolMessages,
+		Allowed: []string{protocolMessages},
+		// Anthropic has no public price list, so this borrows OpenRouter's, which needs no key.
+		Catalog: func(providerSpec, string) catalog.Catalog {
+			return catalog.AnthropicDirect{Prices: catalog.OpenRouter{BaseURL: baseURL(openRouter)}, DefaultModel: claude.DefaultModel}
+		},
 	},
+	providerOpenRouter: openRouter,
 }
 
 // route is pinned per session, because stored Raw content is specific to its protocol.

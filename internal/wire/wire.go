@@ -2,6 +2,10 @@
 package wire
 
 import (
+	"time"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/wolfeidau/durable"
 	durablev1 "github.com/wolfeidau/durable/api/durable/v1"
 )
@@ -47,7 +51,12 @@ func Event(e durable.Event, epoch string) *durablev1.Event {
 	if e.Kind == durable.EventApprovalRequested && e.Approval == "" {
 		approval = durablev1.ApprovalStatus_APPROVAL_STATUS_PENDING
 	}
+	var at *timestamppb.Timestamp
+	if e.At != 0 {
+		at = timestamppb.New(time.UnixMilli(e.At))
+	}
 	return &durablev1.Event{
+		At:          at,
 		Seq:         e.Seq,
 		Epoch:       epoch,
 		Kind:        eventKinds[e.Kind],
@@ -109,6 +118,7 @@ func message(m *durable.Message) *durablev1.Message {
 		ToolCallId:    m.ToolCallID,
 		IsError:       m.IsError,
 		ContextTokens: m.ContextTokens,
+		Usage:         usage(m.Usage),
 		// The harness stores its cancellation notice as a user message, so the exact text marks it.
 		Note: m.Role == durable.RoleUser && m.Text == durable.RequestCancelled,
 	}
@@ -116,6 +126,24 @@ func message(m *durable.Message) *durablev1.Message {
 		out.ToolCalls = append(out.ToolCalls, toolCall(&m.ToolCalls[i], false))
 	}
 	return out
+}
+
+func usage(u *durable.Usage) *durablev1.Usage {
+	if u == nil {
+		return nil
+	}
+	return &durablev1.Usage{
+		InputTokens:      u.InputTokens,
+		CacheReadTokens:  u.CacheReadTokens,
+		CacheWriteTokens: u.CacheWriteTokens,
+		OutputTokens:     u.OutputTokens,
+		ReasoningTokens:  u.ReasoningTokens,
+		CostUsd:          u.CostUSD,
+		CostSource:       u.CostSource,
+		Model:            u.Model,
+		ContextWindow:    u.ContextWindow,
+		DurationMs:       u.DurationMs,
+	}
 }
 
 var deltaKinds = map[durable.DeltaKind]durablev1.DeltaKind{

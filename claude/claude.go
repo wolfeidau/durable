@@ -172,7 +172,29 @@ func toResult(acc anthropic.BetaMessage) (durable.Message, error) {
 	return durable.Message{
 		Role: durable.RoleAssistant, Text: text.String(), ToolCalls: calls, Raw: rawJSON,
 		ContextTokens: u.InputTokens + u.CacheReadInputTokens + u.CacheCreationInputTokens + u.OutputTokens,
+		Usage:         usageOf(acc),
 	}, nil
+}
+
+// usageOf reads the gateway's cost from the raw usage, because the SDK type has no field for it.
+func usageOf(acc anthropic.BetaMessage) *durable.Usage {
+	u := acc.Usage
+	out := &durable.Usage{
+		InputTokens:      u.InputTokens,
+		CacheReadTokens:  u.CacheReadInputTokens,
+		CacheWriteTokens: u.CacheCreationInputTokens,
+		OutputTokens:     u.OutputTokens,
+	}
+	var raw struct {
+		Usage struct {
+			Cost *float64 `json:"cost"`
+		} `json:"usage"`
+	}
+	if json.Unmarshal([]byte(acc.RawJSON()), &raw) == nil && raw.Usage.Cost != nil {
+		out.CostUSD = *raw.Usage.Cost
+		out.CostSource = durable.CostProvider
+	}
+	return out
 }
 
 func classify(ctx context.Context, err error) error {
