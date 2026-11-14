@@ -51,6 +51,8 @@ type Event struct {
 	DecidedBy   string         `json:"decided_by,omitempty"`   // approval_decided: who answered
 
 	RequestID string `json:"request_id,omitempty"` // the queued submission event only, so any client can cancel
+
+	At int64 `json:"at,omitempty"` // unix ms when committed; 0 on events from before it was recorded
 }
 
 // Events returns up to limit events after seq, oldest first. A limit of zero
@@ -60,6 +62,9 @@ func (h *Harness) Events(ctx context.Context, after int64, limit int) ([]Event, 
 }
 
 func addEvent(ctx context.Context, tx *sql.Tx, e Event) error {
+	if e.At == 0 {
+		e.At = nowMillis()
+	}
 	// HTML escaping would rewrite tool input, which must read back unchanged.
 	body, err := rawjson.Marshal(e)
 	if err != nil {

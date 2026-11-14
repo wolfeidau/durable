@@ -35,6 +35,8 @@ the sandbox environments, and the network grant catalog with the binaries and ho
 opens. Secrets show only where they come from (`1Password`, `gh`, `env NAME`, `set by flag`),
 never the reference or the value.
 
+The API carries each reply's token usage, cost and duration and a timestamp on every event, for the cost, context and timing views. Where prices come from, and the outbound request a direct Anthropic session makes for them, are in [providers](providers.md#usage-and-cost).
+
 ## First iteration
 
 ### Done means

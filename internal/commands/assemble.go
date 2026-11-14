@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/compaction"
 	"github.com/wolfeidau/durable/hooks"
 	"github.com/wolfeidau/durable/internal/creds"
@@ -203,18 +203,20 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 
 	sessionID := filepath.Base(dir)
+	// Not pinned: the window and prices don't feed the prompt prefix, and a failed lookup doesn't block the session.
+	info, infoErr := loadModelInfoWarned(ctx, out, rt, spec, key)
 	opts := durable.Options{
-		Model: protocolModels[rt.Protocol](rt, spec, modelArgs{
+		Model: meteredModel{model: modelName(rt), info: info, inner: protocolModels[rt.Protocol](rt, spec, modelArgs{
 			Key:       key,
 			System:    buildPrompt(pinned.Text),
 			Effort:    cfg.Effort,
 			SessionID: sessionID,
 			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
-		}),
+		})},
 		Tools:    toolset,
 		LeaseTTL: cfg.LeaseTTL,
 	}
-	notice := addCompaction(ctx, out, &opts, rt, spec, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
+	notice := addCompaction(out, &opts, rt, spec, info, infoErr, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)
 	var base durable.ToolGate
 	if !cfg.Yes {
@@ -395,18 +397,19 @@ func chainObservers(first, second func(durable.Event)) func(durable.Event) {
 
 // addCompaction summarises with the session's own model, and the harness gives the Compactor no delta sink, so the summary stays off the terminal.
 // It returns the window notice for the caller to print at the right point.
-func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt route, spec providerSpec, args modelArgs) string {
+func addCompaction(out io.Writer, opts *durable.Options, rt route, spec providerSpec, info modelInfo, infoErr error, args modelArgs) string {
 	// The direct anthropic route keeps server-side compaction.
 	if rt.Provider != providerOpenRouter {
 		return ""
 	}
-	// The window doesn't feed the prompt prefix, so it isn't pinned and a failed fetch doesn't block the session.
+	window := info.ContextWindow
 	var notice string
-	window, err := fetchContextWindow(ctx, &http.Client{}, baseURL(spec), args.Key, rt.Model)
-	if err != nil {
-		notice = fmt.Sprintf("[compaction] warning: %s; compaction runs only if the provider reports an overflow", err)
-		window = 0
-	} else {
+	switch {
+	case infoErr != nil:
+		notice = fmt.Sprintf("[compaction] warning: %s; compaction runs only if the provider reports an overflow", infoErr)
+	case window <= 0:
+		notice = fmt.Sprintf("[compaction] warning: model %s reports no context length; compaction runs only if the provider reports an overflow", rt.Model)
+	default:
 		notice = fmt.Sprintf("[compaction] context window %d tokens", window)
 	}
 	opts.Compactor = compaction.New(compaction.Config{Model: protocolModels[rt.Protocol](rt, spec, args), ContextWindow: window})
@@ -420,6 +423,22 @@ func addCompaction(ctx context.Context, out io.Writer, opts *durable.Options, rt
 		}
 	}
 	return notice
+}
+
+// loadModelInfoWarned says so on out when a direct Anthropic session can't price itself; OpenRouter sessions report through the compaction notice.
+func loadModelInfoWarned(ctx context.Context, out io.Writer, rt route, spec providerSpec, key string) (modelInfo, error) {
+	info, err := loadModelInfo(ctx, rt, spec, key)
+	if err != nil && rt.Provider == providerAnthropic {
+		fmt.Fprintf(out, "[usage] warning: %s; cost and context window are unknown\n", err)
+	}
+	return info, err
+}
+
+func modelName(rt route) string {
+	if rt.Provider == providerAnthropic && rt.Model == "" {
+		return claude.DefaultModel
+	}
+	return rt.Model
 }
 
 // resolveRoute validates the route and its key before any pin is written, so a failed start doesn't freeze the session.
