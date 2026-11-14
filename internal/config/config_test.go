@@ -108,6 +108,7 @@ func TestSchemaFailuresNameThePathAndNeverEchoASecret(t *testing.T) {
 		"bad env name":      {`{"environments": {"bad name": {"image": "i"}}}`, "bad name"},
 		"unknown grant":     {`{"environments": {"go": {"image": "i", "grants": ["nope"]}}}`, "grants"},
 		"missing image":     {`{"environments": {"go": {}}}`, "image"},
+		"bad approvals":     {`{"environments": {"go": {"image": "i", "approvals": "` + secret + `"}}}`, "environments.<name>.approvals: must be one of"},
 		"bad duration":      {`{"listen": {"idle_timeout": "soon"}}`, "idle_timeout"},
 		"bad host kind":     {`{"git": {"hosts": {"gitlab": {"token": "gh"}}}}`, "git.hosts: must be one of [github]"},
 		"literal api key":   {`{"provider": {"api_key": "` + secret + `"}}`, "provider.api_key"},
@@ -293,6 +294,25 @@ func TestGitHubAPIGrantWithoutAGitHubTokenWarns(t *testing.T) {
 	require.Contains(t, s.Warnings[0].Message, "github-api")
 
 	s, err = Load(writeHome(t, map[string]string{"config.json": `{"git": {"hosts": {"github": {"token": "gh"}}}, ` + env + `}`}))
+	require.NoError(t, err)
+	require.NoError(t, s.Validate())
+	require.Empty(t, s.Warnings)
+}
+
+func TestAutoApprovalsWithGitHubAPIGrantWarns(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	cfg := func(approvals string) string {
+		return `{"git": {"hosts": {"github": {"token": "gh"}}}, "environments": {"go": {"image": "img", "grants": ["github-api"], "approvals": "` + approvals + `"}}}`
+	}
+
+	s, err := Load(writeHome(t, map[string]string{"config.json": cfg("auto")}))
+	require.NoError(t, err)
+	require.NoError(t, s.Validate())
+	require.Len(t, s.Warnings, 1)
+	require.Equal(t, "environments.go", s.Warnings[0].Field)
+	require.Contains(t, s.Warnings[0].Message, "auto-approves tool calls and has the github-api grant")
+
+	s, err = Load(writeHome(t, map[string]string{"config.json": cfg("ask")}))
 	require.NoError(t, err)
 	require.NoError(t, s.Validate())
 	require.Empty(t, s.Warnings)

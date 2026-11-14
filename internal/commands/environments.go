@@ -39,6 +39,19 @@ var (
 	goBinaries  = []string{"/usr/local/go/bin/go"}
 	ghBinaries  = []string{"/usr/local/bin/gh"}
 	goEndpoints = []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
+
+	miseBinaries = []string{"/usr/local/bin/mise"}
+	// Every endpoint is GET-only; the image runs mise locked, but that is a default the model can change, so these paths are the boundary.
+	miseEndpoints = []sandbox.GrantEndpoint{
+		// Release asset URLs in mise.lock, which redirect to the host below.
+		{Host: "github.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/*/*/releases/download/**"}}},
+		// Where GitHub redirects release asset downloads; seen in the gateway log for aqua tools.
+		{Host: "release-assets.githubusercontent.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
+		// Node.js binaries, from mise's core node backend.
+		{Host: "nodejs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/dist/**"}}},
+		// Go toolchains, from mise's core go backend.
+		{Host: "dl.google.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/go/**"}}},
+	}
 )
 
 // grantCatalog is the grants an environment can name. The hosts are fixed here, not in the file, so a file can't widen egress.
@@ -50,6 +63,14 @@ var grantCatalog = map[string]grantSpec{
 		summary:  "go may download modules from the Go module proxy and checksum database",
 		binaries: goBinaries,
 		hosts:    goEndpoints,
+	},
+	"mise": {
+		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
+			return sandbox.Grant{Name: "mise", Binaries: miseBinaries, Endpoints: miseEndpoints}, true
+		},
+		summary:  "mise, and what it runs, may GET release assets from GitHub, nodejs.org/dist and dl.google.com/go; the image installs from mise.lock by default",
+		binaries: miseBinaries,
+		hosts:    miseEndpoints,
 	},
 	"github-api": {
 		build:    githubAPIGrant,
@@ -146,7 +167,15 @@ type Environment struct {
 	Name   string   `json:"-"`
 	Image  string   `json:"image"`
 	Grants []string `json:"grants"`
+	// Approvals is "ask" (also when empty) or "auto"; auto skips the approval gate in sandboxed sessions, and hooks still apply.
+	Approvals string `json:"approvals,omitempty"`
 }
+
+// Values of Environment.Approvals.
+const (
+	ApprovalsAsk  = "ask"
+	ApprovalsAuto = "auto"
+)
 
 // LoadEnvironments reads the environments file; a missing file has none.
 func LoadEnvironments(path string) (map[string]Environment, error) {
@@ -175,6 +204,9 @@ func LoadEnvironments(path string) (map[string]Environment, error) {
 			if _, ok := grantCatalog[g]; !ok {
 				return nil, fmt.Errorf("environment %q: unknown grant %q (known: %s)", name, g, strings.Join(GrantNames(), ", "))
 			}
+		}
+		if e.Approvals != "" && e.Approvals != ApprovalsAsk && e.Approvals != ApprovalsAuto {
+			return nil, fmt.Errorf("environment %q: approvals must be %q or %q", name, ApprovalsAsk, ApprovalsAuto)
 		}
 		e.Name = name
 		out[name] = e

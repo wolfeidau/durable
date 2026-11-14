@@ -11,7 +11,7 @@ func TestEntriesCoverEveryFieldWithSourcesAndNoSecretReferences(t *testing.T) {
 	file := `{
   "provider": {"name": "openrouter", "model": "vendor/model", "api_key": "op://vault/item/field"},
   "git": {"hosts": {"github": {"token": "op://v/i/f"}}},
-  "environments": {"go": {"image": "durable-worker-go:dev", "grants": ["go-modules"]}}
+  "environments": {"go": {"image": "durable-worker-go:dev", "grants": ["go-modules"], "approvals": "auto"}}
 }`
 	s, err := Load(writeHome(t, map[string]string{"config.json": file}))
 	require.NoError(t, err)
@@ -33,5 +33,5 @@ func TestEntriesCoverEveryFieldWithSourcesAndNoSecretReferences(t *testing.T) {
 	require.Equal(t, Entry{Field: "provider.api_key", Value: "1Password", Source: SourceFile}, got["provider.api_key"])
 	require.Equal(t, "1Password", got["git.hosts.github.token"].Value)
 	require.Equal(t, Entry{Field: "listen.addr", Value: "127.0.0.1:7878", Source: SourceDefault}, got["listen.addr"])
-	require.Equal(t, Entry{Field: "environments.go", Value: "image=durable-worker-go:dev grants=go-modules", Source: SourceFile}, got["environments.go"])
+	require.Equal(t, Entry{Field: "environments.go", Value: "image=durable-worker-go:dev grants=go-modules approvals=auto", Source: SourceFile}, got["environments.go"])
 }

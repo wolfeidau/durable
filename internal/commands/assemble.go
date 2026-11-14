@@ -217,19 +217,13 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 	addCompaction(out, &opts, rt, spec, pending, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)
-	var base durable.ToolGate
-	if !cfg.Yes {
-		base = durable.ReadOnlyGate(toolset)
-		opts.Gate = base
+	autoApprove, err := cfg.autoApproves(dir, useSandbox)
+	if err != nil {
+		_ = pool.Close()
+		releaseSandbox(!existed)
+		return nil, err
 	}
-	if !hookCfg.Empty() {
-		// base comes from the unwrapped tools, so the display wrapper can stay outermost.
-		runner := newHookRunner(hookCfg, cfg.CWD, dir, cfg.Yes)
-		opts.Gate = runner.Gate(base)
-		opts.Tools = runner.Wrap(toolset)
-	}
-	// With no gate the harness parks every call, which would defeat Yes.
-	opts.DeferApprovals = !cfg.Interactive && opts.Gate != nil
+	cfg.applyGate(&opts, toolset, hookCfg, dir, cfg.Yes || autoApprove)
 
 	return &Assembled{
 		Path:    path,
@@ -274,6 +268,43 @@ func discoverSkillsFunc(ctx context.Context, cwd, home string, workspace skills.
 		}
 		return found, warns, nil
 	}
+}
+
+// applyGate sets the approval gate; yes drops the read-only gate, and hooks still decide.
+func (c AssembleConfig) applyGate(opts *durable.Options, toolset []durable.Tool, hookCfg hooks.Config, dir string, yes bool) {
+	var base durable.ToolGate
+	if !yes {
+		base = durable.ReadOnlyGate(toolset)
+		opts.Gate = base
+	}
+	if !hookCfg.Empty() {
+		// base comes from the unwrapped tools, so the display wrapper can stay outermost.
+		runner := newHookRunner(hookCfg, c.CWD, dir, yes)
+		opts.Gate = runner.Gate(base)
+		opts.Tools = runner.Wrap(toolset)
+	}
+	// With no gate the harness parks every call, which would defeat Yes.
+	opts.DeferApprovals = !c.Interactive && opts.Gate != nil
+}
+
+// autoApproves reports whether the sandboxed session's environment sets approvals to auto. It is read on every open and
+// not pinned, so tightening the config applies to existing sessions; a missing environment means ask.
+func (c AssembleConfig) autoApproves(dir string, useSandbox bool) (bool, error) {
+	if !useSandbox || c.Sandbox == nil {
+		return false, nil
+	}
+	// session.json exists before the database does, and createSessionDir has already written it.
+	meta, _, err := readJSONPin[SessionMeta](filepath.Join(dir, sessionMetaFile), "session metadata")
+	if err != nil {
+		return false, err
+	}
+	// A directory session works in the host's checkout, so it never auto-approves. A session with no recorded
+	// environment predates them, and resolving it to today's default could auto-approve a sandbox built from another.
+	if meta.Workspace == "" || meta.Environment == "" {
+		return false, nil
+	}
+	env, err := ResolveEnvironment(c.Sandbox.Environments, meta.Environment)
+	return err == nil && env.Approvals == ApprovalsAuto, nil
 }
 
 func (c AssembleConfig) sessionMeta() SessionMeta {

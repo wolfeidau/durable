@@ -263,7 +263,7 @@ func (s sessionService) GetServerInfo(context.Context, *connect.Request[v1.GetSe
 	}
 	var envs []*v1.EnvironmentInfo
 	for _, e := range s.reg.Environments() {
-		envs = append(envs, &v1.EnvironmentInfo{Name: e.Name, Image: e.Image, Grants: e.Grants})
+		envs = append(envs, &v1.EnvironmentInfo{Name: e.Name, Image: e.Image, Grants: e.Grants, Approvals: e.Approvals})
 	}
 	var settings []*v1.Setting
 	for _, st := range s.settings {

@@ -92,6 +92,8 @@ type GitHost struct {
 type Environment struct {
 	Image  string   `json:"image" jsonschema:"The worker image sessions in this environment run."`
 	Grants []string `json:"grants,omitempty" jsonschema:"Network grants for sessions in this environment."`
+	// The jsonschema tag can't hold a comma, so the description reads without one.
+	Approvals string `json:"approvals,omitempty" jsonschema:"Whether tool calls in sandboxed sessions of this environment ask for approval: ask (default) or auto. With auto calls run without approval; hooks still apply."`
 }
 
 // Source says where a setting's value came from.
@@ -245,7 +247,7 @@ func (s *Settings) fromFile(c Config) error {
 		s.Sources["git.hosts."+kind+".token"] = SourceFile
 	}
 	for name, e := range c.Environments {
-		s.Environments[name] = commands.Environment{Name: name, Image: e.Image, Grants: e.Grants}
+		s.Environments[name] = commands.Environment{Name: name, Image: e.Image, Grants: e.Grants, Approvals: e.Approvals}
 		s.Sources["environments."+name] = SourceFile
 	}
 	return nil
@@ -443,6 +445,9 @@ func (s *Settings) Validate() error {
 		}
 		if _, ok := s.GitHosts[github.Kind]; !ok && slices.Contains(s.Environments[name].Grants, "github-api") {
 			s.warn("environments."+name, fmt.Sprintf("environment %q names the github-api grant, which never applies without a github git host token", name))
+		}
+		if e := s.Environments[name]; e.Approvals == commands.ApprovalsAuto && slices.Contains(e.Grants, "github-api") {
+			s.warn("environments."+name, fmt.Sprintf("environment %q auto-approves tool calls and has the github-api grant, so its sessions push, open PRs and comment without approval", name))
 		}
 	}
 	return errors.Join(errs...)
