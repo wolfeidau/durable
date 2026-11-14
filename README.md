@@ -83,10 +83,6 @@ durable-server url   # prints the browser link, with the token in the URL fragme
 
 - **Web UI:** a `go install` build serves a placeholder page. To embed the UI, build from a checkout
   with `mise run web:build` first, then `go build ./cmd/durable-server`.
-- **Config:** settings live in `~/.durable/config.json`, which is checked against a published
-  [JSON Schema](schema/durable-server.schema.json). Flags override it. `durable-server config check`
-  validates the file and shows each effective setting and where it came from. See
-  [server config](docs/remote-execution.md#server-config).
 - **Models:** `provider` in the config, or `--provider`, `--protocol` and `--model`, set the route for new
   sessions, as in `durable chat`. Existing sessions keep their pin.
 - **Sessions:** without a sandbox, a session is a directory on your machine, typed as an absolute
@@ -95,55 +91,127 @@ durable-server url   # prints the browser link, with the token in the URL fragme
 - **Access:** loopback only by default, and `durable-server rotate-token` replaces the token. See
   [docs/server-access.md](docs/server-access.md).
 
-### Sandboxed sessions
+### Server config
 
-`--sandbox-image` runs the tools of new sessions in an [OpenShell](https://docs.nvidia.com/openshell/)
-sandbox, one per session. The model loop, the model key and `session.sqlite` stay on the host. You
-need a running OpenShell gateway and the worker image, built from a checkout:
-
-```sh
-mise run image:worker
-```
+The server reads `~/.durable/config.json`. A missing file means the defaults. Precedence is default,
+then file, then flag, and each flag that overrides a file value logs a warning naming the flag and
+the field, never the value. A `--provider` that names a different provider also drops the file's
+`protocol`, `model` and `api_key`.
 
 ```json
 {
-  "git": { "hosts": { "github": { "token": "gh" } } },
-  "environments": { "default": { "image": "durable-worker:dev" } }
+  "$schema": "https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json",
+  "listen": { "addr": "127.0.0.1:7878", "idle_timeout": "5m", "open_timeout": "10s", "heartbeat": "20s" },
+  "provider": { "name": "openrouter", "model": "anthropic/claude-haiku-5.5", "api_key": "op://<vault>/<item>/<field>" },
+  "git": { "author": "durable <durable@localhost>", "hosts": { "github": { "token": "gh" } } },
+  "environments": {
+    "default": { "image": "durable-worker:dev" },
+    "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"], "approvals": "auto" }
+  }
 }
 ```
 
-Save that as `~/.durable/config.json`, or pass the same settings as flags:
+- **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` take an `op://`
+  1Password reference, `env:NAME`, or, for a git token only, `gh`. A pasted token fails validation,
+  and errors never quote the value. Without `api_key`, openrouter reads `OPENROUTER_API_KEY` and
+  anthropic uses the SDK's credentials.
+- **Schema:** [`schema/durable-server.schema.json`](schema/durable-server.schema.json) is generated
+  from the Go types by `mise run gen:schema`. Unknown keys, bad enums and literal secrets are
+  errors, and so are an openrouter provider with no model and a git token with no environment.
+  Errors exit non-zero before the server listens.
+- **`durable-server config check`** validates the file, prints warnings, and prints each effective
+  setting with its source. It reads only the files, not flags, and never resolves a secret.
+  `durable-server config schema` prints the schema.
+- **Legacy `environments.json`** is still read, with a deprecation warning, when `config.json`
+  defines no environments. If both define them, startup fails.
+
+### Sandboxed sessions
+
+An environment runs the tools of new sessions in an [OpenShell](https://docs.nvidia.com/openshell/)
+sandbox, one per session. The model loop, the model key, hooks, approvals and `session.sqlite` stay
+on the host; the sandbox runs `durable-worker`, which executes the built-in tools and MCP servers.
+You need a running OpenShell gateway and the worker image, built from a checkout:
 
 ```sh
+mise run image:worker
 durable-server serve --sandbox-image durable-worker:dev --git-host-token github=gh
 ```
 
-- **Workspaces:** a sandboxed session starts empty, or as a clone of a repo and branch. Work comes
-  back through `git push`.
-- **Git hosts:** GitHub only so far. `--git-host-token github=<source>` takes an `op://` reference or
-  `gh`. Without it, the server reads `DURABLE_GITHUB_TOKEN`, and with no token at all, sessions
-  clone public repos anonymously. The token stays on the server, and the sandbox sees only a
-  placeholder. A fine-grained token limited to the repos durable should reach is safest.
-- **Commit author:** `--git-author "NAME <EMAIL>"`, default `durable <durable@localhost>`, is pinned per session.
-- **Project context:** a repo session pins the clone's `AGENTS.md` and its `.durable/skills` and
-  `.agents/skills` when it is created.
-- **Go development:** `mise run image:worker-go` builds a worker image with Go and golangci-lint.
-  Put `"go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] }` under `environments` in
-  `~/.durable/config.json` and create sessions with `environment: "go"`. The grant lets only
-  the `go` binary reach the module proxy. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
-- **Auto-approval:** add `"approvals": "auto"` to an environment and its sandboxed sessions run tool calls without
-  asking; hooks still apply. The default is `ask`. See [approvals](docs/remote-execution.md#environments-images-and-network-grants).
-- **GitHub CLI:** the worker image has `gh`. Add `"github-api"` to an environment's `grants` and a repo session can
-  open PRs and issues, comment and read CI status, but never review or merge. Use a fine-grained token limited to the repos sessions use, because
-  GraphQL calls aren't scoped to one repo. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
-- **mise:** the worker image has `mise`, set to install from a repo's `mise.lock` by default. Add `"mise"` to an
-  environment's `grants` and a session can download tools by GET from GitHub releases, nodejs.org and dl.google.com.
-  Lock with the image's mise version. See [environments](docs/remote-execution.md#environments-images-and-network-grants).
-- **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
-- **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open
-  creates a fresh one, and a repo session clones its branch again.
+`--sandbox-image REF` is shorthand for an environment named `default`. Without any environment the
+server never contacts a gateway and creates directory sessions only.
 
-See [docs/remote-execution.md](docs/remote-execution.md) for the design and the egress policy.
+- **Workspaces:** a sandboxed session starts empty, or as a clone of a repo and branch (a URL or
+  `github.com/owner/name`). Work comes back through `git push`, which needs no approval of its own.
+  A repo session is keyed by repo, branch and name, and an empty one by the client's `request_id`,
+  so a retried create returns the same session.
+- **Project context:** a repo session pins the clone's `AGENTS.md` and its `.durable/skills` and
+  `.agents/skills` when it is created. An empty session gets only the user's `~/.durable` ones.
+- **Commit author:** `git.author` or `--git-author "NAME <EMAIL>"`, default
+  `durable <durable@localhost>`, is pinned per session.
+- **Pinning:** the environment's image and grants are pinned in `sandbox.json` at create, so editing
+  or removing an environment never changes an existing session. A session with `sandbox.json` always
+  runs in its sandbox, and `durable chat` refuses it.
+- **Lifecycle:** the sandbox stops when the session idles and starts when it opens again, keeping
+  its workspace. A gateway restart leaves sandboxes in `Error`, which the next open recovers
+  ([#90](https://github.com/wolfeidau/durable/issues/90)).
+- **Resetting a sandbox:** `durable-server sandbox-delete <session>` deletes it. The next open
+  creates a fresh one, and a repo session clones its branch again. It is refused while `serve` runs.
+- **Rebuild the worker image after upgrading the server.** New repo sessions need the matching worker.
+- **Hooks** still run on the host, but their input comes from a sandbox the agent controls. See
+  [docs/hooks.md](docs/hooks.md).
+
+#### Git host tokens
+
+GitHub is the only git host so far.
+
+- `--git-host-token github=<source>` takes an `op://` reference, `env:NAME` or `gh`, which runs
+  `gh auth token`. Without it, `git.hosts.github.token` in the config applies, then
+  `DURABLE_GITHUB_TOKEN`. `GITHUB_TOKEN` and `GH_TOKEN` are never read.
+- At startup the server checks each token with `GET /user` and logs the login, kind and scopes,
+  never the token. A bad token fails startup. The source is read again on each sandbox create or
+  start, so a rotated token takes effect without a restart.
+- The token stays on the server; the sandbox sees only a placeholder, and each session's policy
+  limits git to its own repo. **Use a fine-grained token** with contents read and write on the repos
+  durable should reach; a classic or `gh` token usually reaches every repo you can.
+- With no token, repo sessions clone public repos anonymously and `git push` fails. Repo access is
+  fixed at create, so adding a token later doesn't upgrade an existing session.
+- The server keeps one OpenShell provider and profile, `durable-github`, shared across sessions. To
+  remove them: `openshell provider delete durable-github`, then `openshell profile delete durable-github`.
+
+#### Environments and grants
+
+An environment pairs a worker image with named network grants and an approval mode.
+`CreateSession` takes an `environment`; empty means `default`, or the only one when there is
+exactly one. Sandboxes deny all egress except what grants allow.
+
+| Image | Built by | Has |
+|---|---|---|
+| `durable-worker:dev` | `mise run image:worker` | bash, git, curl, `gh`, `mise` |
+| `durable-worker-go:dev` | `mise run image:worker-go` | the above, plus Go and golangci-lint |
+
+| Grant | Allows |
+|---|---|
+| `go-modules` | `/usr/local/go/bin/go` to reach `proxy.golang.org` and `sum.golang.org`. Covers `go mod`, `build`, `test` and `golangci-lint run` |
+| `mise` | `/usr/local/bin/mise` GET-only downloads from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go` |
+| `github-api` | `/usr/local/bin/gh` to open and edit PRs and issues, comment, label and read CI status on the session's repo. Repo sessions with a GitHub token only |
+
+- **Approvals:** `"approvals": "ask"` (default) or `"auto"`. With `auto`, tool calls in the
+  environment's sessions run without asking, as `--yes` does for the CLI; `PreToolUse` hooks can
+  still deny or ask. It is read on each open, not pinned, and directory sessions never auto-approve.
+  `auto` with `github-api` lets a session push and open PRs with no human in the loop, so startup
+  warns about it.
+- **`github-api` never merges or reviews,** and denies releases, contents, settings and workflow
+  dispatch. GraphQL rules check only the operation, not the repo, so the token's scope is the real
+  limit. Give `gh` the repo name in lower case. `gh run view --log` fails because logs redirect to
+  hosts the grant doesn't allow.
+- **`mise`:** the image sets `MISE_LOCKED=1`, so installs come from `mise.lock`, but the model can
+  unset it. Anything run under `mise exec` shares the grant, `curl` included. The image ships mise
+  2026.10.25, which reads lockfile format 3, so lock with that version, e.g.
+  `mise exec mise@2026.10.25 -- mise lock --platform linux-arm64,linux-x64`.
+- **Go image:** `HOME` is the workspace `/sandbox`, and only `/tmp` and `/sandbox` are writable, so
+  caches live under `/tmp`. `GOPROXY` has no `direct`, so private modules fail, and
+  `GOTOOLCHAIN=local` fails a `go` line newer than the image's Go.
+- **MCP servers** run in the sandbox; see [docs/mcp.md](docs/mcp.md#sandboxed-sessions).
 
 ## Extending it
 
@@ -409,12 +477,10 @@ local OpenShell gateway. Plain `go test` skips them.
 
 ## Docs
 
-- [Architecture](docs/architecture.md): the design and its phases.
 - [Feature matrix](docs/feature-matrix.md): durable compared with Pi, Pi Durable and Claude Code.
 - [Providers](docs/providers.md), [context](docs/context.md), [MCP](docs/mcp.md) and
   [hooks](docs/hooks.md).
-- [Server access](docs/server-access.md), the [web UI](docs/web-ui.md) and
-  [remote execution](docs/remote-execution.md).
+- [Server access](docs/server-access.md).
 
 ## Next steps, roughly in order of payoff
 
