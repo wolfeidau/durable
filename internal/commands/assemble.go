@@ -203,7 +203,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 
 	sessionID := filepath.Base(dir)
 	// Not pinned: the window and prices don't feed the prompt prefix, and a slow or failed lookup doesn't block the session.
-	pending := catalog.Start(ctx, spec.Catalog(spec, key), modelName(rt), lookupNotice(out, rt))
+	pending := catalog.Start(ctx, spec.Catalog(spec, key), modelName(rt), lookupNotice(out, cfg.Logger, rt))
 	opts := durable.Options{
 		Model: meteredModel{model: modelName(rt), info: pending.Info, inner: protocolModels[rt.Protocol](rt, spec, modelArgs{
 			Key:       key,
@@ -417,8 +417,12 @@ func addCompaction(out io.Writer, opts *durable.Options, rt route, spec provider
 }
 
 // lookupNotice reports the lookup's outcome on out when it lands: through the compaction notice for OpenRouter, and a usage warning for direct Anthropic.
-func lookupNotice(out io.Writer, rt route) func(catalog.Info, error) {
+// A failure is also logged, because a server session's out is discarded.
+func lookupNotice(out io.Writer, logger *slog.Logger, rt route) func(catalog.Info, error) {
 	return func(info catalog.Info, err error) {
+		if err != nil && logger != nil {
+			logger.Warn("model lookup failed; cost and context window are unknown", slog.String("provider", rt.Provider), slog.String("model", modelName(rt)), slog.Any("error", err))
+		}
 		switch {
 		case rt.Provider == providerAnthropic:
 			if err != nil {

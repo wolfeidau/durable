@@ -1,8 +1,11 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/claude"
+	"github.com/wolfeidau/durable/internal/catalog"
 )
 
 func assembleHome(t *testing.T) {
@@ -124,4 +129,20 @@ func TestAssembleChainsCallerObserver(t *testing.T) {
 	a.Options.Observer(durable.Event{Kind: durable.EventCompacted})
 	require.Equal(t, []durable.EventKind{durable.EventCompacted}, got)
 	require.Contains(t, out.String(), "[compacting history]")
+}
+
+func TestLookupNoticeLogsAFailure(t *testing.T) {
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	var out bytes.Buffer
+
+	lookupNotice(&out, logger, route{Provider: providerAnthropic, Protocol: protocolMessages})(catalog.Info{}, errors.New("failed to list models: refused"))
+
+	require.Contains(t, out.String(), "[usage] warning: failed to list models: refused")
+	require.Contains(t, logs.String(), "model lookup failed")
+	require.Contains(t, logs.String(), "model="+claude.DefaultModel)
+
+	logs.Reset()
+	lookupNotice(&out, logger, route{Provider: providerOpenRouter, Protocol: protocolResponses, Model: "m"})(catalog.Info{ContextWindow: 10}, nil)
+	require.Empty(t, logs.String(), "a successful lookup logs nothing")
 }
