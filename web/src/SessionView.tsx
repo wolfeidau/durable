@@ -18,8 +18,10 @@ import { chip, defaultOpen, summary } from "./calls";
 import { Markdown } from "./markdown";
 import { kindText, where } from "./sessions";
 import type { WatchSummary } from "./StatusLine";
+import { ReportPanel } from "./ReportPanel";
 import { TranscriptBuilder, type CallEntry, type Turn } from "./transcript";
 import { getToken } from "./token";
+import { buildReport, compact, money, percent, summarize, turnFooter } from "./usage";
 import { useWatchEvents } from "./useWatchEvents";
 
 const errText = (err: unknown) => ConnectError.from(err).rawMessage;
@@ -141,6 +143,7 @@ const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): Re
 
 interface TurnProps {
   turn: Turn;
+  usage?: string;
   localText?: string;
   partial?: string;
   toolOutput: ReadonlyMap<string, string>;
@@ -149,7 +152,7 @@ interface TurnProps {
   busy: boolean;
 }
 
-const TurnView = memo(function TurnView({ turn, localText, partial, toolOutput, onDecide, onCancel, busy }: TurnProps): ReactElement {
+const TurnView = memo(function TurnView({ turn, usage, localText, partial, toolOutput, onDecide, onCancel, busy }: TurnProps): ReactElement {
   const hasUser = turn.entries.some((e) => e.kind === "user");
   const { requestId } = turn;
   return (
@@ -182,6 +185,7 @@ const TurnView = memo(function TurnView({ turn, localText, partial, toolOutput, 
           <span className={`badge ${statusTone[turn.status]}`}>{statusText[turn.status]}</span>
         )}
         {turn.error && <span className="error-text">{turn.error}</span>}
+        {usage && !active(turn.status) && <span className="turn-usage muted">{usage}</span>}
         {requestId && active(turn.status) && (
           <button className="secondary" onClick={() => onCancel(requestId)}>
             Cancel
@@ -220,9 +224,11 @@ function liveOutput(turn: Turn, all: ReadonlyMap<string, string>): ReadonlyMap<s
 interface Props {
   sessionId: string;
   onWatch: (w: WatchSummary | undefined) => void;
+  tab?: "report";
+  onTab: (tab: "report" | undefined) => void;
 }
 
-export function SessionView({ sessionId, onWatch }: Props): ReactElement {
+export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactElement {
   const transport = useTransport();
   const w = useWatchEvents(transport, sessionId, getToken);
   const resume = useRef(w.resumeAuth);
@@ -236,6 +242,9 @@ export function SessionView({ sessionId, onWatch }: Props): ReactElement {
   const meta = sessions.data?.sessions.find((s) => s.id === sessionId);
   const builder = useRef(new TranscriptBuilder());
   const turns = useMemo(() => builder.current.update(w.events), [w.events]);
+  const stats = useMemo(() => summarize(w.events), [w.events]);
+  const report = useMemo(() => buildReport(w.events), [w.events]);
+  const footers = useMemo(() => new Map(report.turns.map((t) => [t.seq, turnFooter(t)])), [report]);
   const [calls, setCalls] = useState({ open: false, version: 0 });
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
@@ -307,6 +316,40 @@ export function SessionView({ sessionId, onWatch }: Props): ReactElement {
         <p className="session-id mono faint" title={sessionId}>
           {sessionId}
         </p>
+        <div className="stats">
+          <div className="meter">
+            <span className="stat-label" id="ctx-label">
+              Context
+            </span>
+            {stats.contextFraction !== undefined ? (
+              <>
+                <meter
+                  aria-labelledby="ctx-label"
+                  min={0}
+                  max={1}
+                  low={0.7}
+                  high={0.9}
+                  optimum={0}
+                  value={Math.min(1, stats.contextFraction)}
+                  aria-valuetext={`${percent(stats.contextFraction)} of ${compact(stats.contextWindow!)}`}
+                />
+                <span>
+                  {percent(stats.contextFraction)} of {compact(stats.contextWindow!)}
+                </span>
+              </>
+            ) : (
+              <span>{stats.contextTokens ? `${compact(stats.contextTokens)} tokens` : "—"}</span>
+            )}
+          </div>
+          <span title={stats.unknownCost ? `${stats.unknownCost} replies have no known cost` : undefined}>
+            <span className="stat-label">Cost </span>
+            {money(stats.cost, stats.estimated)}
+          </span>
+          <span>
+            <span className="stat-label">Cache hit </span>
+            {percent(stats.cacheHit)}
+          </span>
+        </div>
         <div className="actions">
           <button className="secondary" onClick={() => setCalls((c) => ({ open: false, version: c.version + 1 }))}>
             Collapse tool calls
@@ -316,12 +359,22 @@ export function SessionView({ sessionId, onWatch }: Props): ReactElement {
           </button>
         </div>
       </div>
+      <div className="tabs" role="tablist">
+        <button role="tab" className="secondary" aria-selected={tab !== "report"} onClick={() => onTab(undefined)}>
+          Transcript
+        </button>
+        <button role="tab" className="secondary" aria-selected={tab === "report"} onClick={() => onTab("report")}>
+          Report
+        </button>
+      </div>
+      {tab === "report" && <ReportPanel report={report} />}
       <OpenCalls.Provider value={calls}>
-        <div className="transcript">
+        <div className="transcript" hidden={tab === "report"}>
           {turns.map((t) => (
             <TurnView
               key={String(t.seq)}
               turn={t}
+              usage={footers.get(t.seq)}
               localText={t.requestId ? mine.get(t.requestId) : undefined}
               partial={w.partialText.get(t.seq)}
               toolOutput={liveOutput(t, w.toolOutput)}

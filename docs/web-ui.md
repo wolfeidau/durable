@@ -35,6 +35,18 @@ the sandbox environments, and the network grant catalog with the binaries and ho
 opens. Secrets show only where they come from (`1Password`, `gh`, `env NAME`, `set by flag`),
 never the reference or the value.
 
+The session header shows a context meter (the latest context size against the model's window, for
+example "42% of 1M"), the session's total cost and the cache-hit share of input tokens. Cost is
+the sum of replies whose cost is known; a provider-reported cost shows as is, and a total that
+includes any estimate from the price table is prefixed with "~". Each finished turn ends with a
+quiet line such as "$0.0042 · 12.3 s · 5 calls" that leaves out whatever is unknown. A Report tab
+(`?session=<id>&tab=report`) lists tool timings (calls, errors, total, average, p95 and max, with
+p95 as nearest-rank), model reply timings with output tokens per second, and each turn's cost,
+wall time, calls, model time and tool time. Tool time runs from `call_started` to `call_done`,
+which the harness commits after the approval decision, so waiting for approval is not counted.
+Everything is computed in the browser from the replayed events. Sessions from before usage was
+stored, and replies whose price isn't known yet, show "—" rather than 0.
+
 The API carries each reply's token usage, cost and duration and a timestamp on every event, for the cost, context and timing views. Where prices come from, and the outbound request a direct Anthropic session makes for them, are in [providers](providers.md#usage-and-cost).
 
 ## First iteration
