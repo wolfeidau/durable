@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { EventKind, EventSchema, Role, SubmissionStatus, type Event } from "./gen/durable/v1/durable_pb";
-import { buildReport, compact, money, percentile, summarize, turnFooter } from "./usage";
+import { buildReport, compact, money, percent, percentile, summarize, turnFooter } from "./usage";
 
 let n = 0n;
 const ev = (ms: number | undefined, init: MessageInitShape<typeof EventSchema>): Event =>
@@ -146,5 +146,15 @@ describe("format", () => {
     expect(turnFooter({ seq: 1n, cost: 0.0042, estimated: false, wallMs: 12_300, calls: 5 })).toBe("$0.0042 · 12.3 s · 5 calls");
     expect(turnFooter({ seq: 1n, estimated: false, calls: 1 })).toBe("1 call");
     expect(turnFooter({ seq: 1n, estimated: false, calls: 0 })).toBe("");
+  });
+});
+
+describe("percent", () => {
+  test("never shows a small share as 0%", () => {
+    expect(percent(undefined)).toBe("—");
+    expect(percent(0)).toBe("0%");
+    expect(percent(0.0037)).toBe("<1%");
+    expect(percent(0.005)).toBe("1%");
+    expect(percent(0.42)).toBe("42%");
   });
 });

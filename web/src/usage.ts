@@ -238,7 +238,9 @@ export function seconds(ms: number | undefined): string {
   return ms === undefined ? dash : `${(ms / 1000).toFixed(1)} s`;
 }
 
-export const percent = (f: number | undefined): string => (f === undefined ? dash : `${Math.round(f * 100)}%`);
+// A small non-zero share reads "<1%", because "0%" looks like nothing is used.
+export const percent = (f: number | undefined): string =>
+  f === undefined ? dash : f > 0 && f < 0.005 ? "<1%" : `${Math.round(f * 100)}%`;
 
 // "$0.0042 · 12.3 s · 5 calls", leaving out what is unknown.
 export function turnFooter(t: TurnRow): string {

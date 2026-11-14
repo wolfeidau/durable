@@ -51,7 +51,7 @@ export const ReportPanel = memo(function ReportPanel({ report }: { report: Repor
       </Table>
       <Table title="Model" head={["Replies", "Avg", "p95", "Output tokens/s"]}>
         <tr>
-          <Num>{model.replies}</Num>
+          <td>{model.replies}</td>
           <Num>{seconds(model.avg)}</Num>
           <Num>{seconds(model.p95)}</Num>
           <Num>{model.tokensPerSecond === undefined ? dash : compact(model.tokensPerSecond)}</Num>
