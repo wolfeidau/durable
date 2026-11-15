@@ -159,6 +159,36 @@ func TestMCPToolRoundTrip(t *testing.T) {
 	require.Equal(t, []durable.Role{durable.RoleUser, durable.RoleAssistant, durable.RoleTool, durable.RoleAssistant}, historyRoles(hist))
 }
 
+func TestMCPToolRoundTripFromYAML(t *testing.T) {
+	ws, home := newWorkspace(t)
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	body := "mcpServers:\n  fake:\n    command: " + exe + "\n    env:\n      " + fakeServerEnv + ": \"1\"\n      FAKE_MCP_TOOLS: echo\n"
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "mcp.yaml"), []byte(body), 0o600))
+	api := newFakeAPIReply(t, mcpCall("mcp__fake__echo"))
+
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
+	runPrompt(t, api, 2, a, "use it")
+
+	require.Contains(t, a.out.String(), "[mcp] fake: 1 tools")
+	require.True(t, hasToolResult(t, api.requests()[1], false, "fake-result"), api.requests()[1])
+}
+
+func TestBothMCPFilesFailNewSession(t *testing.T) {
+	ws, home := newWorkspace(t)
+	writeMCPServers(t, home, map[string]any{})
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "mcp.yaml"), []byte("mcpServers: {}\n"), 0o600))
+	api := newFakeAPIReply(t, textReply("hi"))
+
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
+	require.NoError(t, a.stdin.Close())
+	require.Error(t, waitExit(t, a), a.out.String())
+	require.Contains(t, a.out.String(), "mcp.json and mcp.yaml")
+	require.Contains(t, a.out.String(), "keep one")
+	require.Empty(t, api.requests())
+}
+
 func TestMCPReadOnlyHintStillPrompts(t *testing.T) {
 	ws, home := newWorkspace(t)
 	// kill -9 leaves the server's temp directory behind.

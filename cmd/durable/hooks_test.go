@@ -87,6 +87,34 @@ func TestHookDenyStopsBashAndReasonReachesModel(t *testing.T) {
 	require.True(t, hasToolResult(t, api.requests()[1], true, "policy-denied-xyz"), api.requests()[1])
 }
 
+func TestHookDenyFromYAMLStopsBash(t *testing.T) {
+	ws, home := newWorkspace(t)
+	marker := filepath.Join(ws, "marker.txt")
+	body := "hooks:\n  PreToolUse:\n    - matcher: bash\n      hooks:\n        - type: command\n          command: " + hookScript(t, `echo "policy-denied-xyz" >&2; exit 2`) + "\n"
+	writeHooksRaw(t, filepath.Join(home, ".durable", "hooks.yaml"), body)
+	api := newFakeAPI(t, "echo ran >> marker.txt")
+
+	a := startAgent(t, binPath, ws, home, api.srv.URL)
+	runPrompt(t, api, 2, a, "go")
+
+	require.NoFileExists(t, marker)
+	require.Contains(t, a.out.String(), "[hooks] PreToolUse: 1 configured")
+	require.True(t, hasToolResult(t, api.requests()[1], true, "policy-denied-xyz"), api.requests()[1])
+}
+
+func TestBothHooksFilesRefuseStartup(t *testing.T) {
+	ws, home := newWorkspace(t)
+	writeHooksRaw(t, filepath.Join(home, ".durable", "hooks.json"), `{"hooks":{}}`)
+	writeHooksRaw(t, filepath.Join(home, ".durable", "hooks.yaml"), "hooks: {}\n")
+	api := newFakeAPI(t, "echo ran >> marker.txt")
+
+	a := startAgent(t, binPath, ws, home, api.srv.URL, "--yes")
+	require.NoError(t, a.stdin.Close())
+	require.Error(t, waitExit(t, a), a.out.String())
+	require.Contains(t, a.out.String(), "hooks.json and hooks.yaml")
+	require.Empty(t, api.requests())
+}
+
 func TestHookTimeoutIsKilledAndDeniedThenSessionContinues(t *testing.T) {
 	ws, home := newWorkspace(t)
 	marker := filepath.Join(ws, "marker.txt")

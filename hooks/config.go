@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/wolfeidau/durable/internal/userfile"
 )
 
 const (
@@ -37,6 +38,21 @@ type Handler struct {
 	OnFailure string `json:"onFailure,omitempty"`
 	// UseWorkspaceCwd runs the hook in the workspace instead of an empty temp directory.
 	UseWorkspaceCwd bool `json:"useWorkspaceCwd,omitempty"`
+}
+
+// UnmarshalJSON accepts unquoted numbers and booleans in args, as YAML users write them, and keeps unknown keys an error.
+func (h *Handler) UnmarshalJSON(data []byte) error {
+	type plain Handler
+	aux := struct {
+		*plain
+		Args json.RawMessage `json:"args"`
+	}{plain: (*plain)(h)}
+	if err := strictDecode(data, &aux); err != nil {
+		return err
+	}
+	var err error
+	h.Args, err = userfile.StringList("args", aux.Args)
+	return err
 }
 
 type group struct {
@@ -94,23 +110,19 @@ type rawGroup struct {
 	Hooks   []json.RawMessage `json:"hooks"`
 }
 
-// LoadConfig reads the hooks from path. A missing file means no hooks. An
+// ParseConfig reads the hooks from JSON data, which is nil when there is no file. An
 // unsupported event is a warning. Anything else that cannot be honoured is an
 // error, because silently skipping a safety hook is worse than not starting.
-func LoadConfig(path string) (Config, []string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the path is the caller's trusted config file
-	if errors.Is(err, os.ErrNotExist) {
+func ParseConfig(data []byte, label string) (Config, []string, error) {
+	if data == nil {
 		return Config{}, nil, nil
-	}
-	if err != nil {
-		return Config{}, nil, fmt.Errorf("failed to read hooks config: %w", err)
 	}
 	var file struct {
 		Hooks map[string]json.RawMessage `json:"hooks"`
 	}
 	// Strict, because a misspelt key would otherwise load no hooks and report nothing.
 	if err := strictDecode(data, &file); err != nil {
-		return Config{}, nil, fmt.Errorf("failed to parse hooks config %s: %w", path, err)
+		return Config{}, nil, fmt.Errorf("failed to parse hooks config %s: %w", label, err)
 	}
 
 	events := make([]string, 0, len(file.Hooks))
@@ -125,19 +137,19 @@ func LoadConfig(path string) (Config, []string, error) {
 		if event != PreToolUse && event != PostToolUse {
 			// A case slip is a misspelt safety hook, not a copied event we don't support.
 			if strings.EqualFold(event, PreToolUse) || strings.EqualFold(event, PostToolUse) {
-				return Config{}, nil, fmt.Errorf("hook event %q in %s is misspelt", event, path)
+				return Config{}, nil, fmt.Errorf("hook event %q in %s is misspelt", event, label)
 			}
 			warnings = append(warnings, fmt.Sprintf("hook event %q is not supported and was ignored", event))
 			continue
 		}
 		var raws []rawGroup
 		if err := strictDecode(file.Hooks[event], &raws); err != nil {
-			return Config{}, nil, fmt.Errorf("failed to parse %s hooks in %s: %w", event, path, err)
+			return Config{}, nil, fmt.Errorf("failed to parse %s hooks in %s: %w", event, label, err)
 		}
 		for i, rg := range raws {
 			g, err := buildGroup(rg)
 			if err != nil {
-				return Config{}, nil, fmt.Errorf("%s hooks[%d] in %s: %w", event, i, path, err)
+				return Config{}, nil, fmt.Errorf("%s[%d] in %s: %w", event, i, label, err)
 			}
 			cfg.events[event] = append(cfg.events[event], g)
 		}
@@ -181,7 +193,7 @@ func strictDecode(data []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return err
+		return userfile.DescribeDecodeError(err)
 	}
 	if dec.More() {
 		return errors.New("unexpected data after JSON value")

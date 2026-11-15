@@ -28,7 +28,7 @@ import (
 	"github.com/wolfeidau/durable/internal/server"
 )
 
-// serveCmd's flags override ~/.durable/config.json, so none has a default here: zero means not given.
+// serveCmd's flags override ~/.durable/config.json or config.yaml, so none has a default here: zero means not given.
 type serveCmd struct {
 	Addr string `help:"Address to listen on. Default 127.0.0.1:7878."`
 
@@ -40,7 +40,7 @@ type serveCmd struct {
 	Model                 string        `help:"Model name for new sessions. Required for new openrouter sessions, which pin it. For anthropic, empty uses the built-in default."`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, provider.api_key from the config file applies, then OPENROUTER_API_KEY for openrouter."`
-	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker), as the \"default\" environment. Environments in ~/.durable/config.json add images and network grants. Existing sessions keep their pin."`
+	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker), as the \"default\" environment. Environments in ~/.durable/config.json or config.yaml add images and network grants. Existing sessions keep their pin."`
 	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference, gh or env:NAME. Only github is supported; without the flag, github reads git.hosts.github.token from the config file, then DURABLE_GITHUB_TOKEN. Needs --sandbox-image or an environment."`
 	GitAuthor             string        `name:"git-author" placeholder:"NAME <EMAIL>" help:"The git user.name and user.email for commits in new sandboxed sessions. Default durable <durable@localhost>. Existing sessions keep their pin."`
 	GitHubAPIURL          string        `name:"github-api-url" env:"DURABLE_GITHUB_API_URL" hidden:"" help:"GitHub API base URL, for tests."`
@@ -107,6 +107,15 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	for _, w := range settings.Warnings {
 		warnings = append(warnings, w.Message)
 	}
+	// Sessions read these files again when they start, but a mistake should show now rather than when a session opens.
+	userWarnings, err := commands.CheckUserConfig(home)
+	for _, w := range userWarnings {
+		logger.Warn(w)
+	}
+	if err != nil {
+		return err
+	}
+	warnings = append(warnings, userWarnings...)
 	gitSources := settings.GitHostSources()
 	environments := settings.Environments
 	gitAuthor := settings.GitIdentity()

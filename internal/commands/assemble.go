@@ -21,6 +21,7 @@ import (
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/githost"
 	"github.com/wolfeidau/durable/internal/sandbox"
+	"github.com/wolfeidau/durable/internal/userfile"
 	"github.com/wolfeidau/durable/mcp"
 	"github.com/wolfeidau/durable/skills"
 	"github.com/wolfeidau/durable/tools"
@@ -108,6 +109,41 @@ type Assembled struct {
 	toolset      []durable.Tool
 }
 
+// loadMCP reads the user's MCP config. A new session fails on a bad file; an existing one must still resume, so it warns.
+func loadMCP(home string, existed bool) (map[string]mcp.Server, []string, error) {
+	servers, warnings, err := readMCP(home)
+	if err != nil {
+		if !existed {
+			return nil, nil, err
+		}
+		warnings = append(warnings, strings.ReplaceAll(err.Error(), "\n", "; "))
+	}
+	return servers, warnings, nil
+}
+
+func readMCP(home string) (map[string]mcp.Server, []string, error) {
+	f, err := userfile.Load(home, "mcp")
+	if err != nil {
+		return nil, nil, err
+	}
+	return mcp.ParseConfig(f.Data, f.Label)
+}
+
+func readHooks(home string) (hooks.Config, []string, error) {
+	f, err := userfile.Load(home, "hooks")
+	if err != nil {
+		return hooks.Config{}, nil, err
+	}
+	return hooks.ParseConfig(f.Data, f.Label)
+}
+
+// CheckUserConfig validates the user's mcp and hooks files the way a new session reads them, so the server can refuse a bad file at startup.
+func CheckUserConfig(home string) ([]string, error) {
+	_, mcpWarnings, mcpErr := readMCP(home)
+	_, hookWarnings, hookErr := readHooks(home)
+	return append(mcpWarnings, hookWarnings...), errors.Join(mcpErr, hookErr)
+}
+
 // Assemble resolves the session's pins and builds its durable.Options.
 func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	out := cfg.Out
@@ -141,16 +177,12 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		return nil, err
 	}
 	// Only the user's file: a repository must not be able to start commands.
-	servers, mcpWarnings, err := mcp.LoadConfig(filepath.Join(home, ".durable", "mcp.json"))
+	servers, mcpWarnings, err := loadMCP(home, existed)
 	if err != nil {
-		// A new session fails before anything is pinned; an existing one must still resume.
-		if !existed {
-			return nil, err
-		}
-		mcpWarnings = append(mcpWarnings, strings.ReplaceAll(err.Error(), "\n", "; "))
+		return nil, err
 	}
 	// A policy the user configured must not be skipped, so unlike MCP an existing session refuses too.
-	hookCfg, hookWarnings, err := hooks.LoadConfig(filepath.Join(home, ".durable", "hooks.json"))
+	hookCfg, hookWarnings, err := readHooks(home)
 	if err != nil {
 		return nil, err
 	}

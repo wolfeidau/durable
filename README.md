@@ -93,7 +93,8 @@ durable-server url   # prints the browser link, with the token in the URL fragme
 
 ### Server config
 
-The server reads `~/.durable/config.json`. A missing file means the defaults. Precedence is default,
+The server reads `~/.durable/config.json` or `config.yaml` (or `.yml`), not both. A missing file means
+the defaults. Precedence is default,
 then file, then flag, and each flag that overrides a file value logs a warning naming the flag and
 the field, never the value. A `--provider` that names a different provider also drops the file's
 `protocol`, `model` and `api_key`.
@@ -111,6 +112,32 @@ the field, never the value. A `--provider` that names a different provider also 
 }
 ```
 
+The same file as `config.yaml`:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json
+listen:
+  addr: 127.0.0.1:7878
+  idle_timeout: 5m
+  open_timeout: 10s
+  heartbeat: 20s
+provider:
+  name: openrouter
+  model: anthropic/claude-haiku-5.5
+  api_key: op://<vault>/<item>/<field>
+git:
+  author: durable <durable@localhost>
+  hosts:
+    github:
+      token: gh
+environments:
+  default:
+    image: durable-worker:dev
+  go:
+    image: durable-worker-go:dev
+    grants: [go-modules]
+```
+
 - **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` take an `op://`
   1Password reference, `env:NAME`, or, for a git token only, `gh`. A pasted token fails validation,
   and errors never quote the value. Without `api_key`, openrouter reads `OPENROUTER_API_KEY` and
@@ -118,7 +145,8 @@ the field, never the value. A `--provider` that names a different provider also 
 - **Schema:** [`schema/durable-server.schema.json`](schema/durable-server.schema.json) is generated
   from the Go types by `mise run gen:schema`. Unknown keys, bad enums and literal secrets are
   errors, and so are an openrouter provider with no model and a git token with no environment.
-  Errors exit non-zero before the server listens.
+  Errors exit non-zero before the server listens. The server and `config check` also validate the
+  `mcp` and `hooks` files at startup.
 - **`durable-server config check`** validates the file, prints warnings, and prints each effective
   setting with its source. It reads only the files, not flags, and never resolves a secret.
   `durable-server config schema` prints the schema.
@@ -229,10 +257,10 @@ servers, and its grants.
   `.durable/skills`, `.agents/skills` and the matching folders in `~/`. **A cloned repository's
   skills go into the model's context, so treat them as untrusted input, especially with `--yes`.**
   See [docs/context.md](docs/context.md#skills).
-- **MCP tools:** a new session connects to the servers in `~/.durable/mcp.json`. Every MCP call asks
+- **MCP tools:** a new session connects to the servers in `~/.durable/mcp.json` (or `.yaml`). Every MCP call asks
   unless you use `--yes`, and a stdio server is not sandboxed. **Tool descriptions and results come
   from the server, so treat them as untrusted input.** See [docs/mcp.md](docs/mcp.md).
-- **Hooks:** `~/.durable/hooks.json` runs commands before and after tool calls, using the JSON
+- **Hooks:** `~/.durable/hooks.json` (or `.yaml`) runs commands before and after tool calls, using the JSON
   contract from Claude Code's hooks. **Hooks run as you and aren't sandboxed, and they aren't a
   security boundary:** an approved `bash` command can edit `~/.durable/hooks.json`, and the change
   applies at the next start. See [docs/hooks.md](docs/hooks.md).
@@ -282,11 +310,11 @@ model := claude.New(anthropic.NewClient(), claude.Config{System: systemPrompt})
 
 Three more packages hold the extensions, and each works with any `Tool` list:
 
-- `mcp` turns MCP server tools into `Tool`s. `mcp.LoadConfig` reads the `mcpServers` file,
+- `mcp` turns MCP server tools into `Tool`s. `mcp.ParseConfig` parses the `mcpServers` file,
   `mcp.NewPool` owns one lazily connected session per server, `Pool.Discover` lists the tools to pin,
   and `Pool.Tools` builds `Tool`s from a pinned list without connecting. Close the pool when done.
   It is separate from `tools` so importing `tools` doesn't link the MCP SDK.
-- `hooks` runs `PreToolUse` and `PostToolUse` commands. `hooks.LoadConfig` reads the file and
+- `hooks` runs `PreToolUse` and `PostToolUse` commands. `hooks.ParseConfig` parses the file and
   `hooks.New` returns a `Runner`. `Runner.Gate(base)` returns a `ToolGate` for `Options.Gate`, and
   `Runner.Wrap(tools)` wraps the tools for `Options.Tools`.
 - `skills` finds [Agent Skills](https://agentskills.io/specification). `skills.Discover` scans

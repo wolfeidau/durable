@@ -38,6 +38,10 @@ The sandboxed run executes `./cmd/durable` in Docker with egress limited to Open
 mise run test:e2e
 ```
 
+## Guiding principles
+
+- Validate upfront. Anything that can be checked before a session starts, such as config, MCP and hook files or provider settings, is checked when `durable-server` starts and by `durable-server config check`, and the server exits before listening when a check fails. A user should find a config problem at startup, not when opening a session. Sessions still re-check files that can change while the server runs.
+
 ## Durability invariants
 
 - A state change and its events commit in the same transaction.

@@ -1,4 +1,4 @@
-// Package config reads the durable-server settings from ~/.durable/config.json and the command line flags.
+// Package config reads the durable-server settings from ~/.durable/config.json or config.yaml and the command line flags.
 package config
 
 import (
@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"net/mail"
 	"os"
@@ -20,13 +19,13 @@ import (
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/githost/github"
 	"github.com/wolfeidau/durable/internal/sandbox"
+	"github.com/wolfeidau/durable/internal/userfile"
 )
 
 const (
-	// FileName is the config file inside ~/.durable.
-	FileName = "config.json"
+	// BaseName is the config file's name inside ~/.durable, before its .json, .yaml or .yml extension.
+	BaseName = "config"
 
-	configLabel = "~/.durable/config.json"
 	legacyLabel = "~/.durable/environments.json"
 
 	githubTokenEnv = "DURABLE_GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
@@ -52,7 +51,7 @@ var (
 	apiKeyRefRE = regexp.MustCompile(apiKeyRefPattern)
 )
 
-// Config is the shape of ~/.durable/config.json.
+// Config is the shape of ~/.durable/config.json or config.yaml.
 type Config struct {
 	Schema       string                 `json:"$schema,omitempty" jsonschema:"URL of this schema, so editors can validate the file."`
 	Listen       Listen                 `json:"listen,omitzero" jsonschema:"Where the server listens and how it times out clients."`
@@ -101,7 +100,6 @@ type Source string
 
 const (
 	SourceDefault Source = "default"
-	SourceFile    Source = "config.json"
 	SourceFlag    Source = "flag"
 	SourceLegacy  Source = "environments.json"
 )
@@ -134,6 +132,9 @@ type Settings struct {
 
 	errs     []error
 	identity sandbox.GitIdentity
+	// file is the config file's name, such as config.yaml; label is how errors name it.
+	file      Source
+	fileLabel string
 }
 
 func defaults() *Settings {
@@ -146,6 +147,8 @@ func defaults() *Settings {
 		GitHosts:     map[string]string{},
 		Environments: map[string]commands.Environment{},
 		Sources:      map[string]Source{},
+		file:         "config.json",
+		fileLabel:    "~/.durable/config.json",
 	}
 	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.api_key", "git.author"} {
 		s.Sources[f] = SourceDefault
@@ -165,7 +168,13 @@ func ParseGitAuthor(v string) (sandbox.GitIdentity, error) {
 // Load reads the config file and the legacy environments file under home/.durable. A missing file means the defaults.
 func Load(home string) (*Settings, error) {
 	s := defaults()
-	cfg, err := readFile(filepath.Join(home, ".durable", FileName))
+	f, err := userfile.Load(home, BaseName)
+	if err != nil {
+		return nil, err
+	}
+	s.file = Source(f.Name)
+	s.fileLabel = f.Label
+	cfg, err := s.readFile(f.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -183,26 +192,22 @@ func Load(home string) (*Settings, error) {
 	return s, nil
 }
 
-func readFile(path string) (Config, error) {
-	b, err := os.ReadFile(path) //nolint:gosec // the user's own config path
-	if errors.Is(err, fs.ErrNotExist) {
+func (s *Settings) readFile(b []byte) (Config, error) {
+	if b == nil {
 		return Config{}, nil
-	}
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to read %s: %w", configLabel, err)
 	}
 	var doc any
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return Config{}, fmt.Errorf("failed to parse %s: %w", configLabel, err)
+		return Config{}, fmt.Errorf("failed to parse %s: %w", s.fileLabel, err)
 	}
 	if err := validateDocument(doc); err != nil {
-		return Config{}, fmt.Errorf("invalid %s: %w", configLabel, err)
+		return Config{}, fmt.Errorf("invalid %s: %w", s.fileLabel, err)
 	}
 	var cfg Config
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&cfg); err != nil {
-		return Config{}, fmt.Errorf("failed to decode %s: %w", configLabel, err)
+		return Config{}, fmt.Errorf("failed to decode %s: %w", s.fileLabel, err)
 	}
 	return cfg, nil
 }
@@ -221,10 +226,10 @@ func (s *Settings) fromFile(c Config) error {
 		}
 		v, err := time.ParseDuration(d.v)
 		if err != nil {
-			return fmt.Errorf("invalid %s: %s: %w", configLabel, d.field, err)
+			return fmt.Errorf("invalid %s: %s: %w", s.fileLabel, d.field, err)
 		}
 		*d.to = v
-		s.Sources[d.field] = SourceFile
+		s.Sources[d.field] = s.file
 	}
 	for _, v := range []struct {
 		field, in string
@@ -239,16 +244,16 @@ func (s *Settings) fromFile(c Config) error {
 	} {
 		if v.in != "" {
 			*v.to = v.in
-			s.Sources[v.field] = SourceFile
+			s.Sources[v.field] = s.file
 		}
 	}
 	for kind, h := range c.Git.Hosts {
 		s.GitHosts[kind] = h.Token
-		s.Sources["git.hosts."+kind+".token"] = SourceFile
+		s.Sources["git.hosts."+kind+".token"] = s.file
 	}
 	for name, e := range c.Environments {
 		s.Environments[name] = commands.Environment{Name: name, Image: e.Image, Grants: e.Grants, Approvals: e.Approvals}
-		s.Sources["environments."+name] = SourceFile
+		s.Sources["environments."+name] = s.file
 	}
 	return nil
 }
@@ -262,14 +267,14 @@ func (s *Settings) loadLegacy(path string) error {
 		return nil
 	}
 	if len(s.Environments) > 0 {
-		s.errs = append(s.errs, fmt.Errorf("%s and %s both define environments; move them into %s and delete %s", configLabel, legacyLabel, FileName, filepath.Base(path)))
+		s.errs = append(s.errs, fmt.Errorf("%s and %s both define environments; move them into %s and delete %s", s.fileLabel, legacyLabel, s.fileLabel, filepath.Base(path)))
 		return nil
 	}
 	for name, e := range envs {
 		s.Environments[name] = e
 		s.Sources["environments."+name] = SourceLegacy
 	}
-	s.warn("environments", fmt.Sprintf("%s is deprecated; move its contents under \"environments\" in %s and delete it", legacyLabel, configLabel))
+	s.warn("environments", fmt.Sprintf("%s is deprecated; move its contents under \"environments\" in %s and delete it", legacyLabel, s.fileLabel))
 	return nil
 }
 
@@ -295,8 +300,8 @@ type Overrides struct {
 
 // override records that flag replaced field, and warns when it replaced a value from the file. It never names the value.
 func (s *Settings) override(field, flag string) {
-	if s.Sources[field] == SourceFile {
-		s.warn(field, fmt.Sprintf("%s overrides %s from %s", flag, field, configLabel))
+	if s.Sources[field] == s.file {
+		s.warn(field, fmt.Sprintf("%s overrides %s from %s", flag, field, s.fileLabel))
 	}
 	s.Sources[field] = SourceFlag
 }
@@ -372,12 +377,12 @@ func (s *Settings) dropForProvider(provider string) {
 		{"provider.model", &s.Model},
 		{"provider.api_key", &s.APIKey},
 	} {
-		if s.Sources[d.field] != SourceFile {
+		if s.Sources[d.field] != s.file {
 			continue
 		}
 		*d.to = ""
 		s.Sources[d.field] = SourceDefault
-		s.warn(d.field, fmt.Sprintf("--provider %s ignores %s from %s, which is for another provider", provider, d.field, configLabel))
+		s.warn(d.field, fmt.Sprintf("--provider %s ignores %s from %s, which is for another provider", provider, d.field, s.fileLabel))
 	}
 }
 
@@ -411,7 +416,7 @@ func (s *Settings) applySandboxImage(image string) {
 		return
 	}
 	if _, ok := s.Environments[commands.DefaultEnvironment]; ok {
-		where := configLabel
+		where := s.fileLabel
 		if s.Sources["environments."+commands.DefaultEnvironment] == SourceLegacy {
 			where = legacyLabel
 		}
@@ -429,7 +434,7 @@ func (s *Settings) Validate() error {
 		errs = append(errs, fmt.Errorf("%s and %s: %w", s.label("provider.name", "--provider"), s.label("provider.protocol", "--protocol"), err))
 	}
 	if s.Provider == commands.ProviderOpenRouter && s.Model == "" {
-		errs = append(errs, fmt.Errorf("provider openrouter needs a model; set provider.model in %s or pass --model", configLabel))
+		errs = append(errs, fmt.Errorf("provider openrouter needs a model; set provider.model in %s or pass --model", s.fileLabel))
 	}
 	id, err := ParseGitAuthor(s.GitAuthor)
 	if err != nil {

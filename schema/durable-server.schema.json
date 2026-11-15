@@ -143,6 +143,6 @@
   "$id": "https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "durable-server config",
-  "description": "Settings for durable-server, read from ~/.durable/config.json. Command line flags override them.",
+  "description": "Settings for durable-server, read from ~/.durable/config.json or config.yaml. Command line flags override them.",
   "additionalProperties": false
 }

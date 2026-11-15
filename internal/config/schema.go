@@ -32,7 +32,7 @@ func Schema() (*jsonschema.Schema, error) {
 	s.Schema = "https://json-schema.org/draft/2020-12/schema"
 	s.ID = SchemaID
 	s.Title = "durable-server config"
-	s.Description = "Settings for durable-server, read from ~/.durable/config.json. Command line flags override them."
+	s.Description = "Settings for durable-server, read from ~/.durable/config.json or config.yaml. Command line flags override them."
 
 	listen := s.Properties["listen"]
 	for _, name := range []string{"idle_timeout", "open_timeout", "heartbeat"} {

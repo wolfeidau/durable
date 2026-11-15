@@ -31,6 +31,8 @@ export const sourceTone = (source: string): string => {
     case "flag":
       return "tone-link";
     case "config.json":
+    case "config.yaml":
+    case "config.yml":
       return "tone-ok";
     case "environments.json":
       return "tone-warn";

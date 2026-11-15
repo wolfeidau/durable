@@ -7,7 +7,9 @@ Connect Model Context Protocol servers and expose their tools to the model.
 ## Configuration
 
 A new session connects to the servers in `~/.durable/mcp.json`, which uses the `mcpServers` shape
-from Claude Code.
+from Claude Code. `mcp.yaml` and `mcp.yml` are accepted with the same shape; keep only one file.
+In YAML, unquoted values in `env`, `headers` and `args` keep their exact text, so `PORT: 0755` is `"0755"`.
+Numeric and boolean fields such as `timeoutSeconds` need plain decimals and `true` or `false`. `durable-server` validates this file at startup and refuses to start on an error.
 
 - Stdio and streamable HTTP servers work. `sse` entries and OAuth don't.
 - A project `.mcp.json` is never read, because a repository must not be able to start commands.

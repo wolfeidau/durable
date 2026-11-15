@@ -40,7 +40,7 @@ func handlerJSON(t *testing.T, command string, extra map[string]any) string {
 func load(t *testing.T, event, matcher string, handlers ...string) Config {
 	t.Helper()
 	body := fmt.Sprintf(`{"hooks":{%q:[{"matcher":%q,"hooks":[%s]}]}}`, event, matcher, strings.Join(handlers, ","))
-	cfg, _, err := LoadConfig(writeConfig(t, body))
+	cfg, _, err := ParseConfig([]byte(body), label)
 	require.NoError(t, err)
 	return cfg
 }
