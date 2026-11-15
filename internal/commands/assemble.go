@@ -122,19 +122,19 @@ func loadMCP(home string, existed bool) (map[string]mcp.Server, []string, error)
 }
 
 func readMCP(home string) (map[string]mcp.Server, []string, error) {
-	path, err := userfile.Find(filepath.Join(home, ".durable"), "mcp")
+	f, err := userfile.Load(home, "mcp")
 	if err != nil {
-		return nil, nil, fmt.Errorf("~/.durable: %w", err)
+		return nil, nil, err
 	}
-	return mcp.LoadConfig(path)
+	return mcp.ParseConfig(f.Data, f.Label)
 }
 
 func readHooks(home string) (hooks.Config, []string, error) {
-	path, err := userfile.Find(filepath.Join(home, ".durable"), "hooks")
+	f, err := userfile.Load(home, "hooks")
 	if err != nil {
-		return hooks.Config{}, nil, fmt.Errorf("~/.durable: %w", err)
+		return hooks.Config{}, nil, err
 	}
-	return hooks.LoadConfig(path)
+	return hooks.ParseConfig(f.Data, f.Label)
 }
 
 // CheckUserConfig validates the user's mcp and hooks files the way a new session reads them, so the server can refuse a bad file at startup.

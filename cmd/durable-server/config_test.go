@@ -207,7 +207,9 @@ func TestInvalidHooksFailStartupBeforeListening(t *testing.T) {
 
 	out := runFailingIn(t, home, nil)
 
+	require.Contains(t, out, "~/.durable/hooks.yaml")
 	require.Contains(t, out, "bogus")
+	require.NotContains(t, out, home)
 	require.NoFileExists(t, filepath.Join(home, ".durable", "server.json"))
 }
 

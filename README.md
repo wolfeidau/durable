@@ -310,11 +310,11 @@ model := claude.New(anthropic.NewClient(), claude.Config{System: systemPrompt})
 
 Three more packages hold the extensions, and each works with any `Tool` list:
 
-- `mcp` turns MCP server tools into `Tool`s. `mcp.LoadConfig` reads the `mcpServers` file,
+- `mcp` turns MCP server tools into `Tool`s. `mcp.ParseConfig` parses the `mcpServers` file,
   `mcp.NewPool` owns one lazily connected session per server, `Pool.Discover` lists the tools to pin,
   and `Pool.Tools` builds `Tool`s from a pinned list without connecting. Close the pool when done.
   It is separate from `tools` so importing `tools` doesn't link the MCP SDK.
-- `hooks` runs `PreToolUse` and `PostToolUse` commands. `hooks.LoadConfig` reads the file and
+- `hooks` runs `PreToolUse` and `PostToolUse` commands. `hooks.ParseConfig` parses the file and
   `hooks.New` returns a `Runner`. `Runner.Gate(base)` returns a `ToolGate` for `Options.Gate`, and
   `Runner.Wrap(tools)` wraps the tools for `Options.Tools`.
 - `skills` finds [Agent Skills](https://agentskills.io/specification). `skills.Discover` scans

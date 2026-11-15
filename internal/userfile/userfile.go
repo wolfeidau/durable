@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -18,46 +19,49 @@ import (
 
 var exts = []string{".json", ".yaml", ".yml"}
 
-// Find returns the one of base.json, base.yaml and base.yml in dir. None means the base.json path, so a missing file means the defaults.
-// The error names the files only; callers add the location.
-func Find(dir, base string) (string, error) {
+// File is a user config file as JSON. Data is nil when no file exists.
+type File struct {
+	Data []byte
+	// Name is the file's base name and Label is how errors show it, never with the home directory.
+	Name, Label string
+}
+
+// Load reads the one of home/.durable/base.json, base.yaml and base.yml that exists, converting YAML so one decoder serves both.
+// A missing file returns a File with nil Data, so the caller uses its defaults.
+func Load(home, base string) (File, error) {
+	dir := filepath.Join(home, ".durable")
 	var found []string
 	for _, e := range exts {
 		if _, err := os.Stat(filepath.Join(dir, base+e)); err == nil {
 			found = append(found, base+e)
 		}
 	}
-	switch len(found) {
-	case 0:
-		return filepath.Join(dir, base+".json"), nil
-	case 1:
-		return filepath.Join(dir, found[0]), nil
+	if len(found) > 1 {
+		return File{}, fmt.Errorf("~/.durable: both %s exist; keep one", strings.Join(found, " and "))
 	}
-	return "", fmt.Errorf("both %s exist; keep one", strings.Join(found, " and "))
-}
-
-// ParseError is a file that was read but is not valid YAML or cannot be converted to JSON.
-type ParseError struct{ Err error }
-
-func (e *ParseError) Error() string { return e.Err.Error() }
-
-func (e *ParseError) Unwrap() error { return e.Err }
-
-// ReadJSON returns the file as JSON, converting YAML so one decoder serves both.
-// A read failure is returned as is and a conversion failure is a *ParseError, so callers name the file themselves.
-func ReadJSON(path string) ([]byte, error) {
-	b, err := os.ReadFile(path) //nolint:gosec // the user's own config path
+	f := File{Name: base + ".json"}
+	if len(found) == 1 {
+		f.Name = found[0]
+	}
+	f.Label = "~/.durable/" + f.Name
+	b, err := os.ReadFile(filepath.Join(dir, f.Name)) //nolint:gosec // the user's own config path
+	if errors.Is(err, fs.ErrNotExist) {
+		return f, nil
+	}
 	if err != nil {
-		return nil, err
+		// The path error would print the home directory.
+		if pe, ok := errors.AsType[*fs.PathError](err); ok {
+			err = pe.Err
+		}
+		return File{}, fmt.Errorf("failed to read %s: %w", f.Label, err)
 	}
-	if filepath.Ext(path) == ".json" {
-		return b, nil
+	if filepath.Ext(f.Name) != ".json" {
+		if b, err = yamlToJSON(b); err != nil {
+			return File{}, fmt.Errorf("failed to parse %s: %w", f.Label, err)
+		}
 	}
-	out, err := yamlToJSON(b)
-	if err != nil {
-		return nil, &ParseError{Err: err}
-	}
-	return out, nil
+	f.Data = b
+	return f, nil
 }
 
 func yamlToJSON(b []byte) ([]byte, error) {

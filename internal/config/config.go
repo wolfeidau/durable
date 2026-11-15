@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"net/mail"
 	"os"
@@ -169,13 +168,13 @@ func ParseGitAuthor(v string) (sandbox.GitIdentity, error) {
 // Load reads the config file and the legacy environments file under home/.durable. A missing file means the defaults.
 func Load(home string) (*Settings, error) {
 	s := defaults()
-	path, err := userfile.Find(filepath.Join(home, ".durable"), BaseName)
+	f, err := userfile.Load(home, BaseName)
 	if err != nil {
-		return nil, fmt.Errorf("~/.durable: %w", err)
+		return nil, err
 	}
-	s.file = Source(filepath.Base(path))
-	s.fileLabel = "~/.durable/" + filepath.Base(path)
-	cfg, err := s.readFile(path)
+	s.file = Source(f.Name)
+	s.fileLabel = f.Label
+	cfg, err := s.readFile(f.Data)
 	if err != nil {
 		return nil, err
 	}
@@ -193,16 +192,9 @@ func Load(home string) (*Settings, error) {
 	return s, nil
 }
 
-func (s *Settings) readFile(path string) (Config, error) {
-	b, err := userfile.ReadJSON(path)
-	if errors.Is(err, fs.ErrNotExist) {
+func (s *Settings) readFile(b []byte) (Config, error) {
+	if b == nil {
 		return Config{}, nil
-	}
-	if _, ok := errors.AsType[*userfile.ParseError](err); ok {
-		return Config{}, fmt.Errorf("failed to parse %s: %w", s.fileLabel, err)
-	}
-	if err != nil {
-		return Config{}, fmt.Errorf("failed to read %s: %w", s.fileLabel, err)
 	}
 	var doc any
 	if err := json.Unmarshal(b, &doc); err != nil {

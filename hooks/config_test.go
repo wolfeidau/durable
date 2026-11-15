@@ -6,13 +6,21 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wolfeidau/durable/internal/userfile"
 )
 
-func writeConfig(t *testing.T, body string) string {
+const label = "~/.durable/hooks.json"
+
+// loadFile writes body as ~/.durable/<name> under a temp home and returns the loaded file.
+func loadFile(t *testing.T, name, body string) userfile.File {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "hooks.json")
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
-	return path
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", name), []byte(body), 0o600))
+	f, err := userfile.Load(home, "hooks")
+	require.NoError(t, err)
+	return f
 }
 
 func hookConfig(handler string) string {
@@ -20,7 +28,7 @@ func hookConfig(handler string) string {
 }
 
 func TestLoadConfigMissingFile(t *testing.T) {
-	cfg, warnings, err := LoadConfig(filepath.Join(t.TempDir(), "absent.json"))
+	cfg, warnings, err := ParseConfig(nil, label)
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.True(t, cfg.Empty())
@@ -28,10 +36,10 @@ func TestLoadConfigMissingFile(t *testing.T) {
 }
 
 func TestLoadConfigCountsAndWarnings(t *testing.T) {
-	cfg, warnings, err := LoadConfig(writeConfig(t, `{"hooks":{
+	cfg, warnings, err := ParseConfig([]byte(`{"hooks":{
 		"PreToolUse":[{"matcher":"bash","hooks":[{"type":"command","command":"a"},{"type":"command","command":"b"}]}],
 		"PostToolUse":[{"hooks":[{"type":"command","command":"c","args":["x"],"timeout":5,"onFailure":"continue","useWorkspaceCwd":true}]}],
-		"Stop":[{"hooks":[]}]}}`))
+		"Stop":[{"hooks":[]}]}}`), label)
 	require.NoError(t, err)
 	require.False(t, cfg.Empty())
 	require.Equal(t, map[string]int{PreToolUse: 2, PostToolUse: 1}, cfg.Counts())
@@ -40,7 +48,7 @@ func TestLoadConfigCountsAndWarnings(t *testing.T) {
 }
 
 func TestLoadConfigEmptyGroupsAreEmpty(t *testing.T) {
-	cfg, _, err := LoadConfig(writeConfig(t, `{"hooks":{"PreToolUse":[]}}`))
+	cfg, _, err := ParseConfig([]byte(`{"hooks":{"PreToolUse":[]}}`), label)
 	require.NoError(t, err)
 	require.True(t, cfg.Empty())
 }
@@ -62,7 +70,7 @@ func TestLoadConfigErrors(t *testing.T) {
 		"misspelt post":     `{"hooks":{"POSTTOOLUSE":[]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := LoadConfig(writeConfig(t, body))
+			_, _, err := ParseConfig([]byte(body), label)
 			require.Error(t, err)
 		})
 	}
@@ -71,7 +79,7 @@ func TestLoadConfigErrors(t *testing.T) {
 func TestUnknownMatchers(t *testing.T) {
 	tools := []string{"bash", "edit_file", "mcp__s__t"}
 	load := func(body string) Config {
-		cfg, _, err := LoadConfig(writeConfig(t, body))
+		cfg, _, err := ParseConfig([]byte(body), label)
 		require.NoError(t, err)
 		return cfg
 	}
@@ -133,37 +141,35 @@ func TestMatcher(t *testing.T) {
 }
 
 func TestLoadConfigYAML(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hooks.yml")
 	body := "hooks:\n  PreToolUse:\n    - matcher: bash\n      hooks:\n        - type: command\n          command: a\n          args: [x]\n"
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
-	cfg, warnings, err := LoadConfig(path)
+	f := loadFile(t, "hooks.yml", body)
+	cfg, warnings, err := ParseConfig(f.Data, f.Label)
 	require.NoError(t, err)
 	require.Empty(t, warnings)
 	require.Equal(t, map[string]int{PreToolUse: 1}, cfg.Counts())
 
-	require.NoError(t, os.WriteFile(path, []byte(body+"          bogus: 1\n"), 0o600))
-	_, _, err = LoadConfig(path)
+	f = loadFile(t, "hooks.yml", body+"          bogus: 1\n")
+	_, _, err = ParseConfig(f.Data, f.Label)
 	require.Error(t, err)
 }
 
 func TestLoadConfigYAMLUnquotedArgs(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hooks.yaml")
-	body := "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: a\n          args: [--port, 8080, true]\n"
-	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
-	cfg, _, err := LoadConfig(path)
+	f := loadFile(t, "hooks.yaml", "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: a\n          args: [--port, 8080, true]\n")
+	cfg, _, err := ParseConfig(f.Data, f.Label)
 	require.NoError(t, err)
 	require.Equal(t, []string{"--port", "8080", "true"}, cfg.events[PreToolUse][0].hooks[0].Args)
 }
 
 func TestLoadConfigRejectsNonScalarArgs(t *testing.T) {
-	_, _, err := LoadConfig(writeConfig(t, hookConfig(`{"type":"command","command":"a","args":[[1]]}`)))
+	_, _, err := ParseConfig([]byte(hookConfig(`{"type":"command","command":"a","args":[[1]]}`)), label)
 	require.ErrorContains(t, err, "args[0] must be a string, number or boolean")
 }
 
-func TestLoadConfigYAMLSyntaxErrorNamesFileOnce(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hooks.yaml")
-	require.NoError(t, os.WriteFile(path, []byte("hooks: [1\nb: 2\n"), 0o600))
-	_, _, err := LoadConfig(path)
-	require.ErrorContains(t, err, "failed to parse hooks config "+path+": yaml: line")
-	require.NotContains(t, err.Error(), "failed to parse hooks.yaml")
+func TestLoadConfigSameErrorForJSONAndYAML(t *testing.T) {
+	jsonBody := hookConfig(`{"type":"command"}`)
+	yamlBody := "hooks:\n  PreToolUse:\n    - matcher: bash\n      hooks:\n        - type: command\n"
+	_, _, jerr := ParseConfig(loadFile(t, "hooks.json", jsonBody).Data, "~/.durable/hooks.x")
+	_, _, yerr := ParseConfig(loadFile(t, "hooks.yaml", yamlBody).Data, "~/.durable/hooks.x")
+	require.EqualError(t, jerr, "PreToolUse hooks[0] in ~/.durable/hooks.x: hooks[0]: command is required")
+	require.Equal(t, jerr.Error(), yerr.Error())
 }

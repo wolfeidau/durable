@@ -56,26 +56,19 @@ func (s *Server) UnmarshalJSON(data []byte) error {
 
 var envVar = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
-// LoadConfig reads the mcpServers map from path. A missing file means no servers.
+// ParseConfig reads the mcpServers map from JSON data, which is nil when there is no file.
 // Entries that cannot be used are skipped with a warning. A server that
 // references an unset variable is skipped too, and the error names it while the
 // other servers are still returned. The returned Type is always "stdio" or "http".
-func LoadConfig(path string) (map[string]Server, []string, error) {
-	data, err := userfile.ReadJSON(path)
-	if errors.Is(err, os.ErrNotExist) {
+func ParseConfig(data []byte, label string) (map[string]Server, []string, error) {
+	if data == nil {
 		return nil, nil, nil
-	}
-	if _, ok := errors.AsType[*userfile.ParseError](err); ok {
-		return nil, nil, fmt.Errorf("failed to parse MCP config %s: %w", path, err)
-	}
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read MCP config: %w", err)
 	}
 	var cfg struct {
 		MCPServers map[string]Server `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse MCP config %s: %w", path, err)
+		return nil, nil, fmt.Errorf("failed to parse MCP config %s: %w", label, err)
 	}
 
 	names := make([]string, 0, len(cfg.MCPServers))
