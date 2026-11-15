@@ -38,11 +38,9 @@ const (
 var GitHostKinds = []string{github.Kind}
 
 // Secret reference patterns: a pasted value matches none of them.
-//
-//nolint:gosec // patterns, not credentials
 const (
-	secretRefPattern = `^(op://.+|gh|env:[A-Za-z_][A-Za-z0-9_]*)$`
-	apiKeyRefPattern = `^(op://.+|env:[A-Za-z_][A-Za-z0-9_]*)$`
+	secretRefPattern = `^(` + creds.OpRefPattern + `|gh|env:[A-Za-z_][A-Za-z0-9_]*)$`
+	apiKeyRefPattern = `^(` + creds.OpRefPattern + `|env:[A-Za-z_][A-Za-z0-9_]*)$`
 	durationPattern  = `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`
 )
 
@@ -73,6 +71,7 @@ type Provider struct {
 	Name     string `json:"name,omitempty" jsonschema:"Model provider. Empty uses anthropic."`
 	Protocol string `json:"protocol,omitempty" jsonschema:"Wire protocol. Empty uses the provider's default."`
 	Model    string `json:"model,omitempty" jsonschema:"Model name. Required for openrouter; for anthropic, empty uses the built-in default."`
+	Effort   string `json:"effort,omitempty" jsonschema:"Reasoning effort for sessions. Empty uses the built-in default on anthropic-messages and the model's own default on openai-responses."`
 	APIKey   string `json:"api_key,omitempty" jsonschema:"Where to read the provider's API key: an op:// 1Password reference or env:NAME. Never the key itself. Empty uses the provider's default credentials."`
 }
 
@@ -119,6 +118,7 @@ type Settings struct {
 	Provider    string
 	Protocol    string
 	Model       string
+	Effort      string
 	// APIKey is a secret reference; empty leaves the provider's own credential lookup in charge.
 	APIKey    string
 	GitAuthor string
@@ -150,7 +150,7 @@ func defaults() *Settings {
 		file:         "config.json",
 		fileLabel:    "~/.durable/config.json",
 	}
-	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.api_key", "git.author"} {
+	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key", "git.author"} {
 		s.Sources[f] = SourceDefault
 	}
 	return s
@@ -239,6 +239,7 @@ func (s *Settings) fromFile(c Config) error {
 		{"provider.name", c.Provider.Name, &s.Provider},
 		{"provider.protocol", c.Provider.Protocol, &s.Protocol},
 		{"provider.model", c.Provider.Model, &s.Model},
+		{"provider.effort", c.Provider.Effort, &s.Effort},
 		{"provider.api_key", c.Provider.APIKey, &s.APIKey},
 		{"git.author", c.Git.Author, &s.GitAuthor},
 	} {
@@ -291,6 +292,7 @@ type Overrides struct {
 	Provider     string
 	Protocol     string
 	Model        string
+	Effort       string
 	SandboxImage string
 	GitHostFlags []string
 	GitAuthor    string
@@ -344,6 +346,7 @@ func (s *Settings) Apply(o Overrides) {
 		{"provider.name", "--provider", o.Provider, &s.Provider},
 		{"provider.protocol", "--protocol", o.Protocol, &s.Protocol},
 		{"provider.model", "--model", o.Model, &s.Model},
+		{"provider.effort", "--effort", o.Effort, &s.Effort},
 		{"git.author", "--git-author", o.GitAuthor, &s.GitAuthor},
 	} {
 		if v.in != "" {
@@ -367,7 +370,7 @@ func providerName(p string) string {
 	return p
 }
 
-// dropForProvider clears the file's protocol, model and key, which belong to the provider --provider replaces.
+// dropForProvider clears the file's protocol, model, effort and key, which belong to the provider --provider replaces.
 func (s *Settings) dropForProvider(provider string) {
 	for _, d := range []struct {
 		field string
@@ -375,6 +378,7 @@ func (s *Settings) dropForProvider(provider string) {
 	}{
 		{"provider.protocol", &s.Protocol},
 		{"provider.model", &s.Model},
+		{"provider.effort", &s.Effort},
 		{"provider.api_key", &s.APIKey},
 	} {
 		if s.Sources[d.field] != s.file {

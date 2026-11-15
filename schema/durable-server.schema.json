@@ -54,10 +54,14 @@
           "type": "string",
           "description": "Model name. Required for openrouter; for anthropic, empty uses the built-in default."
         },
+        "effort": {
+          "type": "string",
+          "description": "Reasoning effort for sessions. Empty uses the built-in default on anthropic-messages and the model's own default on openai-responses."
+        },
         "api_key": {
           "type": "string",
           "description": "Where to read the provider's API key: an op:// 1Password reference or env:NAME. Never the key itself. Empty uses the provider's default credentials.",
-          "pattern": "^(op://.+|env:[A-Za-z_][A-Za-z0-9_]*)$"
+          "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*)$"
         }
       },
       "description": "The model provider for new sessions. Existing sessions keep their pin.",
@@ -79,7 +83,7 @@
               "token": {
                 "type": "string",
                 "description": "Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, or env:NAME. Never the token itself.",
-                "pattern": "^(op://.+|gh|env:[A-Za-z_][A-Za-z0-9_]*)$"
+                "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|gh|env:[A-Za-z_][A-Za-z0-9_]*)$"
               }
             },
             "required": [

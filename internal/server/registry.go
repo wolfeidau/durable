@@ -39,6 +39,8 @@ type RegistryConfig struct {
 	Provider string
 	Protocol string
 	Model    string
+	// Effort applies to every open, not pinned, because it never affects replay.
+	Effort string
 	// Sandbox runs built-in tools in sandboxes; nil keeps every session local.
 	Sandbox *commands.SandboxConfig
 	// RetryBase and RetryCap bound the delay before a failed run is retried; the delay doubles from base. Zero means 5s and 5m.
@@ -324,6 +326,7 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		Observer:    s.observe,
 		Sandbox:     r.cfg.Sandbox,
 		Logger:      s.logger,
+		Effort:      r.cfg.Effort,
 	}
 	if spec != nil {
 		ac.CWD, ac.Session, ac.Workspace, ac.SessionID = spec.cwd, spec.name, spec.workspace, spec.id

@@ -3,12 +3,15 @@
 provider:
   name: openrouter
   model: openai/gpt-6-luna
+  # Reasoning effort; empty uses the model's own default on openai-responses.
+  effort: low
   api_key: op://<vault>/<item>/<field>
 git:
   author: durable <durable@localhost>
   hosts:
     github:
-      # A fine-grained PAT in 1Password. To reuse the GitHub CLI's login instead, use gh.
+      # A fine-grained PAT in 1Password; "Git host tokens" in the README lists the minimum permissions.
+      # gh reuses the GitHub CLI's login, for local dev only.
       token: op://<vault>/<item>/<field>
 environments:
   default:

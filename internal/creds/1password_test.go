@@ -131,3 +131,19 @@ func TestResolveRejectsEmptySecret(t *testing.T) {
 	_, err := ResolveAPIToken(context.Background(), "", ref)
 	require.ErrorContains(t, err, "empty secret")
 }
+
+func TestIsOpRef(t *testing.T) {
+	for _, s := range []string{"op://vault/item/field", "op://vault/item/section/field", "op://My Vault/My Item/password", "op://v/i/f?attribute=otp", "op://<vault>/<item>/<field>"} {
+		require.True(t, IsOpRef(s), s)
+	}
+	for _, s := range []string{"op://", "op://vault", "op://vault/item", "op://v//f", "op://a/b/c/d/e", "xop://v/i/f", "", "gh"} {
+		require.False(t, IsOpRef(s), s)
+	}
+}
+
+func TestResolveAPITokenRejectsAMalformedReferenceWithoutEchoingIt(t *testing.T) {
+	fakeOp(t, "echo should-not-run")
+	_, err := ResolveAPIToken(context.Background(), "", "op://vault/item")
+	require.ErrorContains(t, err, "must be an op:// secret reference")
+	require.NotContains(t, err.Error(), "vault/item")
+}

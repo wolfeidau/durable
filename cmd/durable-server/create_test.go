@@ -134,3 +134,32 @@ func (c apiClient) createRepo(t *testing.T, repo, branch string) (*v1.CreateSess
 	}
 	return resp.Msg, nil
 }
+
+func TestServeEffortReachesTheModelRequest(t *testing.T) {
+	tests := map[string]struct {
+		config string
+		args   []string
+	}{
+		"flag":   {args: []string{"--effort", "high"}},
+		"config": {config: `{"provider": {"effort": "high"}}`},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ws, home := newWorkspace(t)
+			if tc.config != "" {
+				writeConfig(t, home, tc.config)
+			}
+			api := newFakeAPI(t, textReply("DONE"), 0)
+			c := newClient(startEnv(t, home, apiEnv(api), append([]string{"--api-token", "dummy"}, tc.args...)...))
+
+			got, err := c.create(t, ws, "")
+			require.NoError(t, err)
+			require.Equal(t, "DONE", waitDone(t, c, got.GetSession().GetId()).GetResult())
+
+			api.mu.Lock()
+			defer api.mu.Unlock()
+			require.NotEmpty(t, api.bodies)
+			require.Contains(t, api.bodies[0], `"effort":"high"`)
+		})
+	}
+}

@@ -9,7 +9,8 @@ git:
   author: durable <durable@localhost>
   hosts:
     github:
-      # A fine-grained PAT in 1Password. To reuse the GitHub CLI's login instead, use gh.
+      # A fine-grained PAT in 1Password; "Git host tokens" in the README lists the minimum permissions.
+      # gh reuses the GitHub CLI's login, for local dev only.
       token: op://<vault>/<item>/<field>
 environments:
   default:

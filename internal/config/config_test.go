@@ -421,3 +421,64 @@ func TestBothConfigFilesIsAnError(t *testing.T) {
 	require.ErrorContains(t, err, "~/.durable: both config.json and config.yaml exist")
 	require.ErrorContains(t, err, "keep one")
 }
+
+func TestEffortComesFromTheFile(t *testing.T) {
+	s, err := Load(writeHome(t, map[string]string{"config.json": `{"provider": {"effort": "high"}}`}))
+	require.NoError(t, err)
+
+	require.Equal(t, "high", s.Effort)
+	require.Equal(t, Source("config.json"), s.Sources["provider.effort"])
+}
+
+func TestEffortFlagOverridesTheFileAndWarnsWithoutValues(t *testing.T) {
+	s, err := Load(writeHome(t, map[string]string{"config.json": `{"provider": {"effort": "high"}}`}))
+	require.NoError(t, err)
+
+	s.Apply(Overrides{Effort: "low-secret-effort"})
+
+	require.Equal(t, "low-secret-effort", s.Effort)
+	require.Equal(t, SourceFlag, s.Sources["provider.effort"])
+	require.Len(t, s.Warnings, 1)
+	require.Equal(t, "--effort overrides provider.effort from ~/.durable/config.json", s.Warnings[0].Message)
+}
+
+func TestProviderFlagDropsTheFileEffort(t *testing.T) {
+	s, err := Load(writeHome(t, map[string]string{"config.json": `{"provider": {"name": "openrouter", "effort": "high"}}`}))
+	require.NoError(t, err)
+
+	s.Apply(Overrides{Provider: "anthropic"})
+
+	require.Empty(t, s.Effort)
+	require.Equal(t, SourceDefault, s.Sources["provider.effort"])
+	var fields []string
+	for _, w := range s.Warnings {
+		fields = append(fields, w.Field)
+	}
+	require.Contains(t, fields, "provider.effort")
+}
+
+func TestMalformedOpReferencesAreRejectedWithoutEchoingThem(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	const bad = "op://vault/item"
+	for name, body := range map[string]string{
+		"api key":   `{"provider": {"api_key": "` + bad + `"}}`,
+		"git token": `{"git": {"hosts": {"github": {"token": "` + bad + `"}}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeHome(t, map[string]string{"config.json": body}))
+
+			require.Error(t, err)
+			require.NotContains(t, err.Error(), bad)
+		})
+	}
+	t.Run("flag", func(t *testing.T) {
+		s, err := Load(t.TempDir())
+		require.NoError(t, err)
+
+		s.Apply(Overrides{GitHostFlags: []string{"github=" + bad}})
+		err = s.Validate()
+
+		require.ErrorContains(t, err, "--git-host-token github must be an op:// secret reference")
+		require.NotContains(t, err.Error(), bad)
+	})
+}

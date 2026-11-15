@@ -38,6 +38,7 @@ type serveCmd struct {
 	Provider              string        `help:"Model provider for new sessions: anthropic or openrouter. Empty uses anthropic. Existing sessions keep their pin."`
 	Protocol              string        `help:"Wire protocol for new sessions: anthropic-messages or openai-responses. Empty uses the provider's default (anthropic: anthropic-messages, openrouter: openai-responses)."`
 	Model                 string        `help:"Model name for new sessions. Required for new openrouter sessions, which pin it. For anthropic, empty uses the built-in default."`
+	Effort                string        `help:"Reasoning effort for every session the server runs. Empty uses the built-in default on anthropic-messages and the model's own default on openai-responses."`
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, provider.api_key from the config file applies, then OPENROUTER_API_KEY for openrouter."`
 	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker), as the \"default\" environment. Environments in ~/.durable/config.json or config.yaml add images and network grants. Existing sessions keep their pin."`
@@ -68,7 +69,7 @@ type serverInfo struct {
 func (c *serveCmd) overrides() config.Overrides {
 	o := config.Overrides{
 		Addr: c.Addr, IdleTimeout: c.IdleTimeout, OpenTimeout: c.OpenTimeout, Heartbeat: c.Heartbeat,
-		Provider: c.Provider, Protocol: c.Protocol, Model: c.Model,
+		Provider: c.Provider, Protocol: c.Protocol, Model: c.Model, Effort: c.Effort,
 		SandboxImage: c.SandboxImage, GitHostFlags: c.GitHostTokens, GitAuthor: c.GitAuthor,
 	}
 	switch {
@@ -185,6 +186,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		Provider:    settings.Provider,
 		Protocol:    settings.Protocol,
 		Model:       settings.Model,
+		Effort:      settings.Effort,
 		Sandbox:     sandboxCfg,
 		Logger:      logger,
 	})

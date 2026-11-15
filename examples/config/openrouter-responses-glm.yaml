@@ -8,7 +8,8 @@ git:
   author: durable <durable@localhost>
   hosts:
     github:
-      # The GitHub CLI's token, from `gh auth token`. For a 1Password PAT use op://<vault>/<item>/<field>.
+      # Dev only: gh's token reaches every repo your login can. Elsewhere use a fine-grained PAT,
+      # op://<vault>/<item>/<field>; see "Git host tokens" in the README.
       token: gh
 environments:
   default:
