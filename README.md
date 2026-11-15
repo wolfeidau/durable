@@ -103,8 +103,8 @@ the field, never the value. A `--provider` that names a different provider also 
 {
   "$schema": "https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json",
   "listen": { "addr": "127.0.0.1:7878", "idle_timeout": "5m", "open_timeout": "10s", "heartbeat": "20s" },
-  "provider": { "name": "openrouter", "model": "anthropic/claude-haiku-5.5", "api_key": "op://<vault>/<item>/<field>" },
-  "git": { "author": "durable <durable@localhost>", "hosts": { "github": { "token": "gh" } } },
+  "provider": { "name": "openrouter", "protocol": "anthropic-messages", "model": "anthropic/claude-haiku-5.5", "effort": "medium", "api_key": "op://<vault>/<item>/<field>" },
+  "git": { "author": "durable <durable@localhost>", "hosts": { "github": { "token": "op://<vault>/<item>/<field>" } } },
   "environments": {
     "default": { "image": "durable-worker:dev" },
     "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] }
@@ -123,13 +123,15 @@ listen:
   heartbeat: 20s
 provider:
   name: openrouter
+  protocol: anthropic-messages
   model: anthropic/claude-haiku-5.5
+  effort: medium
   api_key: op://<vault>/<item>/<field>
 git:
   author: durable <durable@localhost>
   hosts:
     github:
-      token: gh
+      token: op://<vault>/<item>/<field>
 environments:
   default:
     image: durable-worker:dev
@@ -138,8 +140,22 @@ environments:
     grants: [go-modules]
 ```
 
+- **Examples:** [`examples/config`](examples/config) has one file per provider, protocol and model
+  combination the integration tests cover, with GitHub tokens from a 1Password PAT or, for local dev,
+  the `gh` CLI:
+
+  | File | Provider | Protocol | Model | GitHub token |
+  |---|---|---|---|---|
+  | `anthropic.yaml` | `anthropic` | `anthropic-messages` | default | `gh` |
+  | `openrouter-responses-gpt.yaml` | `openrouter` | `openai-responses` | `openai/gpt-6-luna`, effort `low` | 1Password |
+  | `openrouter-responses-glm.yaml` | `openrouter` | `openai-responses` | `z-ai/glm-5.3-flash` | `gh` |
+  | `openrouter-messages-claude.yaml` | `openrouter` | `anthropic-messages` | `anthropic/claude-haiku-5.5` | 1Password |
+  | `openrouter-messages-glm.yaml` | `openrouter` | `anthropic-messages` | `z-ai/glm-5.3-flash` | `gh` |
+
+- **Effort:** `provider.effort` (or `--effort`) sets reasoning effort for every session the server
+  runs, as the CLI's `--effort` does. It isn't pinned, so a change applies when a session next opens.
 - **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` take an `op://`
-  1Password reference, `env:NAME`, or, for a git token only, `gh`. A pasted token fails validation,
+  1Password reference (`op://<vault>/<item>/[<section>/]<field>`, checked at startup), `env:NAME`, or, for a git token only, `gh`. A pasted token fails validation,
   and errors never quote the value. Without `api_key`, openrouter reads `OPENROUTER_API_KEY` and
   anthropic uses the SDK's credentials.
 - **Schema:** [`schema/durable-server.schema.json`](schema/durable-server.schema.json) is generated
@@ -194,14 +210,22 @@ session.
 GitHub is the only git host so far.
 
 - `--git-host-token github=<source>` takes an `op://` reference, `env:NAME` or `gh`, which runs
-  `gh auth token`. Without it, `git.hosts.github.token` in the config applies, then
+  `gh auth token`. **`gh` is for local dev only:** its token usually reaches every repo your login can. Without it, `git.hosts.github.token` in the config applies, then
   `DURABLE_GITHUB_TOKEN`. `GITHUB_TOKEN` and `GH_TOKEN` are never read.
 - At startup the server checks each token with `GET /user` and logs the login, kind and scopes,
   never the token. A bad token fails startup. The source is read again on each sandbox create or
   start, so a rotated token takes effect without a restart.
 - The token stays on the server; the sandbox sees only a placeholder, and each session's policy
-  limits git to its own repo. **Use a fine-grained token** with contents read and write on the repos
-  durable should reach; a classic or `gh` token usually reaches every repo you can.
+  limits git to its own repo. **Use a fine-grained token** scoped to the repos durable should reach;
+  a classic or `gh` token usually reaches every repo you can. Minimum repository permissions:
+
+  | Permission | Access | Needed for |
+  |---|---|---|
+  | Metadata | Read | Always (GitHub adds it automatically) |
+  | Contents | Read and write | Clone and push |
+  | Pull requests | Read and write | The `github-api` grant: open, edit and comment on PRs |
+  | Issues | Read and write | The `github-api` grant: issues, comments and labels |
+
 - With no token, repo sessions clone public repos anonymously and `git push` fails. Repo access is
   fixed at create, so adding a token later doesn't upgrade an existing session.
 - The server keeps one OpenShell provider and profile, `durable-github`, shared across sessions. To

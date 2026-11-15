@@ -7,14 +7,24 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 )
 
 const (
-	opRefPrefix = "op://"
-	ghSource    = "gh"
-	envPrefix   = "env:"
+	ghSource  = "gh"
+	envPrefix = "env:"
 )
+
+// OpRefPattern is op://vault/item/[section/]field with an optional ?attribute=..., unanchored so callers can embed it.
+const OpRefPattern = `op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\?.+)?`
+
+var opRefRE = regexp.MustCompile(`^` + OpRefPattern + `$`)
+
+// IsOpRef reports whether s is a well-formed 1Password secret reference.
+func IsOpRef(s string) bool {
+	return opRefRE.MatchString(s)
+}
 
 // Source says where a secret comes from.
 type Source struct {
@@ -36,7 +46,7 @@ func Resolve(ctx context.Context, s Source) (string, error) {
 			return "", fmt.Errorf("failed to read %s from gh: %w", s.Flag, err)
 		}
 		return secret, nil
-	case strings.HasPrefix(s.Value, opRefPrefix):
+	case IsOpRef(s.Value):
 		secret, err := readOp(ctx, s.Value)
 		if err != nil {
 			return "", fmt.Errorf("failed to read %s from 1Password: %w", s.Flag, err)
@@ -69,7 +79,7 @@ func ResolveAPIToken(ctx context.Context, token, tokenFrom1Password string) (str
 	}
 
 	// Never echo the value: a token pasted here by mistake must not reach an error or op's stderr.
-	if !strings.HasPrefix(tokenFrom1Password, opRefPrefix) {
+	if !IsOpRef(tokenFrom1Password) {
 		return "", errors.New("--api-token-from-1password must be an op:// secret reference")
 	}
 	opToken, err := readOp(ctx, tokenFrom1Password)

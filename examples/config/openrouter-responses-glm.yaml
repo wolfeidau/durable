@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json
+# OpenRouter, openai-responses (the default protocol), with a non-OpenAI model.
+provider:
+  name: openrouter
+  model: z-ai/glm-5.3-flash
+  api_key: env:OPENROUTER_API_KEY
+git:
+  author: durable <durable@localhost>
+  hosts:
+    github:
+      # Dev only: gh's token reaches every repo your login can. Elsewhere use a fine-grained PAT,
+      # op://<vault>/<item>/<field>; see "Git host tokens" in the README.
+      token: gh
+environments:
+  default:
+    image: durable-worker:dev
+    grants: [github-api]
+

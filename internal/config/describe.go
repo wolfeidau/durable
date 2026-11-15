@@ -49,6 +49,7 @@ func (s *Settings) Entries() []Entry {
 	line("provider.name", orDefault(s.Provider, "anthropic"))
 	line("provider.protocol", orDefault(s.Protocol, "provider default"))
 	line("provider.model", orDefault(s.Model, "built-in default"))
+	line("provider.effort", orDefault(s.Effort, "provider default"))
 	switch {
 	case s.APIKey != "":
 		line("provider.api_key", describeRef(s.APIKey))

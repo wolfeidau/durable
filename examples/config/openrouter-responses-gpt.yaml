@@ -1,0 +1,20 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json
+# OpenRouter, openai-responses (the default protocol), with an OpenAI reasoning model.
+provider:
+  name: openrouter
+  model: openai/gpt-6-luna
+  # Reasoning effort; empty uses the model's own default on openai-responses.
+  effort: low
+  api_key: op://<vault>/<item>/<field>
+git:
+  author: durable <durable@localhost>
+  hosts:
+    github:
+      # A fine-grained PAT in 1Password; "Git host tokens" in the README lists the minimum permissions.
+      # gh reuses the GitHub CLI's login, for local dev only.
+      token: op://<vault>/<item>/<field>
+environments:
+  default:
+    image: durable-worker:dev
+    grants: [github-api]
+

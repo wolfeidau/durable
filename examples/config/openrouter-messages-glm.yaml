@@ -1,0 +1,19 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json
+# OpenRouter, anthropic-messages, with a non-Claude model.
+provider:
+  name: openrouter
+  protocol: anthropic-messages
+  model: z-ai/glm-5.3-flash
+  api_key: op://<vault>/<item>/<field>
+git:
+  author: durable <durable@localhost>
+  hosts:
+    github:
+      # Dev only: gh's token reaches every repo your login can. Elsewhere use a fine-grained PAT,
+      # op://<vault>/<item>/<field>; see "Git host tokens" in the README.
+      token: gh
+environments:
+  default:
+    image: durable-worker:dev
+    grants: [github-api]
+
