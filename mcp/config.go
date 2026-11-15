@@ -9,6 +9,8 @@ import (
 	"os"
 	"regexp"
 	"slices"
+
+	"github.com/wolfeidau/durable/internal/userfile"
 )
 
 const (
@@ -36,7 +38,7 @@ var envVar = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 // references an unset variable is skipped too, and the error names it while the
 // other servers are still returned. The returned Type is always "stdio" or "http".
 func LoadConfig(path string) (map[string]Server, []string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the path is the caller's trusted config file
+	data, err := userfile.ReadJSON(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil
 	}

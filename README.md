@@ -93,7 +93,8 @@ durable-server url   # prints the browser link, with the token in the URL fragme
 
 ### Server config
 
-The server reads `~/.durable/config.json`. A missing file means the defaults. Precedence is default,
+The server reads `~/.durable/config.json` or `config.yaml` (or `.yml`), not both. A missing file means
+the defaults. Precedence is default,
 then file, then flag, and each flag that overrides a file value logs a warning naming the flag and
 the field, never the value. A `--provider` that names a different provider also drops the file's
 `protocol`, `model` and `api_key`.
@@ -109,6 +110,32 @@ the field, never the value. A `--provider` that names a different provider also 
     "go": { "image": "durable-worker-go:dev", "grants": ["go-modules"] }
   }
 }
+```
+
+The same file as `config.yaml`:
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json
+listen:
+  addr: 127.0.0.1:7878
+  idle_timeout: 5m
+  open_timeout: 10s
+  heartbeat: 20s
+provider:
+  name: openrouter
+  model: anthropic/claude-haiku-5.5
+  api_key: op://<vault>/<item>/<field>
+git:
+  author: durable <durable@localhost>
+  hosts:
+    github:
+      token: gh
+environments:
+  default:
+    image: durable-worker:dev
+  go:
+    image: durable-worker-go:dev
+    grants: [go-modules]
 ```
 
 - **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` take an `op://`
@@ -229,10 +256,10 @@ servers, and its grants.
   `.durable/skills`, `.agents/skills` and the matching folders in `~/`. **A cloned repository's
   skills go into the model's context, so treat them as untrusted input, especially with `--yes`.**
   See [docs/context.md](docs/context.md#skills).
-- **MCP tools:** a new session connects to the servers in `~/.durable/mcp.json`. Every MCP call asks
+- **MCP tools:** a new session connects to the servers in `~/.durable/mcp.json` (or `.yaml`). Every MCP call asks
   unless you use `--yes`, and a stdio server is not sandboxed. **Tool descriptions and results come
   from the server, so treat them as untrusted input.** See [docs/mcp.md](docs/mcp.md).
-- **Hooks:** `~/.durable/hooks.json` runs commands before and after tool calls, using the JSON
+- **Hooks:** `~/.durable/hooks.json` (or `.yaml`) runs commands before and after tool calls, using the JSON
   contract from Claude Code's hooks. **Hooks run as you and aren't sandboxed, and they aren't a
   security boundary:** an approved `bash` command can edit `~/.durable/hooks.json`, and the change
   applies at the next start. See [docs/hooks.md](docs/hooks.md).

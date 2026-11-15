@@ -62,7 +62,7 @@ func TestGitHubTokenDefaultsToTheEnvironmentVariableOnlyWhenSet(t *testing.T) {
 	s, err = Load(home)
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{"github": "gh"}, s.GitHosts)
-	require.Equal(t, SourceFile, s.Sources["git.hosts.github.token"])
+	require.Equal(t, Source("config.json"), s.Sources["git.hosts.github.token"])
 }
 
 func TestFullFile(t *testing.T) {
@@ -82,7 +82,7 @@ func TestFullFile(t *testing.T) {
 	require.Equal(t, "Ada Lovelace", s.GitIdentity().Name)
 	require.Equal(t, map[string]string{"github": "gh"}, s.GitHosts)
 	require.Equal(t, commands.Environment{Name: "go", Image: "durable-worker-go:dev", Grants: []string{"go-modules"}}, s.Environments["go"])
-	require.Equal(t, SourceFile, s.Sources["environments.go"])
+	require.Equal(t, Source("config.json"), s.Sources["environments.go"])
 	require.Empty(t, s.Warnings)
 }
 
@@ -170,7 +170,7 @@ func TestFlagsOverrideTheFileAndWarnWithoutValues(t *testing.T) {
 	require.Empty(t, s.APIKey)
 	require.Equal(t, "env:FLAG_TOKEN", s.GitHosts["github"])
 	require.Equal(t, SourceFlag, s.Sources["listen.addr"])
-	require.Equal(t, SourceFile, s.Sources["listen.open_timeout"])
+	require.Equal(t, Source("config.json"), s.Sources["listen.open_timeout"])
 	fields := map[string]string{}
 	for _, w := range s.Warnings {
 		fields[w.Field] = w.Message
@@ -358,4 +358,63 @@ func TestGeneratedSchemaMatchesTheCommittedFile(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, string(want), string(got), "run go generate ./internal/config")
+}
+
+const fullYAML = `# yaml-language-server: $schema=` + SchemaID + `
+$schema: ` + SchemaID + `
+listen:
+  addr: 127.0.0.1:9000
+  idle_timeout: 2m
+  open_timeout: 5s
+  heartbeat: 1m30s
+provider:
+  name: openrouter
+  protocol: openai-responses
+  model: vendor/model
+  api_key: op://vault/item/field
+git:
+  author: Ada Lovelace <ada@example.com>
+  hosts:
+    github:
+      token: gh
+environments:
+  default:
+    image: durable-worker:dev
+  go:
+    image: durable-worker-go:dev
+    grants: [go-modules]
+`
+
+func TestYAMLFileLoadsEqualToJSON(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	fromJSON, err := Load(writeHome(t, map[string]string{"config.json": fullFile}))
+	require.NoError(t, err)
+	for _, name := range []string{"config.yaml", "config.yml"} {
+		fromYAML, err := Load(writeHome(t, map[string]string{name: fullYAML}))
+		require.NoError(t, err)
+		require.NoError(t, fromYAML.Validate())
+		require.Equal(t, fromJSON.Addr, fromYAML.Addr)
+		require.Equal(t, fromJSON.IdleTimeout, fromYAML.IdleTimeout)
+		require.Equal(t, fromJSON.Provider, fromYAML.Provider)
+		require.Equal(t, fromJSON.APIKey, fromYAML.APIKey)
+		require.Equal(t, fromJSON.GitAuthor, fromYAML.GitAuthor)
+		require.Equal(t, fromJSON.GitHosts, fromYAML.GitHosts)
+		require.Equal(t, fromJSON.Environments, fromYAML.Environments)
+		require.Equal(t, Source(name), fromYAML.Sources["environments.go"])
+		require.Equal(t, Source(name), fromYAML.Sources["provider.model"])
+	}
+}
+
+func TestYAMLErrorsNameTheFile(t *testing.T) {
+	_, err := Load(writeHome(t, map[string]string{"config.yaml": "listen:\n  bogus: 1\n"}))
+	require.ErrorContains(t, err, "~/.durable/config.yaml")
+
+	_, err = Load(writeHome(t, map[string]string{"config.yaml": "listen:\n  idle_timeout: soon\n"}))
+	require.ErrorContains(t, err, "~/.durable/config.yaml")
+}
+
+func TestBothConfigFilesIsAnError(t *testing.T) {
+	_, err := Load(writeHome(t, map[string]string{"config.json": `{}`, "config.yaml": ""}))
+	require.ErrorContains(t, err, "config.json and config.yaml")
+	require.ErrorContains(t, err, "keep one")
 }

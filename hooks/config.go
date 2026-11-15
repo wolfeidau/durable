@@ -12,6 +12,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/wolfeidau/durable/internal/userfile"
 )
 
 const (
@@ -98,7 +100,7 @@ type rawGroup struct {
 // unsupported event is a warning. Anything else that cannot be honoured is an
 // error, because silently skipping a safety hook is worse than not starting.
 func LoadConfig(path string) (Config, []string, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // the path is the caller's trusted config file
+	data, err := userfile.ReadJSON(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Config{}, nil, nil
 	}

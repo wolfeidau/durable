@@ -37,6 +37,8 @@ describe("server settings", () => {
     expect(sourceLabel("")).toBe("unknown");
     expect(sourceTone("flag")).toBe("tone-link");
     expect(sourceTone("config.json")).toBe("tone-ok");
+    expect(sourceTone("config.yaml")).toBe("tone-ok");
+    expect(sourceTone("config.yml")).toBe("tone-ok");
     expect(sourceTone("default")).toBe("tone-muted");
   });
 });

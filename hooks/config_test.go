@@ -131,3 +131,17 @@ func TestMatcher(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadConfigYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hooks.yml")
+	body := "hooks:\n  PreToolUse:\n    - matcher: bash\n      hooks:\n        - type: command\n          command: a\n          args: [x]\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	cfg, warnings, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, map[string]int{PreToolUse: 1}, cfg.Counts())
+
+	require.NoError(t, os.WriteFile(path, []byte(body+"          bogus: 1\n"), 0o600))
+	_, _, err = LoadConfig(path)
+	require.Error(t, err)
+}

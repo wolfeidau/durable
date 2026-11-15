@@ -100,3 +100,14 @@ func TestLoadConfigDoesNotExpandCommandOrArgs(t *testing.T) {
 	require.Equal(t, "${NOPE}", servers["a"].Command)
 	require.Equal(t, []string{"${NOPE}"}, servers["a"].Args)
 }
+
+func TestLoadConfigYAML(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("mcpServers:\n  a:\n    command: srv\n    args: [-x]\n  b:\n    url: http://localhost/mcp\n"), 0o600))
+	servers, warnings, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Empty(t, warnings)
+	require.Equal(t, typeStdio, servers["a"].Type)
+	require.Equal(t, []string{"-x"}, servers["a"].Args)
+	require.Equal(t, typeHTTP, servers["b"].Type)
+}

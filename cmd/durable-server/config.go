@@ -8,8 +8,8 @@ import (
 )
 
 type configCmd struct {
-	Check  configCheckCmd  `cmd:"" help:"Validate ~/.durable/config.json and print the effective settings with their sources. Never resolves a secret or contacts a host."`
-	Schema configSchemaCmd `cmd:"" help:"Print the JSON Schema of ~/.durable/config.json."`
+	Check  configCheckCmd  `cmd:"" help:"Validate ~/.durable/config.json or config.yaml and print the effective settings with their sources. Never resolves a secret or contacts a host."`
+	Schema configSchemaCmd `cmd:"" help:"Print the JSON Schema of ~/.durable/config.json and config.yaml."`
 }
 
 type configCheckCmd struct{}

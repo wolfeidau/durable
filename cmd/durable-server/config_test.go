@@ -168,3 +168,27 @@ func TestConfigSchemaPrintsTheCommittedFile(t *testing.T) {
 	require.NoError(t, err, out)
 	require.Equal(t, string(want), out)
 }
+
+func TestConfigCheckReadsYAML(t *testing.T) {
+	home := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	body := "# yaml-language-server: $schema=x\nlisten:\n  idle_timeout: 2m\nenvironments:\n  go:\n    image: durable-worker-go:dev\n"
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "config.yaml"), []byte(body), 0o600))
+
+	out, err := runConfig(t, home, "check")
+
+	require.NoError(t, err, out)
+	require.Regexp(t, `listen\.idle_timeout\s+2m0s\s+\[config\.yaml\]`, out)
+	require.Regexp(t, `environments\.go\s+image=durable-worker-go:dev\s+\[config\.yaml\]`, out)
+}
+
+func TestConfigCheckRejectsBothConfigFiles(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, `{}`)
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "config.yaml"), []byte("{}\n"), 0o600))
+
+	out, err := runConfig(t, home, "check")
+
+	require.Error(t, err, out)
+	require.Contains(t, out, "config.json and config.yaml")
+}

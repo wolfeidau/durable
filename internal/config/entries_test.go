@@ -29,9 +29,9 @@ func TestEntriesCoverEveryFieldWithSourcesAndNoSecretReferences(t *testing.T) {
 		"provider.name", "provider.protocol", "provider.model", "provider.api_key",
 		"git.author", "git.hosts.github.token", "environments.go",
 	}, fields)
-	require.Equal(t, Entry{Field: "provider.model", Value: "vendor/model", Source: SourceFile}, got["provider.model"])
-	require.Equal(t, Entry{Field: "provider.api_key", Value: "1Password", Source: SourceFile}, got["provider.api_key"])
+	require.Equal(t, Entry{Field: "provider.model", Value: "vendor/model", Source: Source("config.json")}, got["provider.model"])
+	require.Equal(t, Entry{Field: "provider.api_key", Value: "1Password", Source: Source("config.json")}, got["provider.api_key"])
 	require.Equal(t, "1Password", got["git.hosts.github.token"].Value)
 	require.Equal(t, Entry{Field: "listen.addr", Value: "127.0.0.1:7878", Source: SourceDefault}, got["listen.addr"])
-	require.Equal(t, Entry{Field: "environments.go", Value: "image=durable-worker-go:dev grants=go-modules approvals=auto", Source: SourceFile}, got["environments.go"])
+	require.Equal(t, Entry{Field: "environments.go", Value: "image=durable-worker-go:dev grants=go-modules approvals=auto", Source: Source("config.json")}, got["environments.go"])
 }
