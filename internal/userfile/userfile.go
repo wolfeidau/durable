@@ -8,10 +8,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"math"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -169,33 +167,18 @@ func mergeInto(out map[string]any, merges []*yaml.Node, path string) error {
 	return nil
 }
 
+// convertScalar keeps a scalar's exact text, so only a valid JSON number or exactly true or false stays typed.
 func convertScalar(n *yaml.Node, path string) (any, error) {
 	switch tag := n.ShortTag(); tag {
 	case "!!str", "!!timestamp":
 		return n.Value, nil
 	case "!!null":
 		return nil, nil
-	case "!!bool":
-		var b bool
-		if err := n.Decode(&b); err != nil {
-			return nil, fmt.Errorf("%s: %w", pathOrRoot(path), err)
+	case "!!bool", "!!int", "!!float":
+		if n.Value == "true" || n.Value == "false" || json.Valid([]byte(n.Value)) {
+			return json.RawMessage(n.Value), nil
 		}
-		return b, nil
-	case "!!int", "!!float":
-		if json.Valid([]byte(n.Value)) {
-			return json.Number(n.Value), nil
-		}
-		var v any
-		if err := n.Decode(&v); err != nil {
-			return nil, fmt.Errorf("%s: %w", pathOrRoot(path), err)
-		}
-		if f, ok := v.(float64); ok {
-			if math.IsInf(f, 0) || math.IsNaN(f) {
-				return nil, fmt.Errorf("%s: %s cannot be represented in JSON", pathOrRoot(path), n.Value)
-			}
-			return json.Number(strconv.FormatFloat(f, 'g', -1, 64)), nil
-		}
-		return v, nil
+		return n.Value, nil
 	default:
 		return nil, fmt.Errorf("%s: tag %s is not supported", pathOrRoot(path), tag)
 	}

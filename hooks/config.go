@@ -149,7 +149,7 @@ func ParseConfig(data []byte, label string) (Config, []string, error) {
 		for i, rg := range raws {
 			g, err := buildGroup(rg)
 			if err != nil {
-				return Config{}, nil, fmt.Errorf("%s hooks[%d] in %s: %w", event, i, label, err)
+				return Config{}, nil, fmt.Errorf("%s[%d] in %s: %w", event, i, label, err)
 			}
 			cfg.events[event] = append(cfg.events[event], g)
 		}
@@ -193,7 +193,7 @@ func strictDecode(data []byte, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return err
+		return userfile.DescribeDecodeError(err)
 	}
 	if dec.More() {
 		return errors.New("unexpected data after JSON value")

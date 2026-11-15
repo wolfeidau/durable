@@ -65,10 +65,10 @@ func ParseConfig(data []byte, label string) (map[string]Server, []string, error)
 		return nil, nil, nil
 	}
 	var cfg struct {
-		MCPServers map[string]Server `json:"mcpServers"`
+		MCPServers map[string]json.RawMessage `json:"mcpServers"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, nil, fmt.Errorf("failed to parse MCP config %s: %w", label, err)
+		return nil, nil, fmt.Errorf("failed to parse MCP config %s: %w", label, userfile.DescribeDecodeError(err))
 	}
 
 	names := make([]string, 0, len(cfg.MCPServers))
@@ -77,11 +77,27 @@ func ParseConfig(data []byte, label string) (map[string]Server, []string, error)
 	}
 	slices.Sort(names)
 
+	parsed := make(map[string]Server, len(names))
+	for _, name := range names {
+		var s Server
+		if err := json.Unmarshal(cfg.MCPServers[name], &s); err != nil {
+			// The unmarshaler hides the path, so the server name goes in by hand.
+			if ute, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
+				ute.Field = "mcpServers." + name + "." + ute.Field
+				err = userfile.DescribeDecodeError(ute)
+			} else {
+				err = fmt.Errorf("mcpServers.%s: %w", name, err)
+			}
+			return nil, nil, fmt.Errorf("failed to parse MCP config %s: %w", label, err)
+		}
+		parsed[name] = s
+	}
+
 	servers := map[string]Server{}
 	var warnings []string
 	var errs []error
 	for _, name := range names {
-		s := cfg.MCPServers[name]
+		s := parsed[name]
 		switch {
 		case s.Type == "" && s.Command != "":
 			s.Type = typeStdio
@@ -99,8 +115,8 @@ func ParseConfig(data []byte, label string) (map[string]Server, []string, error)
 			continue
 		}
 		var envErr, headerErr error
-		s.Env, envErr = expand(name, s.Env)
-		s.Headers, headerErr = expand(name, s.Headers)
+		s.Env, envErr = expand(label, name, "env", s.Env)
+		s.Headers, headerErr = expand(label, name, "headers", s.Headers)
 		if err := errors.Join(envErr, headerErr); err != nil {
 			errs = append(errs, err)
 			continue
@@ -110,24 +126,34 @@ func ParseConfig(data []byte, label string) (map[string]Server, []string, error)
 	return servers, warnings, errors.Join(errs...)
 }
 
-func expand(server string, m map[string]string) (map[string]string, error) {
+func expand(label, server, kind string, m map[string]string) (map[string]string, error) {
 	if m == nil {
 		return nil, nil
 	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
 	out := make(map[string]string, len(m))
-	for k, v := range m {
-		var missing string
-		out[k] = envVar.ReplaceAllStringFunc(v, func(ref string) string {
+	var errs []error
+	for _, k := range keys {
+		var missing []string
+		out[k] = envVar.ReplaceAllStringFunc(m[k], func(ref string) string {
 			name := ref[2 : len(ref)-1]
 			val, ok := os.LookupEnv(name)
-			if !ok && missing == "" {
-				missing = name
+			if !ok && !slices.Contains(missing, name) {
+				missing = append(missing, name)
 			}
 			return val
 		})
-		if missing != "" {
-			return nil, fmt.Errorf("mcp server %q: %q references unset environment variable %s", server, k, missing)
+		slices.Sort(missing)
+		for _, name := range missing {
+			errs = append(errs, fmt.Errorf("%s: mcp server %q: %s %s references unset environment variable %s; set it in the environment durable-server runs in, or remove the reference", label, server, kind, k, name))
 		}
+	}
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 	return out, nil
 }

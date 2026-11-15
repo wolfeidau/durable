@@ -103,13 +103,14 @@ func TestLoadKeepsScalarText(t *testing.T) {
 	require.JSONEq(t, `{"a":"2024-01-01"}`, yamlJSON(t, "a: 2024-01-01\n"))
 	require.JSONEq(t, `{"a":"2024-01-01T10:00:00Z"}`, yamlJSON(t, "a: 2024-01-01T10:00:00Z\n"))
 	require.Equal(t, `{"a":1.0,"b":0.50}`, yamlJSON(t, "a: 1.0\nb: 0.50\n"))
-	require.JSONEq(t, `{"a":31,"b":true,"c":null,"d":"8080"}`, yamlJSON(t, "a: 0x1F\nb: true\nc: ~\nd: \"8080\"\n"))
+	require.JSONEq(t, `{"a":"0x1F","b":true,"c":null,"d":"8080"}`, yamlJSON(t, "a: 0x1F\nb: true\nc: ~\nd: \"8080\"\n"))
 }
 
-func TestLoadInfAndNaNError(t *testing.T) {
-	for _, v := range []string{".inf", "-.inf", ".nan"} {
-		require.ErrorContains(t, yamlErr(t, "x:\n  y: "+v+"\n"), "x.y")
+func TestLoadOnlyJSONLiteralsStayTyped(t *testing.T) {
+	for _, v := range []string{"0755", "02134", "1_000", "0x1F", ".5", "+1", "True", "FALSE", ".inf", "-.inf", ".nan", "0o17"} {
+		require.JSONEq(t, `{"a":"`+v+`"}`, yamlJSON(t, "a: "+v+"\n"), v)
 	}
+	require.JSONEq(t, `{"a":8080,"b":1.0,"c":-3,"d":1e3,"e":false}`, yamlJSON(t, "a: 8080\nb: 1.0\nc: -3\nd: 1e3\ne: false\n"))
 }
 
 func TestLoadMergeKey(t *testing.T) {

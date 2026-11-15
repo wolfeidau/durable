@@ -215,11 +215,11 @@ func TestInvalidHooksFailStartupBeforeListening(t *testing.T) {
 
 func TestUnsetMCPVariableFailsStartupNamingIt(t *testing.T) {
 	home := t.TempDir()
-	writeUserFile(t, home, "mcp.json", `{"mcpServers":{"a":{"command":"srv","env":{"K":"${DURABLE_TEST_UNSET_VAR}"}}}}`)
+	writeUserFile(t, home, "mcp.yaml", "mcpServers:\n  a:\n    command: srv\n    env:\n      K: ${DURABLE_TEST_UNSET_VAR}\n")
 
 	out := runFailingIn(t, home, nil)
 
-	require.Contains(t, out, "DURABLE_TEST_UNSET_VAR")
+	require.Contains(t, out, `~/.durable/mcp.yaml: mcp server \"a\": env K references unset environment variable DURABLE_TEST_UNSET_VAR; set it in the environment durable-server runs in, or remove the reference`)
 	require.NoFileExists(t, filepath.Join(home, ".durable", "server.json"))
 }
 
