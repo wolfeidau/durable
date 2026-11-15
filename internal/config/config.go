@@ -171,7 +171,7 @@ func Load(home string) (*Settings, error) {
 	s := defaults()
 	path, err := userfile.Find(filepath.Join(home, ".durable"), BaseName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("~/.durable: %w", err)
 	}
 	s.file = Source(filepath.Base(path))
 	s.fileLabel = "~/.durable/" + filepath.Base(path)
@@ -197,6 +197,9 @@ func (s *Settings) readFile(path string) (Config, error) {
 	b, err := userfile.ReadJSON(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return Config{}, nil
+	}
+	if _, ok := errors.AsType[*userfile.ParseError](err); ok {
+		return Config{}, fmt.Errorf("failed to parse %s: %w", s.fileLabel, err)
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("failed to read %s: %w", s.fileLabel, err)

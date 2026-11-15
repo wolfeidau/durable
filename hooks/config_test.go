@@ -145,3 +145,25 @@ func TestLoadConfigYAML(t *testing.T) {
 	_, _, err = LoadConfig(path)
 	require.Error(t, err)
 }
+
+func TestLoadConfigYAMLUnquotedArgs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hooks.yaml")
+	body := "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: a\n          args: [--port, 8080, true]\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	cfg, _, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, []string{"--port", "8080", "true"}, cfg.events[PreToolUse][0].hooks[0].Args)
+}
+
+func TestLoadConfigRejectsNonScalarArgs(t *testing.T) {
+	_, _, err := LoadConfig(writeConfig(t, hookConfig(`{"type":"command","command":"a","args":[[1]]}`)))
+	require.ErrorContains(t, err, "args[0] must be a string, number or boolean")
+}
+
+func TestLoadConfigYAMLSyntaxErrorNamesFileOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hooks.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("hooks: [1\nb: 2\n"), 0o600))
+	_, _, err := LoadConfig(path)
+	require.ErrorContains(t, err, "failed to parse hooks config "+path+": yaml: line")
+	require.NotContains(t, err.Error(), "failed to parse hooks.yaml")
+}

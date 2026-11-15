@@ -41,6 +41,21 @@ type Handler struct {
 	UseWorkspaceCwd bool `json:"useWorkspaceCwd,omitempty"`
 }
 
+// UnmarshalJSON accepts unquoted numbers and booleans in args, as YAML users write them, and keeps unknown keys an error.
+func (h *Handler) UnmarshalJSON(data []byte) error {
+	type plain Handler
+	aux := struct {
+		*plain
+		Args json.RawMessage `json:"args"`
+	}{plain: (*plain)(h)}
+	if err := strictDecode(data, &aux); err != nil {
+		return err
+	}
+	var err error
+	h.Args, err = userfile.StringList("args", aux.Args)
+	return err
+}
+
 type group struct {
 	matcher matcher
 	hooks   []Handler
@@ -103,6 +118,9 @@ func LoadConfig(path string) (Config, []string, error) {
 	data, err := userfile.ReadJSON(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return Config{}, nil, nil
+	}
+	if _, ok := errors.AsType[*userfile.ParseError](err); ok {
+		return Config{}, nil, fmt.Errorf("failed to parse hooks config %s: %w", path, err)
 	}
 	if err != nil {
 		return Config{}, nil, fmt.Errorf("failed to read hooks config: %w", err)

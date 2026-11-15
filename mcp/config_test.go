@@ -111,3 +111,27 @@ func TestLoadConfigYAML(t *testing.T) {
 	require.Equal(t, []string{"-x"}, servers["a"].Args)
 	require.Equal(t, typeHTTP, servers["b"].Type)
 }
+
+func TestLoadConfigYAMLUnquotedScalars(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.yaml")
+	body := "mcpServers:\n  a:\n    command: srv\n    args: [--port, 8080, 1.0, true]\n    env: {PORT: 8080, DEBUG: true, V: 1.0}\n  b:\n    url: http://localhost/mcp\n    headers: {X-Id: 42}\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	servers, _, err := LoadConfig(path)
+	require.NoError(t, err)
+	require.Equal(t, []string{"--port", "8080", "1.0", "true"}, servers["a"].Args)
+	require.Equal(t, map[string]string{"PORT": "8080", "DEBUG": "true", "V": "1.0"}, servers["a"].Env)
+	require.Equal(t, map[string]string{"X-Id": "42"}, servers["b"].Headers)
+}
+
+func TestLoadConfigRejectsNonScalarValues(t *testing.T) {
+	for body, want := range map[string]string{
+		`{"mcpServers":{"a":{"command":"c","env":{"A":[1]}}}}`:     "env.A must be a string, number or boolean",
+		`{"mcpServers":{"a":{"command":"c","env":{"A":null}}}}`:    "env.A must be a string, number or boolean",
+		`{"mcpServers":{"a":{"command":"c","args":["x",{}]}}}`:     "args[1] must be a string, number or boolean",
+		`{"mcpServers":{"a":{"command":"c","args":"x"}}}`:          "args must be a list",
+		`{"mcpServers":{"a":{"url":"u","headers":{"A":{"b":1}}}}}`: "headers.A must be a string, number or boolean",
+	} {
+		_, _, err := LoadConfig(writeConfig(t, body))
+		require.ErrorContains(t, err, want, body)
+	}
+}

@@ -145,7 +145,8 @@ environments:
 - **Schema:** [`schema/durable-server.schema.json`](schema/durable-server.schema.json) is generated
   from the Go types by `mise run gen:schema`. Unknown keys, bad enums and literal secrets are
   errors, and so are an openrouter provider with no model and a git token with no environment.
-  Errors exit non-zero before the server listens.
+  Errors exit non-zero before the server listens. The server and `config check` also validate the
+  `mcp` and `hooks` files at startup.
 - **`durable-server config check`** validates the file, prints warnings, and prints each effective
   setting with its source. It reads only the files, not flags, and never resolves a secret.
   `durable-server config schema` prints the schema.

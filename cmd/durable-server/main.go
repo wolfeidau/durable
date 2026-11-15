@@ -107,6 +107,15 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	for _, w := range settings.Warnings {
 		warnings = append(warnings, w.Message)
 	}
+	// Sessions read these files again when they start, but a mistake should show now rather than when a session opens.
+	userWarnings, err := commands.CheckUserConfig(home)
+	for _, w := range userWarnings {
+		logger.Warn(w)
+	}
+	if err != nil {
+		return err
+	}
+	warnings = append(warnings, userWarnings...)
 	gitSources := settings.GitHostSources()
 	environments := settings.Environments
 	gitAuthor := settings.GitIdentity()

@@ -111,12 +111,7 @@ type Assembled struct {
 
 // loadMCP reads the user's MCP config. A new session fails on a bad file; an existing one must still resume, so it warns.
 func loadMCP(home string, existed bool) (map[string]mcp.Server, []string, error) {
-	path, err := userfile.Find(filepath.Join(home, ".durable"), "mcp")
-	var servers map[string]mcp.Server
-	var warnings []string
-	if err == nil {
-		servers, warnings, err = mcp.LoadConfig(path)
-	}
+	servers, warnings, err := readMCP(home)
 	if err != nil {
 		if !existed {
 			return nil, nil, err
@@ -124,6 +119,29 @@ func loadMCP(home string, existed bool) (map[string]mcp.Server, []string, error)
 		warnings = append(warnings, strings.ReplaceAll(err.Error(), "\n", "; "))
 	}
 	return servers, warnings, nil
+}
+
+func readMCP(home string) (map[string]mcp.Server, []string, error) {
+	path, err := userfile.Find(filepath.Join(home, ".durable"), "mcp")
+	if err != nil {
+		return nil, nil, fmt.Errorf("~/.durable: %w", err)
+	}
+	return mcp.LoadConfig(path)
+}
+
+func readHooks(home string) (hooks.Config, []string, error) {
+	path, err := userfile.Find(filepath.Join(home, ".durable"), "hooks")
+	if err != nil {
+		return hooks.Config{}, nil, fmt.Errorf("~/.durable: %w", err)
+	}
+	return hooks.LoadConfig(path)
+}
+
+// CheckUserConfig validates the user's mcp and hooks files the way a new session reads them, so the server can refuse a bad file at startup.
+func CheckUserConfig(home string) ([]string, error) {
+	_, mcpWarnings, mcpErr := readMCP(home)
+	_, hookWarnings, hookErr := readHooks(home)
+	return append(mcpWarnings, hookWarnings...), errors.Join(mcpErr, hookErr)
 }
 
 // Assemble resolves the session's pins and builds its durable.Options.
@@ -164,11 +182,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		return nil, err
 	}
 	// A policy the user configured must not be skipped, so unlike MCP an existing session refuses too.
-	hooksPath, err := userfile.Find(filepath.Join(home, ".durable"), "hooks")
-	if err != nil {
-		return nil, err
-	}
-	hookCfg, hookWarnings, err := hooks.LoadConfig(hooksPath)
+	hookCfg, hookWarnings, err := readHooks(home)
 	if err != nil {
 		return nil, err
 	}

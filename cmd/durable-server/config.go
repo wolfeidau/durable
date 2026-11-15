@@ -1,14 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
+	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/config"
 )
 
 type configCmd struct {
-	Check  configCheckCmd  `cmd:"" help:"Validate ~/.durable/config.json or config.yaml and print the effective settings with their sources. Never resolves a secret or contacts a host."`
+	Check  configCheckCmd  `cmd:"" help:"Validate ~/.durable/config, mcp and hooks (.json or .yaml) and print the effective settings with their sources. Never resolves a secret or contacts a host."`
 	Schema configSchemaCmd `cmd:"" help:"Print the JSON Schema of ~/.durable/config.json and config.yaml."`
 }
 
@@ -30,7 +32,11 @@ func (*configCheckCmd) Run() error {
 		fmt.Printf("warning: %s\n", w.Message)
 	}
 	settings.Describe(os.Stdout)
-	return err
+	userWarnings, userErr := commands.CheckUserConfig(home)
+	for _, w := range userWarnings {
+		fmt.Printf("warning: %s\n", w)
+	}
+	return errors.Join(err, userErr)
 }
 
 func (*configSchemaCmd) Run() error {

@@ -192,3 +192,62 @@ func TestConfigCheckRejectsBothConfigFiles(t *testing.T) {
 	require.Error(t, err, out)
 	require.Contains(t, out, "config.json and config.yaml")
 }
+
+func writeUserFile(t *testing.T, home, name, body string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", name), []byte(body), 0o600))
+}
+
+const badHooksYAML = "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: a\n          bogus: 1\n"
+
+func TestInvalidHooksFailStartupBeforeListening(t *testing.T) {
+	home := t.TempDir()
+	writeUserFile(t, home, "hooks.yaml", badHooksYAML)
+
+	out := runFailingIn(t, home, nil)
+
+	require.Contains(t, out, "bogus")
+	require.NoFileExists(t, filepath.Join(home, ".durable", "server.json"))
+}
+
+func TestUnsetMCPVariableFailsStartupNamingIt(t *testing.T) {
+	home := t.TempDir()
+	writeUserFile(t, home, "mcp.json", `{"mcpServers":{"a":{"command":"srv","env":{"K":"${DURABLE_TEST_UNSET_VAR}"}}}}`)
+
+	out := runFailingIn(t, home, nil)
+
+	require.Contains(t, out, "DURABLE_TEST_UNSET_VAR")
+	require.NoFileExists(t, filepath.Join(home, ".durable", "server.json"))
+}
+
+func TestBothMCPFilesFailStartup(t *testing.T) {
+	home := t.TempDir()
+	writeUserFile(t, home, "mcp.json", `{}`)
+	writeUserFile(t, home, "mcp.yaml", "")
+
+	out := runFailingIn(t, home, nil)
+
+	require.Contains(t, out, "~/.durable: both mcp.json and mcp.yaml exist; keep one")
+	require.NotContains(t, out, home)
+}
+
+func TestConfigCheckReportsHooksErrorAndFails(t *testing.T) {
+	home := t.TempDir()
+	writeUserFile(t, home, "hooks.yaml", badHooksYAML)
+
+	out, err := runConfig(t, home, "check")
+
+	require.Error(t, err, out)
+	require.Contains(t, out, "bogus")
+}
+
+func TestConfigCheckWarnsOnUnsupportedMCPEntry(t *testing.T) {
+	home := t.TempDir()
+	writeUserFile(t, home, "mcp.yaml", "mcpServers:\n  a:\n    type: sse\n    url: http://localhost/x\n")
+
+	out, err := runConfig(t, home, "check")
+
+	require.NoError(t, err, out)
+	require.Contains(t, out, `warning: mcp server "a" skipped: type "sse" is not supported`)
+}

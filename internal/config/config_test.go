@@ -389,17 +389,16 @@ func TestYAMLFileLoadsEqualToJSON(t *testing.T) {
 	t.Setenv("DURABLE_GITHUB_TOKEN", "")
 	fromJSON, err := Load(writeHome(t, map[string]string{"config.json": fullFile}))
 	require.NoError(t, err)
+	require.NoError(t, fromJSON.Validate())
 	for _, name := range []string{"config.yaml", "config.yml"} {
 		fromYAML, err := Load(writeHome(t, map[string]string{name: fullYAML}))
 		require.NoError(t, err)
 		require.NoError(t, fromYAML.Validate())
-		require.Equal(t, fromJSON.Addr, fromYAML.Addr)
-		require.Equal(t, fromJSON.IdleTimeout, fromYAML.IdleTimeout)
-		require.Equal(t, fromJSON.Provider, fromYAML.Provider)
-		require.Equal(t, fromJSON.APIKey, fromYAML.APIKey)
-		require.Equal(t, fromJSON.GitAuthor, fromYAML.GitAuthor)
-		require.Equal(t, fromJSON.GitHosts, fromYAML.GitHosts)
-		require.Equal(t, fromJSON.Environments, fromYAML.Environments)
+		y, j := *fromYAML, *fromJSON
+		require.Len(t, y.Sources, len(j.Sources))
+		y.Sources, j.Sources = nil, nil
+		y.file, y.fileLabel = j.file, j.fileLabel
+		require.Equal(t, j, y)
 		require.Equal(t, Source(name), fromYAML.Sources["environments.go"])
 		require.Equal(t, Source(name), fromYAML.Sources["provider.model"])
 	}
@@ -411,10 +410,14 @@ func TestYAMLErrorsNameTheFile(t *testing.T) {
 
 	_, err = Load(writeHome(t, map[string]string{"config.yaml": "listen:\n  idle_timeout: soon\n"}))
 	require.ErrorContains(t, err, "~/.durable/config.yaml")
+
+	_, err = Load(writeHome(t, map[string]string{"config.yaml": "a: [1\nb: 2\n"}))
+	require.ErrorContains(t, err, "failed to parse ~/.durable/config.yaml: yaml: line")
+	require.NotContains(t, err.Error(), "config.yaml: failed to parse config.yaml")
 }
 
 func TestBothConfigFilesIsAnError(t *testing.T) {
 	_, err := Load(writeHome(t, map[string]string{"config.json": `{}`, "config.yaml": ""}))
-	require.ErrorContains(t, err, "config.json and config.yaml")
+	require.ErrorContains(t, err, "~/.durable: both config.json and config.yaml exist")
 	require.ErrorContains(t, err, "keep one")
 }

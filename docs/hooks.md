@@ -15,6 +15,8 @@ data. Hooks still run on the host in the session's host working directory, while
 `~/.durable/hooks.json` runs commands around tool calls, using the JSON contract from Claude Code's
 hooks. Only `PreToolUse` and `PostToolUse` exist, and each event starts one process.
 `hooks.yaml` and `hooks.yml` are accepted with the same shape; keep only one file.
+In YAML, unquoted numbers and booleans in `args` are read as their text, so `8080` is `"8080"`.
+`durable-server` validates this file at startup and refuses to start on an error.
 
 ```json
 {

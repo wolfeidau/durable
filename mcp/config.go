@@ -31,6 +31,29 @@ type Server struct {
 	UseWorkspaceCwd bool `json:"useWorkspaceCwd,omitempty"`
 }
 
+// UnmarshalJSON accepts unquoted numbers and booleans in args, env and headers, as YAML users write them.
+func (s *Server) UnmarshalJSON(data []byte) error {
+	type plain Server
+	aux := struct {
+		*plain
+		Args    json.RawMessage `json:"args"`
+		Env     json.RawMessage `json:"env"`
+		Headers json.RawMessage `json:"headers"`
+	}{plain: (*plain)(s)}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	var err error
+	if s.Args, err = userfile.StringList("args", aux.Args); err != nil {
+		return err
+	}
+	if s.Env, err = userfile.StringMap("env", aux.Env); err != nil {
+		return err
+	}
+	s.Headers, err = userfile.StringMap("headers", aux.Headers)
+	return err
+}
+
 var envVar = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // LoadConfig reads the mcpServers map from path. A missing file means no servers.
@@ -41,6 +64,9 @@ func LoadConfig(path string) (map[string]Server, []string, error) {
 	data, err := userfile.ReadJSON(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil
+	}
+	if _, ok := errors.AsType[*userfile.ParseError](err); ok {
+		return nil, nil, fmt.Errorf("failed to parse MCP config %s: %w", path, err)
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read MCP config: %w", err)
