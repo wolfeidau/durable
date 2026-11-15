@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json
+# Anthropic direct, over anthropic-messages (the only protocol it allows).
+provider:
+  name: anthropic
+  # Empty uses the built-in default Claude model.
+  api_key: op://<vault>/<item>/<field>
+git:
+  author: durable <durable@localhost>
+  hosts:
+    github:
+      # The GitHub CLI's token, from `gh auth token`. For a 1Password PAT use op://<vault>/<item>/<field>.
+      token: gh
+environments:
+  default:
+    image: durable-worker:dev
+    grants: [github-api]
+

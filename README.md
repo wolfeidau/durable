@@ -138,6 +138,17 @@ environments:
     grants: [go-modules]
 ```
 
+- **Examples:** [`examples/config`](examples/config) has one file per provider, protocol and model
+  combination the live tests cover, with GitHub tokens from the `gh` CLI or a 1Password PAT:
+
+  | File | Provider | Protocol | Model | GitHub token |
+  |---|---|---|---|---|
+  | `anthropic.yaml` | `anthropic` | `anthropic-messages` | default | `gh` |
+  | `openrouter-responses-gpt.yaml` | `openrouter` | `openai-responses` | `openai/gpt-6-luna` | 1Password |
+  | `openrouter-responses-glm.yaml` | `openrouter` | `openai-responses` | `z-ai/glm-5.3-flash` | `gh` |
+  | `openrouter-messages-claude.yaml` | `openrouter` | `anthropic-messages` | `anthropic/claude-haiku-5.5` | 1Password |
+  | `openrouter-messages-glm.yaml` | `openrouter` | `anthropic-messages` | `z-ai/glm-5.3-flash` | `gh` |
+
 - **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` take an `op://`
   1Password reference, `env:NAME`, or, for a git token only, `gh`. A pasted token fails validation,
   and errors never quote the value. Without `api_key`, openrouter reads `OPENROUTER_API_KEY` and

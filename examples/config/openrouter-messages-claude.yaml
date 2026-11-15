@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/wolfeidau/durable/main/schema/durable-server.schema.json
+# OpenRouter, anthropic-messages, with a Claude model. Claude models need this protocol to keep prompt caching.
+provider:
+  name: openrouter
+  protocol: anthropic-messages
+  model: anthropic/claude-haiku-5.5
+  api_key: op://<vault>/<item>/<field>
+git:
+  author: durable <durable@localhost>
+  hosts:
+    github:
+      # A fine-grained PAT in 1Password. To reuse the GitHub CLI's login instead, use gh.
+      token: op://<vault>/<item>/<field>
+environments:
+  default:
+    image: durable-worker:dev
+    grants: [github-api]
+
