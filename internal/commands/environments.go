@@ -41,10 +41,10 @@ var (
 	goEndpoints = []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
 
 	miseBinaries = []string{"/usr/local/bin/mise"}
-	// Every endpoint is GET-only; the image runs mise locked, but that is a default the model can change, so these paths are the boundary.
+	// Every endpoint is read-only; the image runs mise locked, but that is a default the model can change, so these paths are the boundary.
 	miseEndpoints = []sandbox.GrantEndpoint{
-		// Release asset URLs in mise.lock, which redirect to the host below.
-		{Host: "github.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/*/*/releases/download/**"}}},
+		// Release asset URLs in mise.lock, which redirect to the host below. mise sends a HEAD before each download.
+		{Host: "github.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/*/*/releases/download/**"}, {Method: "HEAD", Path: "/*/*/releases/download/**"}}},
 		// Where GitHub redirects release asset downloads; seen in the gateway log for aqua tools.
 		{Host: "release-assets.githubusercontent.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
 		// Node.js binaries, from mise's core node backend.
@@ -70,7 +70,7 @@ var grantCatalog = map[string]grantSpec{
 		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
 			return sandbox.Grant{Name: "mise", Binaries: miseBinaries, Endpoints: miseEndpoints}, true
 		},
-		summary:  "mise, and what it runs, may GET release assets from GitHub, nodejs.org/dist and dl.google.com/go, and check mise.jdx.dev for its own updates; the image installs from mise.lock by default",
+		summary:  "mise, and what it runs, may download release assets from GitHub, nodejs.org/dist and dl.google.com/go, and check mise.jdx.dev for its own updates; the image installs from mise.lock by default",
 		binaries: miseBinaries,
 		hosts:    miseEndpoints,
 	},

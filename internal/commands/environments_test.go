@@ -322,12 +322,12 @@ func TestMiseGrantIsGetOnlyDownloads(t *testing.T) {
 		require.EqualValues(t, 443, e.Port)
 		require.NotEmpty(t, e.Rules, e.Host)
 		for _, r := range e.Rules {
-			require.Equal(t, "GET", r.Method, e.Host)
+			require.Contains(t, []string{"GET", "HEAD"}, r.Method, e.Host)
 		}
 	}
 	require.Equal(t, []string{"github.com", "release-assets.githubusercontent.com", "nodejs.org", "dl.google.com", "mise.jdx.dev"}, hosts)
 	require.NotContains(t, hosts, "api.github.com")
-	require.Equal(t, "/*/*/releases/download/**", g.Endpoints[0].Rules[0].Path)
+	require.Equal(t, []sandbox.HTTPRule{{Method: "GET", Path: "/*/*/releases/download/**"}, {Method: "HEAD", Path: "/*/*/releases/download/**"}}, g.Endpoints[0].Rules)
 }
 
 func TestGrantCatalogShowsMise(t *testing.T) {
