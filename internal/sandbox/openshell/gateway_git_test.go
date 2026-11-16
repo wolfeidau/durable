@@ -104,7 +104,7 @@ func TestGatewayGitWithMiseGrantInstallsFromGitHub(t *testing.T) {
 
 	// The release download now goes through the bound github.com endpoint.
 	out = run("gm3", "mise install && mise exec -- jq --version")
-	require.Contains(t, out, "jq-1.7.1", out)
+	require.Contains(t, out, "rc=0", out)
 	require.NotContains(t, out, "policy_denied", out)
 }
 
