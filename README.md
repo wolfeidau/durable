@@ -245,7 +245,7 @@ servers, and its grants.
 
 | Grant | Allows |
 |---|---|
-| `go-modules` | `/usr/local/go/bin/go`, or Go installed by mise, to reach `proxy.golang.org` and `sum.golang.org`. Covers `go mod`, `build`, `test` and `golangci-lint run` |
+| `go-modules` | `/usr/local/go/bin/go`, or Go installed by mise, GET on `proxy.golang.org` and `sum.golang.org`. Covers `go mod`, `build`, `test` and `golangci-lint run` |
 | `mise` | `/usr/local/bin/mise` read-only downloads (GET, plus HEAD on GitHub) from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go`, plus its update check at `mise.jdx.dev/releases.tsv` |
 | `mise-resolve` | `/usr/local/bin/mise` GET lookups of versions and attestations at `mise-versions.jdx.dev` (`/data`, `/api/github/repos/*/*/releases` and `/attestations`), and Sigstore's trust root at `tuf-repo-cdn.sigstore.dev` to verify them, so it can add, upgrade and re-lock tools. Needs `mise`; telemetry stays denied |
 | `npm-registry` | bun installed by mise (`/tmp/mise/data/installs/bun/*/bin/bun`) GET on `registry.npmjs.org`. Read-only, so no publish |

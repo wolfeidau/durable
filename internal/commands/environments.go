@@ -39,9 +39,13 @@ type grantSpec struct {
 const miseInstalls = "/tmp/mise/data/installs"
 
 var (
-	goBinaries  = []string{"/usr/local/go/bin/go", miseInstalls + "/go/*/bin/go"}
-	ghBinaries  = []string{"/usr/local/bin/gh"}
-	goEndpoints = []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
+	goBinaries = []string{"/usr/local/go/bin/go", miseInstalls + "/go/*/bin/go"}
+	ghBinaries = []string{"/usr/local/bin/gh"}
+	// GET-only, because the mise Go path is writable, so any binary placed there gets these endpoints.
+	goEndpoints = []sandbox.GrantEndpoint{
+		{Host: "proxy.golang.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
+		{Host: "sum.golang.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
+	}
 
 	bunBinaries  = []string{miseInstalls + "/bun/*/bin/bun"}
 	miseBinaries = []string{"/usr/local/bin/mise"}

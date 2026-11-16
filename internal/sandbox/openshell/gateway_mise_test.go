@@ -85,23 +85,23 @@ func miseSession(t *testing.T, grants []string) func(string) string {
 }
 
 // Each test works in a project directory, because mise use in HOME writes the global config, which has no lockfile.
-const project = "mkdir -p /sandbox/p && cd /sandbox/p && "
+const inMiseProject = "mkdir -p /sandbox/p && cd /sandbox/p && "
 
 func TestGatewayMiseResolveAddsAndLocksATool(t *testing.T) {
 	run := miseSession(t, []string{"mise", "mise-resolve"})
 
-	out := run(project + "MISE_LOCKED=0 mise use jq@1")
+	out := run(inMiseProject + "MISE_LOCKED=0 mise use jq@1")
 	require.Contains(t, out, "rc=0", out)
 	require.NotContains(t, out, "policy_denied", out)
 
-	out = run(project + "MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64 && grep -c jq mise.lock")
+	out = run(inMiseProject + "MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64 && grep -c jq mise.lock")
 	require.Contains(t, out, "rc=0", out)
 
 	// With the lockfile written, the default locked mode runs the tool.
-	out = run(project + "mise exec -- jq --version")
+	out = run(inMiseProject + "mise exec -- jq --version")
 	require.Contains(t, out, "rc=0", out)
 
-	out = run(project + "MISE_LOCKED=0 mise outdated")
+	out = run(inMiseProject + "MISE_LOCKED=0 mise outdated")
 	require.Contains(t, out, "rc=0", out)
 
 	// The grant is bound to the mise binary, so curl is refused.
@@ -112,10 +112,10 @@ func TestGatewayMiseResolveAddsAndLocksATool(t *testing.T) {
 func TestGatewayNpmRegistryForMiseBun(t *testing.T) {
 	run := miseSession(t, []string{"mise", "mise-resolve", "npm-registry"})
 
-	out := run(project + "MISE_LOCKED=0 mise use bun@1 && MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64")
+	out := run(inMiseProject + "MISE_LOCKED=0 mise use bun@1 && MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64")
 	require.Contains(t, out, "rc=0", out)
 
-	out = run(project + `echo '{"name":"x","dependencies":{"left-pad":"1.3.0"}}' > package.json && mise exec -- bun install`)
+	out = run(inMiseProject + `echo '{"name":"x","dependencies":{"left-pad":"1.3.0"}}' > package.json && mise exec -- bun install`)
 	require.Contains(t, out, "rc=0", out)
 
 	out = run("curl -sS -m 20 https://registry.npmjs.org/left-pad")
@@ -125,9 +125,9 @@ func TestGatewayNpmRegistryForMiseBun(t *testing.T) {
 func TestGatewayGoModulesForMiseGo(t *testing.T) {
 	run := miseSession(t, []string{"mise", "mise-resolve", "go-modules"})
 
-	out := run(project + "MISE_LOCKED=0 mise use go@1.27 && MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64")
+	out := run(inMiseProject + "MISE_LOCKED=0 mise use go@1.27 && MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64")
 	require.Contains(t, out, "rc=0", out)
 
-	out = run(project + "mise exec -- go mod init example.com/x && mise exec -- go get rsc.io/quote@v1.5.2")
+	out = run(inMiseProject + "mise exec -- go mod init example.com/x && mise exec -- go get rsc.io/quote@v1.5.2")
 	require.Contains(t, out, "rc=0", out)
 }
