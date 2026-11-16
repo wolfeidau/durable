@@ -42,6 +42,9 @@ func TestGatewayMiseGrantInstallsFromTheLockfileOnly(t *testing.T) {
 	out := run("echo " + b64(miseFixtureConfig) + " | base64 -d > mise.toml && echo " + b64(miseFixtureLock) + " | base64 -d > mise.lock")
 	require.Contains(t, out, "rc=0", out)
 
+	out = run("mise --version")
+	require.NotContains(t, out, "releases.tsv", "the update check is allowed, so it doesn't retry")
+
 	out = run("mise install")
 	require.Contains(t, out, "rc=0", out)
 	require.NotContains(t, out, "policy_denied", out)

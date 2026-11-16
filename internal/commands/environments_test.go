@@ -325,7 +325,7 @@ func TestMiseGrantIsGetOnlyDownloads(t *testing.T) {
 			require.Equal(t, "GET", r.Method, e.Host)
 		}
 	}
-	require.Equal(t, []string{"github.com", "release-assets.githubusercontent.com", "nodejs.org", "dl.google.com"}, hosts)
+	require.Equal(t, []string{"github.com", "release-assets.githubusercontent.com", "nodejs.org", "dl.google.com", "mise.jdx.dev"}, hosts)
 	require.NotContains(t, hosts, "api.github.com")
 	require.Equal(t, "/*/*/releases/download/**", g.Endpoints[0].Rules[0].Path)
 }
