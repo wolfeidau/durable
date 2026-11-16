@@ -55,6 +55,9 @@ steps:
         - exit_status: 75
           limit: 2
     command: mise run image:all
+    env:
+      # Progress output buries the log; a failure still prints the failing step's error.
+      BUILDKIT_PROGRESS: quiet
     plugins:
       - ./.buildkite/plugins/mise-cache: ~
 
