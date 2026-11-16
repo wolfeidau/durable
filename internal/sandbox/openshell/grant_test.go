@@ -8,6 +8,7 @@ import (
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/sandbox"
 )
 
@@ -61,6 +62,32 @@ func TestGrantWithRulesIsEnforcedL7WithBinding(t *testing.T) {
 	}}, rule.Endpoints)
 	require.Contains(t, sb.Spec.Policy.NetworkPolicies, "durable-git")
 	require.Equal(t, []string{access.Provider}, sb.Spec.Providers)
+}
+
+// The gateway refuses two policies whose endpoints share a host:port with different bindings.
+func TestGrantOnAGitHostTakesTheGitBinding(t *testing.T) {
+	rec := newRecorder()
+	token := "ghp_one"
+	l := newWithClient(rec, "", tokenFn(&token))
+	access := []sandbox.GitAccess{repoAccess(t, "github.com/octo/hello")}
+
+	require.NoError(t, l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: access, Grants: commands.BuildGrants([]string{"mise"}, "", access)}))
+
+	sb, err := rec.Sandboxes().Get(t.Context(), "default", "dt-a")
+	require.NoError(t, err)
+	bindings := map[sandbox.Endpoint]map[string]*types.NetworkCredentialBinding{}
+	for name, rule := range sb.Spec.Policy.NetworkPolicies {
+		for _, ep := range rule.Endpoints {
+			k := sandbox.Endpoint{Host: ep.Host, Port: ep.Port}
+			if bindings[k] == nil {
+				bindings[k] = map[string]*types.NetworkCredentialBinding{}
+			}
+			bindings[k][name] = ep.CredentialBinding
+		}
+	}
+	want := &types.NetworkCredentialBinding{Provider: access[0].Provider}
+	require.Equal(t, map[string]*types.NetworkCredentialBinding{"durable-git": want, "durable-grant-mise": want}, bindings[sandbox.Endpoint{Host: "github.com", Port: 443}])
+	require.Equal(t, map[string]*types.NetworkCredentialBinding{"durable-grant-mise": nil}, bindings[sandbox.Endpoint{Host: "nodejs.org", Port: 443}], "hosts git doesn't use stay unbound")
 }
 
 func TestGrantProviderWithoutGitAccessFailsCreate(t *testing.T) {
@@ -124,5 +151,5 @@ func TestGrantFromAnOldPinStillDecodesAndRenders(t *testing.T) {
 		Name:      "durable-grant-go-modules",
 		Endpoints: []types.PolicyNetworkEndpoint{{Host: "proxy.golang.org", Port: 443}},
 		Binaries:  []types.PolicyNetworkBinary{{Path: "/usr/local/go/bin/go"}},
-	}, grantPolicyRule(g))
+	}, grantPolicyRule(g, nil))
 }

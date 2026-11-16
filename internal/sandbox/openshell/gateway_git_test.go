@@ -84,6 +84,18 @@ func TestGatewayGitReachesOnlyTheGrantedRepo(t *testing.T) {
 	require.NotContains(t, out, "ghp_dummy", out)
 }
 
+// mise and git both reach github.com, which the gateway accepts only when the two endpoints share a binding.
+func TestGatewayGitWithMiseGrantCreates(t *testing.T) {
+	l := gatewayLauncherWith(t, Config{Tokens: map[string]func(context.Context) (string, error){
+		"github": func(context.Context) (string, error) { return "ghp_dummy_for_a_public_repo", nil },
+	}})
+	name, token := newGitSandbox(t, l, "github.com/"+publicRepo, "mise")
+	bash := bashTool(t, dialWorker(t, l, name, token))
+
+	out := runBash(t.Context(), t, bash, "gm1", "git ls-remote https://github.com/"+publicRepo+".git HEAD 2>&1; echo rc=$?")
+	require.Contains(t, out, "rc=0", out)
+}
+
 func TestGatewayGitPushesToTheGrantedRepo(t *testing.T) {
 	repo := os.Getenv(githubRepoEnv)
 	if os.Getenv(githubGatewayEnv) != "1" || repo == "" {
