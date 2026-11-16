@@ -151,8 +151,9 @@ func sandboxPolicy(egress []sandbox.Endpoint, access []sandbox.GitAccess, grants
 	if len(access) > 0 {
 		rules[gitRule] = gitPolicyRule(access)
 	}
+	bindings := gitBindings(access)
 	for _, g := range grants {
-		rules[grantRulePrefix+g.Name] = grantPolicyRule(g)
+		rules[grantRulePrefix+g.Name] = grantPolicyRule(g, bindings)
 	}
 	return &types.SandboxPolicy{
 		Landlock:        &types.LandlockPolicy{Compatibility: "best_effort"},
@@ -160,8 +161,19 @@ func sandboxPolicy(egress []sandbox.Endpoint, access []sandbox.GitAccess, grants
 	}
 }
 
-// grantPolicyRule makes a plain endpoint when it has no request rules, else an enforced REST or GraphQL one.
-func grantPolicyRule(g sandbox.Grant) types.NetworkPolicyRule {
+// gitBindings maps each credentialed git endpoint to its provider.
+func gitBindings(access []sandbox.GitAccess) map[sandbox.Endpoint]string {
+	bindings := map[sandbox.Endpoint]string{}
+	for _, a := range access {
+		if a.Provider != "" {
+			bindings[a.Endpoint] = a.Provider
+		}
+	}
+	return bindings
+}
+
+// grantPolicyRule takes the git binding on a git host:port, because the gateway refuses overlapping endpoints whose bindings differ.
+func grantPolicyRule(g sandbox.Grant, bindings map[sandbox.Endpoint]string) types.NetworkPolicyRule {
 	name := grantRulePrefix + g.Name
 	rule := types.NetworkPolicyRule{Name: name}
 	for _, b := range g.Binaries {
@@ -181,8 +193,12 @@ func grantPolicyRule(g sandbox.Grant) types.NetworkPolicyRule {
 				ep.Rules = append(ep.Rules, types.L7Rule{Allow: &types.L7Allow{Method: r.Method, Path: r.Path}})
 			}
 		}
-		if g.Provider != "" {
-			ep.CredentialBinding = &types.NetworkCredentialBinding{Provider: g.Provider}
+		provider := g.Provider
+		if provider == "" {
+			provider = bindings[sandbox.Endpoint{Host: e.Host, Port: e.Port}]
+		}
+		if provider != "" {
+			ep.CredentialBinding = &types.NetworkCredentialBinding{Provider: provider}
 		}
 		rule.Endpoints = append(rule.Endpoints, ep)
 	}
