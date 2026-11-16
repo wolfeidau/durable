@@ -61,6 +61,10 @@ depends = ["image:worker"]
 # The worker image plus the Go toolchain and golangci-lint, for the go-modules grant.
 run = "docker build -f docker/worker-go.Dockerfile -t durable-worker-go:dev ."
 
+[tasks."image:all"]
+# CI builds every image so a base image or pinned tool bump that breaks one fails the PR.
+depends = ["image:worker-test", "image:worker-go"]
+
 [tasks."test:openshell"]
 depends = ["image:worker-test", "image:worker-go"]
 # Both packages use the durable-github provider, so they run one at a time.

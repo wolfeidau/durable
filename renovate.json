@@ -59,6 +59,27 @@
         "major"
       ],
       "automerge": false
+    },
+    {
+      "description": "Dockerfile tool bumps need their checksums updated by hand, so they get their own PR and never automerge",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "groupName": "worker image tools",
+      "automerge": false
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Release binaries pinned with a renovate comment in the worker Dockerfiles",
+      "managerFilePatterns": [
+        "/^docker/.+\\.Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+ARG \\w+_VERSION=(?<currentValue>\\S+)"
+      ],
+      "extractVersionTemplate": "^v(?<version>.+)$"
     }
   ]
 }
