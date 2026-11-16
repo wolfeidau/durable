@@ -169,6 +169,10 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if len(ds) == 0 {
+		fmt.Println("No network decisions in the sandbox log for that period.")
+		return nil
+	}
 	var allowed, denied int
 	var shown []openshell.Decision
 	for _, d := range ds {
@@ -184,6 +188,8 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 	if err := openshell.FormatDecisions(os.Stdout, shown); err != nil {
 		return fmt.Errorf("failed to write decisions: %w", err)
 	}
-	fmt.Printf("%d allowed, %d denied\n", allowed, denied)
+	// The gateway keeps only recent log lines, so the span can be shorter than --since.
+	fmt.Printf("%d allowed, %d denied, from %s to %s\n", allowed, denied,
+		ds[0].Time.Local().Format(time.DateTime), ds[len(ds)-1].Time.Local().Format(time.DateTime))
 	return nil
 }

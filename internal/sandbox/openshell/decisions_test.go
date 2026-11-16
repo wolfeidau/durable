@@ -50,7 +50,7 @@ func TestParseDecision(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := ParseDecision(tc.line)
+			got, ok := parseDecision(tc.line)
 			require.Equal(t, tc.ok, ok)
 			require.Equal(t, tc.want, got)
 		})

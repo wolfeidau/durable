@@ -200,7 +200,7 @@ func TestGatewaySandboxAuditListsDeniedRequests(t *testing.T) {
 	}, 20*time.Second, time.Second)
 	out, err := sandboxAudit(t, home, id)
 	require.NoError(t, err, out)
-	require.Regexp(t, `\d+ allowed, [1-9]\d* denied`, out)
+	require.Regexp(t, `\d+ allowed, [1-9]\d* denied, from \d{4}-\d\d-\d\d \S+ to \d{4}-\d\d-\d\d`, out)
 }
 
 func TestGatewaySandboxDeleteCreatesAFreshSandboxOnNextOpen(t *testing.T) {

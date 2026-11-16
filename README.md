@@ -269,9 +269,10 @@ servers, and its grants.
   `mise up --bump`), then `mise lock --platform linux-arm64,linux-x64`, and commit `mise.toml` and
   `mise.lock`. Grants match binaries by path, and mise installs under writable `/tmp`, so the
   new grants are read-only.
-- **Auditing grants:** `durable-server sandbox-audit <session>` lists the network requests a
-  session's sandbox made and which grant allowed or denied each. Check it after granting something
-  new; `--denied` shows only refusals and `--since` sets how far back to read.
+- **Auditing grants:** `durable-server sandbox-audit <session>` lists the network requests still in
+  the sandbox's log and which grant allowed or denied each. The gateway keeps only recent log
+  lines, so the summary shows the span it covers. Check it after granting something new; `--denied`
+  shows only refusals and `--since` sets how far back to read.
 - **Go image:** `HOME` is the workspace `/sandbox`, and only `/tmp` and `/sandbox` are writable, so
   caches live under `/tmp`. `GOPROXY` has no `direct`, so private modules fail, and
   `GOTOOLCHAIN=local` fails a `go` line newer than the image's Go.

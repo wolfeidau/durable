@@ -31,8 +31,8 @@ type Decision struct {
 	Reason  string
 }
 
-// ParseDecision reads one sandbox log line; it reports false for anything that isn't a network decision.
-func ParseDecision(line v1.LogLine) (Decision, bool) {
+// parseDecision reads one sandbox log line; it reports false for anything that isn't a network decision.
+func parseDecision(line v1.LogLine) (Decision, bool) {
 	if line.Target != "ocsf" {
 		return Decision{}, false
 	}
@@ -93,7 +93,7 @@ func (l *Launcher) Decisions(ctx context.Context, name string, since time.Time) 
 	}
 	var ds []Decision
 	for _, line := range res.Lines {
-		if d, ok := ParseDecision(line); ok {
+		if d, ok := parseDecision(line); ok {
 			ds = append(ds, d)
 		}
 	}

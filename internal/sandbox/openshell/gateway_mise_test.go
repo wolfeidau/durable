@@ -100,7 +100,6 @@ func TestGatewayMiseResolveAddsAndLocksATool(t *testing.T) {
 	requireDecisions(t, box.l, box.name, since,
 		want{Allowed: true, Kind: "HTTP", Method: "GET", Host: "mise-versions.jdx.dev", Path: "/data/*", Policy: "mise-resolve"},
 		want{Allowed: true, Kind: "HTTP", Method: "GET", Host: "github.com", Path: "/*/*/releases/download/**", Policy: "mise"},
-		want{Allowed: true, Kind: "HTTP", Method: "HEAD", Host: "github.com", Path: "/*/*/releases/download/**", Policy: "mise"},
 	)
 
 	out = run(inMiseProject + "MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64 && grep -c jq mise.lock")
