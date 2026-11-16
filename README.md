@@ -245,8 +245,10 @@ servers, and its grants.
 
 | Grant | Allows |
 |---|---|
-| `go-modules` | `/usr/local/go/bin/go` to reach `proxy.golang.org` and `sum.golang.org`. Covers `go mod`, `build`, `test` and `golangci-lint run` |
+| `go-modules` | `/usr/local/go/bin/go`, or Go installed by mise, to reach `proxy.golang.org` and `sum.golang.org`. Covers `go mod`, `build`, `test` and `golangci-lint run` |
 | `mise` | `/usr/local/bin/mise` read-only downloads (GET, plus HEAD on GitHub) from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go`, plus its update check at `mise.jdx.dev/releases.tsv` |
+| `mise-resolve` | `/usr/local/bin/mise` GET lookups of versions and attestations at `mise-versions.jdx.dev` (`/data`, `/api/github/repos/*/*/releases` and `/attestations`), so it can add, upgrade and re-lock tools. Needs `mise`; telemetry stays denied |
+| `npm-registry` | bun installed by mise (`/tmp/mise/data/installs/bun/*/bin/bun`) GET on `registry.npmjs.org`. Read-only, so no publish |
 | `github-api` | `/usr/local/bin/gh` to open and edit PRs and issues, comment, label and read CI status on the session's repo. Repo sessions with a GitHub token only |
 
 - **Approvals:** `"approvals": "ask"` (default) or `"auto"`. With `auto`, tool calls in the
@@ -263,6 +265,10 @@ servers, and its grants.
   2026.11.3, which reads lockfile formats up to 4. A lockfile from a newer mise can fail to read, so
   lock with that version, e.g. `mise exec mise@2026.11.3 -- mise lock --platform linux-arm64,linux-x64`,
   and set a top-level `min_version = "2026.11.3"` in `mise.toml` to make a mismatch fail with a clear error.
+  With `mise-resolve`, to add or upgrade tools run `MISE_LOCKED=0 mise use <tool>@<version>` (or
+  `mise up --bump`), then `mise lock --platform linux-arm64,linux-x64`, and commit `mise.toml` and
+  `mise.lock`. Grants match binaries by path, and mise installs under writable `/tmp`, so the
+  new grants are read-only.
 - **Go image:** `HOME` is the workspace `/sandbox`, and only `/tmp` and `/sandbox` are writable, so
   caches live under `/tmp`. `GOPROXY` has no `direct`, so private modules fail, and
   `GOTOOLCHAIN=local` fails a `go` line newer than the image's Go.

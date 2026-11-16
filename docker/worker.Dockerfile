@@ -38,8 +38,8 @@ RUN case "$TARGETARCH" in \
  && tar -xzf /tmp/mise.tgz -C /tmp \
  && install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise \
  && rm -rf /tmp/mise.tgz /tmp/mise
-# HOME is the workspace, so mise keeps its state in /tmp. MISE_LOCKED makes installs use the lockfile's URLs and never look versions up; the versions host is off because the grant refuses it.
-ENV MISE_DATA_DIR=/tmp/mise/data MISE_CACHE_DIR=/tmp/mise/cache MISE_STATE_DIR=/tmp/mise/state MISE_LOCKED=1 MISE_USE_VERSIONS_HOST=0 MISE_YES=1 MISE_TRUSTED_CONFIG_PATHS=/sandbox PATH=/tmp/mise/data/shims:$PATH
+# HOME is the workspace, so mise keeps its state in /tmp. MISE_LOCKED makes installs use the lockfile's URLs and never look versions up; lookups go only to the versions host, which only the mise-resolve grant allows.
+ENV MISE_DATA_DIR=/tmp/mise/data MISE_CACHE_DIR=/tmp/mise/cache MISE_STATE_DIR=/tmp/mise/state MISE_LOCKED=1 MISE_USE_VERSIONS_HOST=1 MISE_YES=1 MISE_TRUSTED_CONFIG_PATHS=/sandbox PATH=/tmp/mise/data/shims:$PATH
 COPY --from=build /out/durable-worker /usr/local/bin/durable-worker
 
 # OpenShell starts the supervisor as root and drops agent children to this user.

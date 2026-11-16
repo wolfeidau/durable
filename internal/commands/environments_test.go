@@ -114,7 +114,7 @@ func TestAssemblePinsEnvironmentImageAndGrants(t *testing.T) {
 	require.Equal(t, "go-img", spec.Image)
 	require.Equal(t, []sandbox.Grant{{
 		Name:      "go-modules",
-		Binaries:  []string{"/usr/local/go/bin/go"},
+		Binaries:  []string{"/usr/local/go/bin/go", "/tmp/mise/data/installs/go/*/bin/go"},
 		Endpoints: []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}},
 	}}, spec.Grants)
 	pin, ok, err := sandbox.ReadPin(filepath.Dir(mustSessionPath(t, cfg)))
@@ -339,4 +339,40 @@ func TestGrantCatalogShowsMise(t *testing.T) {
 	require.Contains(t, g.Hosts, "github.com:443")
 	require.NotContains(t, g.Hosts, "api.github.com:443")
 	require.Contains(t, g.Summary, "installs from mise.lock by default")
+}
+
+func TestMiseResolveGrantIsGetOnlyLookups(t *testing.T) {
+	g, ok := grantCatalog["mise-resolve"].build("", nil)
+	require.True(t, ok)
+	require.Equal(t, "mise-resolve", g.Name)
+	require.Equal(t, []string{"/usr/local/bin/mise"}, g.Binaries)
+	require.Len(t, g.Endpoints, 1)
+	e := g.Endpoints[0]
+	require.Equal(t, "mise-versions.jdx.dev", e.Host)
+	require.EqualValues(t, 443, e.Port)
+	require.Equal(t, []sandbox.HTTPRule{
+		{Method: "GET", Path: "/data/*"},
+		{Method: "GET", Path: "/api/github/repos/*/*/releases/**"},
+		{Method: "GET", Path: "/api/github/repos/*/*/attestations/**"},
+	}, e.Rules)
+}
+
+func TestNPMRegistryGrantIsGetOnlyForMiseBun(t *testing.T) {
+	g, ok := grantCatalog["npm-registry"].build("", nil)
+	require.True(t, ok)
+	require.Equal(t, "npm-registry", g.Name)
+	require.Equal(t, []string{"/tmp/mise/data/installs/bun/*/bin/bun"}, g.Binaries)
+	require.Equal(t, []sandbox.GrantEndpoint{{Host: "registry.npmjs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}}}, g.Endpoints)
+}
+
+func TestGrantCatalogShowsTheNewGrants(t *testing.T) {
+	byName := map[string]GrantInfo{}
+	for _, g := range GrantCatalog() {
+		byName[g.Name] = g
+	}
+	require.Equal(t, []string{"/usr/local/bin/mise"}, byName["mise-resolve"].Binaries)
+	require.Equal(t, []string{"mise-versions.jdx.dev:443"}, byName["mise-resolve"].Hosts)
+	require.Equal(t, []string{"/tmp/mise/data/installs/bun/*/bin/bun"}, byName["npm-registry"].Binaries)
+	require.Equal(t, []string{"registry.npmjs.org:443"}, byName["npm-registry"].Hosts)
+	require.Contains(t, byName["go-modules"].Binaries, "/tmp/mise/data/installs/go/*/bin/go")
 }

@@ -482,3 +482,15 @@ func TestMalformedOpReferencesAreRejectedWithoutEchoingThem(t *testing.T) {
 		require.NotContains(t, err.Error(), bad)
 	})
 }
+
+func TestMiseResolveNeedsMise(t *testing.T) {
+	load := func(grants string) *Settings {
+		s, err := Load(writeHome(t, map[string]string{"config.json": `{"environments": {"w": {"image": "img", "grants": ` + grants + `}}}`}))
+		require.NoError(t, err)
+		return s
+	}
+
+	err := load(`["mise-resolve"]`).Validate()
+	require.EqualError(t, err, `environment "w": grant "mise-resolve" needs "mise", which downloads what it resolves`)
+	require.NoError(t, load(`["mise", "mise-resolve"]`).Validate())
+}
