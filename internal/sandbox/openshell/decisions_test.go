@@ -70,3 +70,18 @@ func TestFormatDecisionsGroupsAndSorts(t *testing.T) {
 	require.Equal(t, []string{"denied", "NET", "/bin/curl", "-", "a.com:443", "-", "-", "1"}, strings.Fields(lines[1]))
 	require.Equal(t, []string{"allowed", "HTTP", "-", "GET", "b.com", "/*/x", "p", "2"}, strings.Fields(lines[2]))
 }
+
+func TestDecisionPatternGroupsVersionsAndHashes(t *testing.T) {
+	tests := map[string]string{
+		"/jqlang/jq/releases/download/jq-1.8.2/jq-linux-arm64":                                                       "/jqlang/jq/releases/download/*/jq-linux-arm64",
+		"/api/github/repos/o/r/attestations/sha256:8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309": "/api/github/repos/o/r/attestations/*",
+		"/github-production-release-asset/123/bc90b8cc-1830-497a-99b0-4cd67ac89460":                                  "/github-production-release-asset/*/*",
+		"/go/go1.27.4.linux-arm64.tar.gz":                                                                            "/go/*",
+		"/data/jq.toml":                                                                                              "/data/jq.toml",
+		"/v2/left-pad":                                                                                               "/*/left-pad",
+		"":                                                                                                           "",
+	}
+	for in, want := range tests {
+		require.Equal(t, want, Decision{Path: in}.Pattern(), in)
+	}
+}

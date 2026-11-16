@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -99,7 +100,7 @@ func (l *Launcher) Decisions(ctx context.Context, name string, since time.Time) 
 	return ds, nil
 }
 
-// Pattern is the path with version-like and numeric segments shown as "*", so repeated requests group.
+// Pattern is the path with versioned, numeric and hash-like segments shown as "*", so repeated requests group.
 func (d Decision) Pattern() string {
 	if d.Path == "" {
 		return ""
@@ -114,9 +115,14 @@ func (d Decision) Pattern() string {
 }
 
 func versionLike(s string) bool {
+	if len(s) >= 32 || versionRE.MatchString(s) {
+		return true
+	}
 	s = strings.TrimPrefix(s, "v")
 	return s != "" && s[0] >= '0' && s[0] <= '9'
 }
+
+var versionRE = regexp.MustCompile(`\d+\.\d+`)
 
 // FormatDecisions writes one row per distinct request shape, with how often it happened.
 func FormatDecisions(w io.Writer, ds []Decision) error {

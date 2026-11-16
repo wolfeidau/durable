@@ -125,8 +125,8 @@ func TestGatewayMiseResolveListsReleases(t *testing.T) {
 	box := miseSession(t, []string{"mise", "mise-resolve"})
 
 	since := time.Now()
-	out := box.run(inMiseProject + "MISE_LOCKED=0 mise ls-remote aqua:johanhaleby/kubetail | tail -2")
-	t.Log(out)
+	out := box.run(inMiseProject + "set -o pipefail; MISE_LOCKED=0 mise ls-remote aqua:johanhaleby/kubetail | tail -2")
+	require.Contains(t, out, "rc=0", out)
 	requireDecisions(t, box.l, box.name, since, want{Allowed: true, Kind: "HTTP", Method: "GET", Host: "mise-versions.jdx.dev", Path: "/api/github/repos/*/*/releases", Policy: "mise-resolve"})
 }
 
