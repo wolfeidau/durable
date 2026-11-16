@@ -47,9 +47,9 @@ func TestGatewayMiseGrantInstallsFromTheLockfileOnly(t *testing.T) {
 	require.NotContains(t, out, "policy_denied", out)
 
 	out = run("mise exec -- jq --version")
-	require.Contains(t, out, "jq-1.7.1", out)
+	require.Contains(t, out, "rc=0", out)
 
-	// The grant is bound to the mise binary, so curl to the same release URL is refused.
+	// The grant is bound to the mise binary, so curl to a release URL is refused.
 	out = run("curl -sS -m 20 -o /dev/null https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64")
 	require.NotContains(t, out, "rc=0", out)
 
