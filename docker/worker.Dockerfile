@@ -26,7 +26,7 @@ RUN case "$TARGETARCH" in \
 # HOME is the workspace, so gh keeps its config in /tmp to stay out of commits.
 ENV GH_CONFIG_DIR=/tmp/gh GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 GH_SPINNER_DISABLED=1
 # renovate: datasource=github-releases depName=jdx/mise
-ARG MISE_VERSION=2026.11.3
+ARG MISE_VERSION=2026.11.8
 # Checksums from the release's SHASUMS256.txt; a version bump fails the build until they're updated.
 RUN case "$TARGETARCH" in \
       amd64) arch=x64; sum=837acae6defb8c9ad74823f6e38856633bacb04c65c1ac67d952749847543bd9 ;; \
