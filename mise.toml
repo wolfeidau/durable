@@ -48,18 +48,18 @@ docker compose -f e2e/compose.yaml run --rm --build tests
 """
 
 [tasks."image:worker"]
-# The image is built locally only; there is no registry.
-run = "docker build -f docker/worker.Dockerfile -t durable-worker:dev ."
+# The image is built locally only; there is no registry. --load keeps it in the local store for a remote builder, as in CI.
+run = "docker build --load -f docker/worker.Dockerfile -t durable-worker:dev ."
 
 [tasks."image:worker-test"]
 depends = ["image:worker"]
 # The worker image plus a stdio MCP server for the gateway tests.
-run = "docker build -f docker/worker-test.Dockerfile -t durable-worker:mcptest ."
+run = "docker build --load -f docker/worker-test.Dockerfile -t durable-worker:mcptest ."
 
 [tasks."image:worker-go"]
 depends = ["image:worker"]
 # The worker image plus the Go toolchain and golangci-lint, for the go-modules grant.
-run = "docker build -f docker/worker-go.Dockerfile -t durable-worker-go:dev ."
+run = "docker build --load -f docker/worker-go.Dockerfile -t durable-worker-go:dev ."
 
 [tasks."image:all"]
 # CI builds every image so a base image or pinned tool bump that breaks one fails the PR.
