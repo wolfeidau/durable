@@ -172,9 +172,7 @@ func gitBindings(access []sandbox.GitAccess) map[sandbox.Endpoint]string {
 	return bindings
 }
 
-// grantPolicyRule makes a plain endpoint when it has no request rules, else an enforced REST or GraphQL one. An
-// endpoint on a git host:port takes the git binding, because the gateway refuses overlapping endpoints whose
-// bindings differ.
+// grantPolicyRule takes the git binding on a git host:port, because the gateway refuses overlapping endpoints whose bindings differ.
 func grantPolicyRule(g sandbox.Grant, bindings map[sandbox.Endpoint]string) types.NetworkPolicyRule {
 	name := grantRulePrefix + g.Name
 	rule := types.NetworkPolicyRule{Name: name}

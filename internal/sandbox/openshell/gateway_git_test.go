@@ -85,15 +85,27 @@ func TestGatewayGitReachesOnlyTheGrantedRepo(t *testing.T) {
 }
 
 // mise and git both reach github.com, which the gateway accepts only when the two endpoints share a binding.
-func TestGatewayGitWithMiseGrantCreates(t *testing.T) {
+func TestGatewayGitWithMiseGrantInstallsFromGitHub(t *testing.T) {
 	l := gatewayLauncherWith(t, Config{Tokens: map[string]func(context.Context) (string, error){
 		"github": func(context.Context) (string, error) { return "ghp_dummy_for_a_public_repo", nil },
 	}})
 	name, token := newGitSandbox(t, l, "github.com/"+publicRepo, "mise")
 	bash := bashTool(t, dialWorker(t, l, name, token))
 
-	out := runBash(t.Context(), t, bash, "gm1", "git ls-remote https://github.com/"+publicRepo+".git HEAD 2>&1; echo rc=$?")
+	run := func(id, command string) string {
+		return runBash(t.Context(), t, bash, id, command+" 2>&1; echo rc=$?")
+	}
+
+	out := run("gm1", "git ls-remote https://github.com/"+publicRepo+".git HEAD")
 	require.Contains(t, out, "rc=0", out)
+
+	out = run("gm2", "echo "+b64(miseFixtureConfig)+" | base64 -d > mise.toml && echo "+b64(miseFixtureLock)+" | base64 -d > mise.lock")
+	require.Contains(t, out, "rc=0", out)
+
+	// The release download now goes through the bound github.com endpoint.
+	out = run("gm3", "mise install && mise exec -- jq --version")
+	require.Contains(t, out, "jq-1.7.1", out)
+	require.NotContains(t, out, "policy_denied", out)
 }
 
 func TestGatewayGitPushesToTheGrantedRepo(t *testing.T) {
