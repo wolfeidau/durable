@@ -246,7 +246,7 @@ servers, and its grants.
 | Grant | Allows |
 |---|---|
 | `go-modules` | `/usr/local/go/bin/go` to reach `proxy.golang.org` and `sum.golang.org`. Covers `go mod`, `build`, `test` and `golangci-lint run` |
-| `mise` | `/usr/local/bin/mise` GET-only downloads from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go`, plus its update check at `mise.jdx.dev/releases.tsv` |
+| `mise` | `/usr/local/bin/mise` read-only downloads (GET, plus HEAD on GitHub) from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go`, plus its update check at `mise.jdx.dev/releases.tsv` |
 | `github-api` | `/usr/local/bin/gh` to open and edit PRs and issues, comment, label and read CI status on the session's repo. Repo sessions with a GitHub token only |
 
 - **Approvals:** `"approvals": "ask"` (default) or `"auto"`. With `auto`, tool calls in the
