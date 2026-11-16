@@ -200,11 +200,19 @@ func TestWaiterStopsWaitingWhenItsContextEnds(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
 	t.Cleanup(srv.Close)
-	t.Cleanup(func() { close(release) })
 	forget(t, srv.URL)
 
 	o := OpenRouter{BaseURL: srv.URL, Client: srv.Client()}
-	go func() { _, _ = o.Lookup(context.Background(), "m") }()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = o.Lookup(context.Background(), "m")
+	}()
+	// The fetcher reads cache.now when it finishes, so it must stop before a later test swaps the clock.
+	t.Cleanup(func() {
+		close(release)
+		<-done
+	})
 	require.Eventually(t, func() bool {
 		cache.mu.Lock()
 		defer cache.mu.Unlock()
