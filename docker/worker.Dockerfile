@@ -23,13 +23,13 @@ RUN case "$TARGETARCH" in \
  && rm -rf /tmp/gh.tgz "/tmp/gh_2.104.0_linux_${TARGETARCH}"
 # HOME is the workspace, so gh keeps its config in /tmp to stay out of commits.
 ENV GH_CONFIG_DIR=/tmp/gh GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 GH_SPINNER_DISABLED=1
-# mise 2026.10.25; checksums from its release SHASUMS256.txt
+# mise 2026.11.3; checksums from its release SHASUMS256.txt
 RUN case "$TARGETARCH" in \
-      amd64) arch=x64; sum=199966edaad1b208eb4c72955f1722dafb8fa799f575db720dea05aaa8216546 ;; \
-      arm64) arch=arm64; sum=a7d1e2add53441ff76e7e971e7a3fb15c117741836ce51c026f5fb7eebe7dbcf ;; \
+      amd64) arch=x64; sum=837acae6defb8c9ad74823f6e38856633bacb04c65c1ac67d952749847543bd9 ;; \
+      arm64) arch=arm64; sum=13547a80d1dc2d5f81bb183023732f4981486e894d060e30993cc4364b4af51d ;; \
       *) echo "unsupported arch $TARGETARCH" >&2; exit 1 ;; \
     esac \
- && curl -fsSL -o /tmp/mise.tgz "https://github.com/jdx/mise/releases/download/v2026.10.25/mise-v2026.10.25-linux-${arch}.tar.gz" \
+ && curl -fsSL -o /tmp/mise.tgz "https://github.com/jdx/mise/releases/download/v2026.11.3/mise-v2026.11.3-linux-${arch}.tar.gz" \
  && echo "$sum  /tmp/mise.tgz" | sha256sum -c - \
  && tar -xzf /tmp/mise.tgz -C /tmp \
  && install -m 0755 /tmp/mise/bin/mise /usr/local/bin/mise \

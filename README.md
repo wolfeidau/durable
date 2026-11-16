@@ -246,7 +246,7 @@ servers, and its grants.
 | Grant | Allows |
 |---|---|
 | `go-modules` | `/usr/local/go/bin/go` to reach `proxy.golang.org` and `sum.golang.org`. Covers `go mod`, `build`, `test` and `golangci-lint run` |
-| `mise` | `/usr/local/bin/mise` GET-only downloads from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go` |
+| `mise` | `/usr/local/bin/mise` GET-only downloads from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go`, plus its update check at `mise.jdx.dev/releases.tsv` |
 | `github-api` | `/usr/local/bin/gh` to open and edit PRs and issues, comment, label and read CI status on the session's repo. Repo sessions with a GitHub token only |
 
 - **Approvals:** `"approvals": "ask"` (default) or `"auto"`. With `auto`, tool calls in the
@@ -260,8 +260,9 @@ servers, and its grants.
   hosts the grant doesn't allow.
 - **`mise`:** the image sets `MISE_LOCKED=1`, so installs come from `mise.lock`, but the model can
   unset it. Anything run under `mise exec` shares the grant, `curl` included. The image ships mise
-  2026.10.25, which reads lockfile format 3, so lock with that version, e.g.
-  `mise exec mise@2026.10.25 -- mise lock --platform linux-arm64,linux-x64`.
+  2026.11.3, which reads lockfile formats up to 4. A lockfile from a newer mise can fail to read, so
+  lock with that version, e.g. `mise exec mise@2026.11.3 -- mise lock --platform linux-arm64,linux-x64`,
+  and set a top-level `min_version = "2026.11.3"` in `mise.toml` to make a mismatch fail with a clear error.
 - **Go image:** `HOME` is the workspace `/sandbox`, and only `/tmp` and `/sandbox` are writable, so
   caches live under `/tmp`. `GOPROXY` has no `direct`, so private modules fail, and
   `GOTOOLCHAIN=local` fails a `go` line newer than the image's Go.

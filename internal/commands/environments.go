@@ -51,6 +51,8 @@ var (
 		{Host: "nodejs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/dist/**"}}},
 		// Go toolchains, from mise's core go backend.
 		{Host: "dl.google.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/go/**"}}},
+		// mise's own update check; without it every run retries and warns.
+		{Host: "mise.jdx.dev", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/releases.tsv"}}},
 	}
 )
 
@@ -68,7 +70,7 @@ var grantCatalog = map[string]grantSpec{
 		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
 			return sandbox.Grant{Name: "mise", Binaries: miseBinaries, Endpoints: miseEndpoints}, true
 		},
-		summary:  "mise, and what it runs, may GET release assets from GitHub, nodejs.org/dist and dl.google.com/go; the image installs from mise.lock by default",
+		summary:  "mise, and what it runs, may GET release assets from GitHub, nodejs.org/dist and dl.google.com/go, and check mise.jdx.dev for its own updates; the image installs from mise.lock by default",
 		binaries: miseBinaries,
 		hosts:    miseEndpoints,
 	},
