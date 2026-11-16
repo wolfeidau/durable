@@ -35,12 +35,30 @@ type grantSpec struct {
 	hosts    []sandbox.GrantEndpoint
 }
 
-var (
-	goBinaries  = []string{"/usr/local/go/bin/go"}
-	ghBinaries  = []string{"/usr/local/bin/gh"}
-	goEndpoints = []sandbox.GrantEndpoint{{Host: "proxy.golang.org", Port: 443}, {Host: "sum.golang.org", Port: 443}}
+// miseInstalls is where mise installs tools; it must match MISE_DATA_DIR in docker/worker.Dockerfile.
+const miseInstalls = "/tmp/mise/data/installs"
 
+var (
+	goBinaries = []string{"/usr/local/go/bin/go", miseInstalls + "/go/*/bin/go"}
+	ghBinaries = []string{"/usr/local/bin/gh"}
+	// GET-only, because the mise Go path is writable, so any binary placed there gets these endpoints.
+	goEndpoints = []sandbox.GrantEndpoint{
+		{Host: "proxy.golang.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
+		{Host: "sum.golang.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
+	}
+
+	bunBinaries  = []string{miseInstalls + "/bun/*/bin/bun"}
 	miseBinaries = []string{"/usr/local/bin/mise"}
+	// Read-only lookups; the versions host replaces api.github.com for mise, and /t (telemetry) stays denied.
+	miseResolveEndpoints = []sandbox.GrantEndpoint{{Host: "mise-versions.jdx.dev", Port: 443, Rules: []sandbox.HTTPRule{
+		{Method: "GET", Path: "/data/*"},
+		{Method: "GET", Path: "/api/github/repos/*/*/releases/**"},
+		{Method: "GET", Path: "/api/github/repos/*/*/attestations/**"},
+	}}, {
+		// Sigstore's trust root, which mise fetches to verify the attestations itself.
+		Host: "tuf-repo-cdn.sigstore.dev", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}},
+	}}
+	npmEndpoints = []sandbox.GrantEndpoint{{Host: "registry.npmjs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}}}
 	// Every endpoint is read-only; the image runs mise locked, but that is a default the model can change, so these paths are the boundary.
 	miseEndpoints = []sandbox.GrantEndpoint{
 		// Release asset URLs in mise.lock, which redirect to the host below. mise sends a HEAD before each download.
@@ -73,6 +91,22 @@ var grantCatalog = map[string]grantSpec{
 		summary:  "mise, and what it runs, may download release assets from GitHub, nodejs.org/dist and dl.google.com/go, and check mise.jdx.dev for its own updates; the image installs from mise.lock by default",
 		binaries: miseBinaries,
 		hosts:    miseEndpoints,
+	},
+	"mise-resolve": {
+		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
+			return sandbox.Grant{Name: "mise-resolve", Binaries: miseBinaries, Endpoints: miseResolveEndpoints}, true
+		},
+		summary:  "mise may look up versions and attestations on mise-versions.jdx.dev, and Sigstore's trust root, so the model can add, upgrade and re-lock tools; needs mise for the downloads",
+		binaries: miseBinaries,
+		hosts:    miseResolveEndpoints,
+	},
+	"npm-registry": {
+		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
+			return sandbox.Grant{Name: "npm-registry", Binaries: bunBinaries, Endpoints: npmEndpoints}, true
+		},
+		summary:  "bun installed by mise may GET packages from the npm registry; read-only, so no publish",
+		binaries: bunBinaries,
+		hosts:    npmEndpoints,
 	},
 	"github-api": {
 		build:    githubAPIGrant,

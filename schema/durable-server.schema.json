@@ -120,7 +120,9 @@
                 "enum": [
                   "github-api",
                   "go-modules",
-                  "mise"
+                  "mise",
+                  "mise-resolve",
+                  "npm-registry"
                 ]
               },
               "description": "Network grants for sessions in this environment.",

@@ -62,3 +62,72 @@ func TestGatewayMiseGrantInstallsFromTheLockfileOnly(t *testing.T) {
 	out = run("mise exec -- curl -sS -m 20 https://api.github.com/zen")
 	require.NotContains(t, out, "rc=0", out)
 }
+
+// miseSession starts a sandbox with the grants and returns a runner that appends the exit code to each command.
+func miseSession(t *testing.T, grants []string) func(string) string {
+	t.Helper()
+	l := gatewayLauncher(t)
+	name, token := "dt-"+randHex(t, 6), randHex(t, 16)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		require.NoError(t, l.Delete(ctx, name))
+	})
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer cancel()
+	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token, Grants: commands.BuildGrants(grants, "", nil)}))
+	bash := bashTool(t, dialWorker(t, l, name, token))
+	n := 0
+	return func(command string) string {
+		n++
+		return runBash(t.Context(), t, bash, "r"+string(rune('a'+n)), command+" 2>&1; echo rc=$?")
+	}
+}
+
+// Each test works in a project directory, because mise use in HOME writes the global config, which has no lockfile.
+const inMiseProject = "mkdir -p /sandbox/p && cd /sandbox/p && "
+
+func TestGatewayMiseResolveAddsAndLocksATool(t *testing.T) {
+	run := miseSession(t, []string{"mise", "mise-resolve"})
+
+	out := run(inMiseProject + "MISE_LOCKED=0 mise use jq@1")
+	require.Contains(t, out, "rc=0", out)
+	require.NotContains(t, out, "policy_denied", out)
+
+	out = run(inMiseProject + "MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64 && grep -c jq mise.lock")
+	require.Contains(t, out, "rc=0", out)
+
+	// With the lockfile written, the default locked mode runs the tool.
+	out = run(inMiseProject + "mise exec -- jq --version")
+	require.Contains(t, out, "rc=0", out)
+
+	out = run(inMiseProject + "MISE_LOCKED=0 mise outdated")
+	require.Contains(t, out, "rc=0", out)
+
+	// The grant is bound to the mise binary, so curl is refused.
+	out = run("curl -sS -m 20 https://mise-versions.jdx.dev/data/jq.toml")
+	require.NotContains(t, out, "rc=0", out)
+}
+
+func TestGatewayNpmRegistryForMiseBun(t *testing.T) {
+	run := miseSession(t, []string{"mise", "mise-resolve", "npm-registry"})
+
+	out := run(inMiseProject + "MISE_LOCKED=0 mise use bun@1 && MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64")
+	require.Contains(t, out, "rc=0", out)
+
+	out = run(inMiseProject + `echo '{"name":"x","dependencies":{"left-pad":"1.3.0"}}' > package.json && mise exec -- bun install`)
+	require.Contains(t, out, "rc=0", out)
+
+	out = run("curl -sS -m 20 https://registry.npmjs.org/left-pad")
+	require.NotContains(t, out, "rc=0", out)
+}
+
+func TestGatewayGoModulesForMiseGo(t *testing.T) {
+	run := miseSession(t, []string{"mise", "mise-resolve", "go-modules"})
+
+	out := run(inMiseProject + "MISE_LOCKED=0 mise use go@1.27 && MISE_LOCKED=0 mise lock --platform linux-arm64,linux-x64")
+	require.Contains(t, out, "rc=0", out)
+
+	out = run(inMiseProject + "mise exec -- go mod init example.com/x && mise exec -- go get rsc.io/quote@v1.5.2")
+	require.Contains(t, out, "rc=0", out)
+}

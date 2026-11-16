@@ -452,6 +452,12 @@ func (s *Settings) Validate() error {
 		if strings.TrimSpace(s.Environments[name].Image) == "" {
 			errs = append(errs, fmt.Errorf("environment %q: image is required", name))
 		}
+		if g := s.Environments[name].Grants; slices.Contains(g, "mise-resolve") && !slices.Contains(g, "mise") {
+			errs = append(errs, fmt.Errorf("environment %q: grant \"mise-resolve\" needs \"mise\", which downloads what it resolves", name))
+		}
+		if g := s.Environments[name].Grants; slices.Contains(g, "npm-registry") && !slices.Contains(g, "mise") {
+			s.warn("environments."+name, fmt.Sprintf("environment %q names the npm-registry grant, which covers bun installed by mise, but not the mise grant that installs it", name))
+		}
 		if _, ok := s.GitHosts[github.Kind]; !ok && slices.Contains(s.Environments[name].Grants, "github-api") {
 			s.warn("environments."+name, fmt.Sprintf("environment %q names the github-api grant, which never applies without a github git host token", name))
 		}

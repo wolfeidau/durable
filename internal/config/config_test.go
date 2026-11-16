@@ -482,3 +482,27 @@ func TestMalformedOpReferencesAreRejectedWithoutEchoingThem(t *testing.T) {
 		require.NotContains(t, err.Error(), bad)
 	})
 }
+
+func TestMiseResolveNeedsMise(t *testing.T) {
+	load := func(grants string) *Settings {
+		s, err := Load(writeHome(t, map[string]string{"config.json": `{"environments": {"w": {"image": "img", "grants": ` + grants + `}}}`}))
+		require.NoError(t, err)
+		return s
+	}
+
+	err := load(`["mise-resolve"]`).Validate()
+	require.EqualError(t, err, `environment "w": grant "mise-resolve" needs "mise", which downloads what it resolves`)
+	require.NoError(t, load(`["mise", "mise-resolve"]`).Validate())
+}
+
+func TestNpmRegistryWithoutMiseWarns(t *testing.T) {
+	load := func(grants string) *Settings {
+		s, err := Load(writeHome(t, map[string]string{"config.json": `{"environments": {"w": {"image": "img", "grants": ` + grants + `}}}`}))
+		require.NoError(t, err)
+		require.NoError(t, s.Validate())
+		return s
+	}
+
+	require.Equal(t, []Warning{{Field: "environments.w", Message: `environment "w" names the npm-registry grant, which covers bun installed by mise, but not the mise grant that installs it`}}, load(`["npm-registry"]`).Warnings)
+	require.Empty(t, load(`["mise", "npm-registry"]`).Warnings)
+}
