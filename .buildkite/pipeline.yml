@@ -56,8 +56,8 @@ steps:
           limit: 2
     command: mise run image:all
     env:
-      # Progress output buries the log; a failure still prints the failing step's error.
-      BUILDKIT_PROGRESS: quiet
+      # Plain text instead of TTY redraws, and it keeps a failing step's output.
+      BUILDKIT_PROGRESS: plain
     plugins:
       - ./.buildkite/plugins/mise-cache: ~
 
