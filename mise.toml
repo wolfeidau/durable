@@ -48,25 +48,23 @@ docker compose -f e2e/compose.yaml run --rm --build tests
 """
 
 [tasks."image:worker"]
-# The image is built locally only; there is no registry. --load keeps it in the local store for a remote builder, as in CI.
-run = "docker build --load -f docker/worker.Dockerfile -t durable-worker:dev ."
+# The images are built locally only; there is no registry. Bake targets are in docker-bake.hcl.
+run = "docker buildx bake --load worker"
 
 [tasks."image:worker-test"]
-depends = ["image:worker"]
 # The worker image plus a stdio MCP server for the gateway tests.
-run = "docker build --load -f docker/worker-test.Dockerfile -t durable-worker:mcptest ."
+run = "docker buildx bake --load worker worker-test"
 
 [tasks."image:worker-go"]
-depends = ["image:worker"]
 # The worker image plus the Go toolchain and golangci-lint, for the go-modules grant.
-run = "docker build --load -f docker/worker-go.Dockerfile -t durable-worker-go:dev ."
+run = "docker buildx bake --load worker worker-go"
 
 [tasks."image:all"]
 # CI builds every image so a base image or pinned tool bump that breaks one fails the PR.
-depends = ["image:worker-test", "image:worker-go"]
+run = "docker buildx bake --load"
 
 [tasks."test:openshell"]
-depends = ["image:worker-test", "image:worker-go"]
+depends = ["image:all"]
 # Both packages use the durable-github provider, so they run one at a time.
 run = "DURABLE_TEST_OPENSHELL=1 go test -p 1 -count=1 -timeout 20m -run . ./internal/sandbox/openshell/ ./cmd/durable-server/"
 
