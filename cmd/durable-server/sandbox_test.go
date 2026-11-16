@@ -42,6 +42,27 @@ func TestSandboxDeleteRejectsBadSessions(t *testing.T) {
 	}
 }
 
+// sandboxAudit runs durable-server sandbox-audit and returns its combined output.
+func sandboxAudit(t *testing.T, home, id string, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), binPath, append([]string{"sandbox-audit", id}, args...)...)
+	cmd.Env = append(os.Environ(), "HOME="+home)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func TestSandboxAuditRejectsBadSessions(t *testing.T) {
+	_, home := newWorkspace(t)
+
+	out, err := sandboxAudit(t, home, "../x")
+	require.Error(t, err, out)
+	require.Contains(t, out, "invalid session id")
+
+	out, err = sandboxAudit(t, home, unknownSessionID)
+	require.Error(t, err, out)
+	require.Contains(t, out, "has no sandbox")
+}
+
 func TestSandboxDeleteRefusesWhileServerRuns(t *testing.T) {
 	_, home := newWorkspace(t)
 	startIn(t, home)

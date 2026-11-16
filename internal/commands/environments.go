@@ -52,6 +52,8 @@ var (
 	// Read-only lookups; the versions host replaces api.github.com for mise, and /t (telemetry) stays denied.
 	miseResolveEndpoints = []sandbox.GrantEndpoint{{Host: "mise-versions.jdx.dev", Port: 443, Rules: []sandbox.HTTPRule{
 		{Method: "GET", Path: "/data/*"},
+		// The /** rule below doesn't match the bare list, which mise reads for tools without a data file.
+		{Method: "GET", Path: "/api/github/repos/*/*/releases"},
 		{Method: "GET", Path: "/api/github/repos/*/*/releases/**"},
 		{Method: "GET", Path: "/api/github/repos/*/*/attestations/**"},
 	}}, {
