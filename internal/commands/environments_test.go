@@ -346,7 +346,7 @@ func TestMiseResolveGrantIsGetOnlyLookups(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "mise-resolve", g.Name)
 	require.Equal(t, []string{"/usr/local/bin/mise"}, g.Binaries)
-	require.Len(t, g.Endpoints, 1)
+	require.Len(t, g.Endpoints, 2)
 	e := g.Endpoints[0]
 	require.Equal(t, "mise-versions.jdx.dev", e.Host)
 	require.EqualValues(t, 443, e.Port)
@@ -355,6 +355,7 @@ func TestMiseResolveGrantIsGetOnlyLookups(t *testing.T) {
 		{Method: "GET", Path: "/api/github/repos/*/*/releases/**"},
 		{Method: "GET", Path: "/api/github/repos/*/*/attestations/**"},
 	}, e.Rules)
+	require.Equal(t, sandbox.GrantEndpoint{Host: "tuf-repo-cdn.sigstore.dev", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}}, g.Endpoints[1])
 }
 
 func TestNPMRegistryGrantIsGetOnlyForMiseBun(t *testing.T) {
@@ -371,7 +372,7 @@ func TestGrantCatalogShowsTheNewGrants(t *testing.T) {
 		byName[g.Name] = g
 	}
 	require.Equal(t, []string{"/usr/local/bin/mise"}, byName["mise-resolve"].Binaries)
-	require.Equal(t, []string{"mise-versions.jdx.dev:443"}, byName["mise-resolve"].Hosts)
+	require.Equal(t, []string{"mise-versions.jdx.dev:443", "tuf-repo-cdn.sigstore.dev:443"}, byName["mise-resolve"].Hosts)
 	require.Equal(t, []string{"/tmp/mise/data/installs/bun/*/bin/bun"}, byName["npm-registry"].Binaries)
 	require.Equal(t, []string{"registry.npmjs.org:443"}, byName["npm-registry"].Hosts)
 	require.Contains(t, byName["go-modules"].Binaries, "/tmp/mise/data/installs/go/*/bin/go")

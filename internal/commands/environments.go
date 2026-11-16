@@ -50,7 +50,10 @@ var (
 		{Method: "GET", Path: "/data/*"},
 		{Method: "GET", Path: "/api/github/repos/*/*/releases/**"},
 		{Method: "GET", Path: "/api/github/repos/*/*/attestations/**"},
-	}}}
+	}}, {
+		// Sigstore's trust root, which mise fetches to verify the attestations itself.
+		Host: "tuf-repo-cdn.sigstore.dev", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}},
+	}}
 	npmEndpoints = []sandbox.GrantEndpoint{{Host: "registry.npmjs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}}}
 	// Every endpoint is read-only; the image runs mise locked, but that is a default the model can change, so these paths are the boundary.
 	miseEndpoints = []sandbox.GrantEndpoint{
@@ -89,7 +92,7 @@ var grantCatalog = map[string]grantSpec{
 		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
 			return sandbox.Grant{Name: "mise-resolve", Binaries: miseBinaries, Endpoints: miseResolveEndpoints}, true
 		},
-		summary:  "mise may look up versions and attestations on mise-versions.jdx.dev so the model can add, upgrade and re-lock tools; needs mise for the downloads",
+		summary:  "mise may look up versions and attestations on mise-versions.jdx.dev, and Sigstore's trust root, so the model can add, upgrade and re-lock tools; needs mise for the downloads",
 		binaries: miseBinaries,
 		hosts:    miseResolveEndpoints,
 	},
