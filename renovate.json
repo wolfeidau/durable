@@ -54,6 +54,16 @@
       "groupName": "buildkite-plugins"
     },
     {
+      "description": "connectrpc.com only answers go-get for the module root, so look the codegen tool up by its module",
+      "matchManagers": [
+        "mise"
+      ],
+      "matchPackageNames": [
+        "connectrpc.com/connect/cmd/protoc-gen-connect-go"
+      ],
+      "overridePackageName": "connectrpc.com/connect"
+    },
+    {
       "description": "Majors of modules coupled to generated code need regeneration and a planned migration, so they wait for approval on the dependency dashboard",
       "matchPackageNames": [
         "/(^|:)connectrpc\\.com/connect/",
