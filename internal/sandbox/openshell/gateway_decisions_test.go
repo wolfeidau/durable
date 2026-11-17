@@ -12,13 +12,14 @@ import (
 
 // want matches a Decision; empty fields match anything. Path and Binary are globs: "*" is within one segment and "**" spans segments.
 type want struct {
-	Allowed                                  bool
-	Kind, Binary, Method, Host, Path, Policy string
+	Allowed                                            bool
+	Kind, Activity, Binary, Method, Host, Path, Policy string
 }
 
 func (w want) matches(d Decision) bool {
 	return w.Allowed == d.Allowed &&
 		(w.Kind == "" || w.Kind == d.Kind) &&
+		(w.Activity == "" || w.Activity == d.Activity) &&
 		(w.Method == "" || w.Method == d.Method) &&
 		(w.Host == "" || w.Host == d.Host) &&
 		// Grant policies are logged with a prefix; tests name the grant.

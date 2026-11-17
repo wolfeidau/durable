@@ -11,6 +11,7 @@ const (
 	ocsfNetworkActivity = 4001
 	ocsfHTTPActivity    = 4002
 	ocsfActivityOpen    = 1
+	ocsfActivityRefuse  = 5
 	ocsfActionAllowed   = 1
 	ocsfActionDenied    = 2
 )
@@ -52,7 +53,7 @@ func decisionFromOCSF(body []byte) (Decision, bool) {
 	}
 	d := Decision{Time: time.UnixMilli(e.Time).UTC(), Allowed: e.ActionID == ocsfActionAllowed, Policy: e.FirewallRule.Name}
 	switch {
-	case e.ClassUID == ocsfNetworkActivity && e.ActivityID == ocsfActivityOpen:
+	case e.ClassUID == ocsfNetworkActivity && (e.ActivityID == ocsfActivityOpen || e.ActivityID == ocsfActivityRefuse):
 		host := e.DstEndpoint.Domain
 		if host == "" {
 			host = e.DstEndpoint.IP
@@ -60,7 +61,10 @@ func decisionFromOCSF(body []byte) (Decision, bool) {
 		if host == "" {
 			return Decision{}, false
 		}
-		d.Kind, d.Binary, d.Host = "NET", e.Actor.Process.Name, host
+		d.Kind, d.Activity, d.Binary, d.Host = "NET", "OPEN", e.Actor.Process.Name, host
+		if e.ActivityID == ocsfActivityRefuse {
+			d.Activity = "REFUSE"
+		}
 		if e.DstEndpoint.Port != 0 {
 			d.Host += ":" + strconv.Itoa(e.DstEndpoint.Port)
 		}

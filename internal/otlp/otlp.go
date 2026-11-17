@@ -26,11 +26,12 @@ const (
 // Record is one OCSF event received as an OTLP log record.
 type Record struct {
 	SandboxID string
-	UID       string
+	UID       string // empty for gap records, so dedupe must not key gap records on it
 	ClassUID  int
-	Time      time.Time
+	Time      time.Time // zero when the exporter sent none
+	Observed  time.Time // zero when the exporter sent none
 	Severity  string
-	Body      json.RawMessage // the OCSF event
+	Body      json.RawMessage // the OCSF event; nil for gap records and non-JSON bodies
 	Gap       *Gap
 }
 
@@ -41,7 +42,10 @@ type Gap struct {
 }
 
 // Handler serves OTLP/HTTP protobuf log export at POST /v1/logs and passes each request's records to sink.
-func Handler(token string, sink func(context.Context, []Record) error) http.Handler {
+func Handler(token string, sink func(context.Context, []Record) error) (http.Handler, error) {
+	if token == "" {
+		return nil, errors.New("otlp token must not be empty")
+	}
 	want := []byte("Bearer " + token)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/logs" {
@@ -80,7 +84,7 @@ func Handler(token string, sink func(context.Context, []Record) error) http.Hand
 		out, _ := proto.Marshal(&collogspb.ExportLogsServiceResponse{})
 		w.Header().Set("Content-Type", "application/x-protobuf")
 		_, _ = w.Write(out)
-	})
+	}), nil
 }
 
 func readBody(w http.ResponseWriter, r *http.Request) ([]byte, int, error) {
@@ -118,9 +122,12 @@ func records(req *collogspb.ExportLogsServiceRequest) []Record {
 				rec := Record{
 					SandboxID: attr(attrs, "openshell.sandbox.id"),
 					UID:       attr(attrs, "ocsf.metadata.uid"),
-					Time:      time.Unix(0, int64(lr.GetTimeUnixNano())).UTC(), //nolint:gosec // nanosecond timestamps fit int64 until 2262
+					Time:      nanoTime(lr.GetTimeUnixNano()),
+					Observed:  nanoTime(lr.GetObservedTimeUnixNano()),
 					Severity:  lr.GetSeverityText(),
-					Body:      json.RawMessage(lr.GetBody().GetStringValue()),
+				}
+				if body := lr.GetBody().GetStringValue(); lr.GetEventName() != gapEvent && json.Valid([]byte(body)) {
+					rec.Body = json.RawMessage(body)
 				}
 				if rec.SandboxID == "" {
 					rec.SandboxID = resSandbox
@@ -136,6 +143,13 @@ func records(req *collogspb.ExportLogsServiceRequest) []Record {
 		}
 	}
 	return out
+}
+
+func nanoTime(ns uint64) time.Time {
+	if ns == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, int64(ns)).UTC() //nolint:gosec // nanosecond timestamps fit int64 until 2262
 }
 
 // attr renders a string or integer attribute as a string, because exporters differ on which they use for numbers.

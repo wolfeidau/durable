@@ -2,6 +2,7 @@ package openshell
 
 import (
 	"context"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -26,34 +27,39 @@ func TestGatewayOTLPDecisions(t *testing.T) {
 	require.NotEmpty(t, token, "set DURABLE_TEST_OTLP_TOKEN")
 	dump := os.Getenv("DURABLE_TEST_OTLP_DUMP")
 
+	type arrival struct {
+		otlp.Record
+		at time.Time
+	}
 	var (
 		mu        sync.Mutex
-		recs      []otlp.Record
+		recs      []arrival
 		batches   []int
 		encodings []string
-		first     time.Time
 	)
 	sink := func(_ context.Context, rs []otlp.Record) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if first.IsZero() {
-			first = time.Now()
+		now := time.Now()
+		for _, r := range rs {
+			recs = append(recs, arrival{r, now})
 		}
-		recs = append(recs, rs...)
 		batches = append(batches, len(rs))
 		return nil
 	}
-	inner := otlp.Handler(token, sink)
-	srv := &http.Server{Addr: addr, ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	inner, err := otlp.Handler(token, sink)
+	require.NoError(t, err)
+	ln, err := net.Listen("tcp", addr)
+	require.NoError(t, err)
+	srv := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		encodings = append(encodings, r.Header.Get("Content-Encoding"))
 		mu.Unlock()
 		inner.ServeHTTP(w, r)
 	})}
-	go func() { _ = srv.ListenAndServe() }()
+	go func() { _ = srv.Serve(ln) }()
 	t.Cleanup(func() { _ = srv.Close() })
 
-	started := time.Now()
 	box := miseSession(t, []string{"mise"})
 	sb, err := box.l.c.Sandboxes().Get(t.Context(), box.l.ws, box.name)
 	require.NoError(t, err)
@@ -63,6 +69,7 @@ func TestGatewayOTLPDecisions(t *testing.T) {
 	require.Contains(t, out, "rc=0", out)
 	out = box.run("mise install")
 	require.Contains(t, out, "rc=0", out)
+	curlStart := time.Now()
 	out = box.run("curl -sS -m 20 -o /dev/null https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64")
 	require.NotContains(t, out, "rc=0", out)
 
@@ -70,35 +77,46 @@ func TestGatewayOTLPDecisions(t *testing.T) {
 		{Allowed: true, Kind: "HTTP", Method: "GET", Host: "github.com", Path: "/*/*/releases/download/**", Policy: "mise"},
 		{Kind: "NET", Binary: "**/curl", Host: "github.com:443"},
 	}
-	var ds []Decision
-	require.Eventually(t, func() bool {
+	// Other sandboxes on the gateway may export to the same receiver.
+	mine := func() []arrival {
 		mu.Lock()
 		defer mu.Unlock()
+		return slices.DeleteFunc(slices.Clone(recs), func(a arrival) bool { return a.SandboxID != sb.ID })
+	}
+	var ds []Decision
+	require.Eventually(t, func() bool {
 		ds = ds[:0]
-		for _, r := range recs {
-			if d, ok := decisionFromOCSF(r.Body); ok && r.SandboxID == sb.ID {
+		for _, a := range mine() {
+			if d, ok := decisionFromOCSF(a.Body); ok {
 				ds = append(ds, d)
 			}
 		}
 		return !slices.ContainsFunc(wants, func(w want) bool { return !slices.ContainsFunc(ds, w.matches) })
 	}, 30*time.Second, 500*time.Millisecond, "no OTLP decision matched %+v", wants)
 
+	got := mine()
+	require.NotEmpty(t, got, "no OTLP records for sandbox %s", sb.ID)
 	mu.Lock()
+	batchSizes, encs := slices.Clone(batches), slices.Clone(encodings)
+	mu.Unlock()
+
 	seen := map[string]int{}
 	dups := 0
-	for _, r := range recs {
-		if r.SandboxID != "" {
-			require.Equal(t, sb.ID, r.SandboxID, "record %s", r.UID)
+	var latency time.Duration
+	for _, a := range got {
+		if a.UID != "" {
+			if seen[a.UID]++; seen[a.UID] == 2 {
+				dups++
+			}
 		}
-		if seen[r.UID]++; seen[r.UID] == 2 {
-			dups++
+		if d, ok := decisionFromOCSF(a.Body); ok && latency == 0 && wants[1].matches(d) && !a.at.Before(curlStart) {
+			latency = a.at.Sub(curlStart)
 		}
 		if dump != "" {
-			require.NoError(t, os.WriteFile(filepath.Join(dump, strconv.Itoa(r.ClassUID)+"-"+r.UID+".json"), r.Body, 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dump, strconv.Itoa(a.ClassUID)+"-"+a.UID+".json"), a.Body, 0o600))
 		}
 	}
-	t.Logf("time to first record %s, batches %v, encodings %q, records %d, duplicate uids %d", first.Sub(started), batches, encodings, len(recs), dups)
-	mu.Unlock()
+	t.Logf("curl to denied NET record latency %s, batches %v, encodings %q, records %d, duplicate uids %d", latency, batchSizes, encs, len(got), dups)
 
 	requireDecisions(t, box.l, box.name, since, wants...)
 }

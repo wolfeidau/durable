@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -57,10 +58,14 @@ type harness struct {
 
 func newHarness() *harness {
 	s := &harness{}
-	s.h = Handler(testToken, func(_ context.Context, recs []Record) error {
+	h, err := Handler(testToken, func(_ context.Context, recs []Record) error {
 		s.got = append(s.got, recs)
 		return s.fail
 	})
+	if err != nil {
+		panic(err)
+	}
+	s.h = h
 	return s
 }
 
@@ -185,11 +190,48 @@ func TestSinkErrorIs503(t *testing.T) {
 func TestGapRecord(t *testing.T) {
 	s := newHarness()
 	gap := &logspb.LogRecord{
-		EventName:  gapEvent,
-		Attributes: []*commonpb.KeyValue{num("openshell.ocsf.gap.dropped", 7), num("openshell.ocsf.gap.since_unix_ms", 1700000000000)},
+		EventName:    gapEvent,
+		SeverityText: "WARN",
+		Body:         &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "OCSF log records dropped before export: 7"}},
+		Attributes:   []*commonpb.KeyValue{num("openshell.ocsf.gap.dropped", 7), num("openshell.ocsf.gap.since_unix_ms", 1700000000000)},
 	}
 	require.Equal(t, http.StatusOK, s.post(t, nil, marshal(t, request(nil, gap))).Code)
-	require.Equal(t, &Gap{Dropped: 7, Since: time.UnixMilli(1700000000000).UTC()}, s.got[0][0].Gap)
+	rec := s.got[0][0]
+	require.Equal(t, &Gap{Dropped: 7, Since: time.UnixMilli(1700000000000).UTC()}, rec.Gap)
+	require.Nil(t, rec.Body)
+	require.Empty(t, rec.UID)
+	for _, r := range s.got[0] {
+		_, err := json.Marshal(r)
+		require.NoError(t, err)
+	}
+}
+
+func TestNonJSONBodyIsDropped(t *testing.T) {
+	s := newHarness()
+	lr := event("sb-1", "u1")
+	lr.Body = &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "not json"}}
+	require.Equal(t, http.StatusOK, s.post(t, nil, marshal(t, request(nil, lr))).Code)
+	require.Nil(t, s.got[0][0].Body)
+	_, err := json.Marshal(s.got[0][0])
+	require.NoError(t, err)
+}
+
+func TestTimestamps(t *testing.T) {
+	s := newHarness()
+	set := event("sb-1", "u1")
+	set.ObservedTimeUnixNano = uint64(time.UnixMilli(1700000005000).UnixNano())
+	unset := event("sb-1", "u2")
+	unset.TimeUnixNano = 0
+	require.Equal(t, http.StatusOK, s.post(t, nil, marshal(t, request(nil, set, unset))).Code)
+	require.True(t, time.UnixMilli(1700000005000).Equal(s.got[0][0].Observed))
+	require.True(t, s.got[0][1].Time.IsZero())
+	require.True(t, s.got[0][1].Observed.IsZero())
+}
+
+func TestEmptyTokenIsRejected(t *testing.T) {
+	h, err := Handler("", func(context.Context, []Record) error { return nil })
+	require.Error(t, err)
+	require.Nil(t, h)
 }
 
 func TestSandboxIDSources(t *testing.T) {
