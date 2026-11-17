@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 var exts = []string{".json", ".yaml", ".yml"}
@@ -106,7 +106,7 @@ func convert(n *yaml.Node, path string) (any, error) {
 		return out, nil
 	case yaml.MappingNode:
 		return convertMap(n, path)
-	case yaml.DocumentNode, yaml.ScalarNode:
+	case yaml.StreamNode, yaml.DocumentNode, yaml.ScalarNode:
 	}
 	return convertScalar(n, path)
 }
