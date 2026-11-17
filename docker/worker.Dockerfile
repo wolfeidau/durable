@@ -29,8 +29,8 @@ ENV GH_CONFIG_DIR=/tmp/gh GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 GH_SPINNE
 ARG MISE_VERSION=2026.11.8
 # Checksums from the release's SHASUMS256.txt; a version bump fails the build until they're updated.
 RUN case "$TARGETARCH" in \
-      amd64) arch=x64; sum=837acae6defb8c9ad74823f6e38856633bacb04c65c1ac67d952749847543bd9 ;; \
-      arm64) arch=arm64; sum=13547a80d1dc2d5f81bb183023732f4981486e894d060e30993cc4364b4af51d ;; \
+      amd64) arch=x64; sum=d2d5a46f507bba772686e2c8f2316b3a4439dac49a37a30db5c0e7bb077c5431 ;; \
+      arm64) arch=arm64; sum=b36da3c4892380325d44dee3678ba618de191254d8a4aed8011ee66b28a6cbd7 ;; \
       *) echo "unsupported arch $TARGETARCH" >&2; exit 1 ;; \
     esac \
  && curl -fsSL -o /tmp/mise.tgz "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-${arch}.tar.gz" \
