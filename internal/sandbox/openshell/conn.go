@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"github.com/wolfeidau/durable/internal/sandbox"
 )

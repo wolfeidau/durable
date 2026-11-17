@@ -3,7 +3,7 @@ module github.com/wolfeidau/durable
 go 1.27
 
 require (
-	connectrpc.com/connect v1.21.1
+	connectrpc.com/connect/v2 v2.0.2
 	github.com/ai-openshell/sdk-go v0.1.8
 	github.com/alecthomas/kong v1.17.0
 	github.com/anthropics/anthropic-sdk-go/v2 v2.9.0

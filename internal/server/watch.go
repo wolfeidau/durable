@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"github.com/wolfeidau/durable"
 	durablev1 "github.com/wolfeidau/durable/api/durable/v1"

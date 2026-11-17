@@ -10,7 +10,7 @@ import (
 	"path"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	workerv1 "github.com/wolfeidau/durable/api/durable/worker/v1"
 )

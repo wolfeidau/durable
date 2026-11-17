@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"

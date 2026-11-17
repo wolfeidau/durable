@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 
 	"github.com/wolfeidau/durable"
 	workerv1 "github.com/wolfeidau/durable/api/durable/worker/v1"
