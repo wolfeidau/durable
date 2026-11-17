@@ -48,11 +48,12 @@ type serveCmd struct {
 }
 
 type cli struct {
-	Serve       serveCmd         `cmd:"" default:"withargs" help:"Run the server."`
-	Config      configCmd        `cmd:"" help:"Check the server config."`
-	URL         urlCmd           `cmd:"" name:"url" help:"Print the browser link for the running server."`
-	RotateToken rotateTokenCmd   `cmd:"" name:"rotate-token" help:"Replace the stored token. It takes effect when the server next starts."`
-	SandboxDel  sandboxDeleteCmd `cmd:"" name:"sandbox-delete" help:"Delete a session's sandbox. The session keeps its pin, and its next open creates a fresh sandbox."`
+	Serve        serveCmd         `cmd:"" default:"withargs" help:"Run the server."`
+	Config       configCmd        `cmd:"" help:"Check the server config."`
+	URL          urlCmd           `cmd:"" name:"url" help:"Print the browser link for the running server."`
+	RotateToken  rotateTokenCmd   `cmd:"" name:"rotate-token" help:"Replace the stored token. It takes effect when the server next starts."`
+	SandboxDel   sandboxDeleteCmd `cmd:"" name:"sandbox-delete" help:"Delete a session's sandbox. The session keeps its pin, and its next open creates a fresh sandbox."`
+	SandboxAudit sandboxAuditCmd  `cmd:"" name:"sandbox-audit" help:"List the network requests a session's sandbox made and which grant allowed or denied each."`
 }
 
 type urlCmd struct{}

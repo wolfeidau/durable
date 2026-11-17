@@ -136,3 +136,60 @@ func (c *sandboxDeleteCmd) Run(ctx context.Context) error {
 	fmt.Printf("Deleted sandbox %s. The next open of session %s creates a fresh, empty one.\n", pin.Name, c.Session)
 	return nil
 }
+
+type sandboxAuditCmd struct {
+	Session string        `arg:"" help:"Session id, as shown in the session directory name."`
+	Since   time.Duration `default:"24h" help:"How far back to read the sandbox log."`
+	Denied  bool          `help:"List only denied requests."`
+}
+
+// Run takes no lock, because it only reads the sandbox log.
+func (c *sandboxAuditCmd) Run(ctx context.Context) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to find home directory: %w", err)
+	}
+	dir, err := server.SessionDir(home, c.Session)
+	if err != nil {
+		return err
+	}
+	pin, ok, err := sandbox.ReadPin(dir)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("session %s has no sandbox", c.Session)
+	}
+	l, err := openshell.New(openshell.Config{})
+	if err != nil {
+		return fmt.Errorf("failed to connect to the gateway: %w", err)
+	}
+	defer l.Close()
+	ds, err := l.Decisions(ctx, pin.Name, time.Now().Add(-c.Since))
+	if err != nil {
+		return err
+	}
+	if len(ds) == 0 {
+		fmt.Println("No network decisions in the sandbox log for that period.")
+		return nil
+	}
+	var allowed, denied int
+	var shown []openshell.Decision
+	for _, d := range ds {
+		if d.Allowed {
+			allowed++
+		} else {
+			denied++
+		}
+		if !c.Denied || !d.Allowed {
+			shown = append(shown, d)
+		}
+	}
+	if err := openshell.FormatDecisions(os.Stdout, shown); err != nil {
+		return fmt.Errorf("failed to write decisions: %w", err)
+	}
+	// The gateway keeps only recent log lines, so the span can be shorter than --since.
+	fmt.Printf("%d allowed, %d denied, from %s to %s\n", allowed, denied,
+		ds[0].Time.Local().Format(time.DateTime), ds[len(ds)-1].Time.Local().Format(time.DateTime))
+	return nil
+}

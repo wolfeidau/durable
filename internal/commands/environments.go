@@ -52,6 +52,8 @@ var (
 	// Read-only lookups; the versions host replaces api.github.com for mise, and /t (telemetry) stays denied.
 	miseResolveEndpoints = []sandbox.GrantEndpoint{{Host: "mise-versions.jdx.dev", Port: 443, Rules: []sandbox.HTTPRule{
 		{Method: "GET", Path: "/data/*"},
+		// The /** rule below doesn't match the bare list, which mise reads for tools without a data file.
+		{Method: "GET", Path: "/api/github/repos/*/*/releases"},
 		{Method: "GET", Path: "/api/github/repos/*/*/releases/**"},
 		{Method: "GET", Path: "/api/github/repos/*/*/attestations/**"},
 	}}, {
@@ -61,7 +63,7 @@ var (
 	npmEndpoints = []sandbox.GrantEndpoint{{Host: "registry.npmjs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}}}
 	// Every endpoint is read-only; the image runs mise locked, but that is a default the model can change, so these paths are the boundary.
 	miseEndpoints = []sandbox.GrantEndpoint{
-		// Release asset URLs in mise.lock, which redirect to the host below. mise sends a HEAD before each download.
+		// Release asset URLs in mise.lock, which redirect to the host below. mise sends a HEAD before each download; the gateway lets GET cover it, but older gateways may not.
 		{Host: "github.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/*/*/releases/download/**"}, {Method: "HEAD", Path: "/*/*/releases/download/**"}}},
 		// Where GitHub redirects release asset downloads; seen in the gateway log for aqua tools.
 		{Host: "release-assets.githubusercontent.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},

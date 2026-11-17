@@ -352,6 +352,7 @@ func TestMiseResolveGrantIsGetOnlyLookups(t *testing.T) {
 	require.EqualValues(t, 443, e.Port)
 	require.Equal(t, []sandbox.HTTPRule{
 		{Method: "GET", Path: "/data/*"},
+		{Method: "GET", Path: "/api/github/repos/*/*/releases"},
 		{Method: "GET", Path: "/api/github/repos/*/*/releases/**"},
 		{Method: "GET", Path: "/api/github/repos/*/*/attestations/**"},
 	}, e.Rules)

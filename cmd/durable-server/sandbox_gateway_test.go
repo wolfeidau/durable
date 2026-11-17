@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -172,6 +173,34 @@ func TestGatewaySessionRunsToolsInSandboxStopsIdleAndKeepsWorkspace(t *testing.T
 	p, err := phaseOf(t, l, pin.Name)
 	require.NoError(t, err)
 	require.Equal(t, types.SandboxReady, p)
+}
+
+func TestGatewaySandboxAuditListsDeniedRequests(t *testing.T) {
+	_, home, l := gatewayHome(t)
+	api := sequenceAPI(t,
+		toolReply("toolu_bash1", "bash", bashInput(t, "curl -sS -m 20 https://example.com; echo rc=$?")),
+		textReply("done"),
+	)
+	r := startEnv(t, home, apiEnv(api), "--api-token", "dummy", "--sandbox-image", gatewayImage())
+	c := newClient(r)
+	got, err := c.createEmpty(t, "", "req-create-0123456789")
+	require.NoError(t, err)
+	id := got.GetSession().GetId()
+	sessionPin(t, home, id, l)
+
+	stream := openWatch(t, r, id, false)
+	submitAs(t, c, id, "fetch it")
+	approveSeq(t, c, id, 1)
+	collectRuns(t, stream, 1)
+
+	// The supervisor flushes its log asynchronously.
+	require.Eventually(t, func() bool {
+		out, err := sandboxAudit(t, home, id, "--denied")
+		return err == nil && regexp.MustCompile(`denied\s+NET\s+\S*curl\s+-\s+example\.com:443`).MatchString(out)
+	}, 20*time.Second, time.Second)
+	out, err := sandboxAudit(t, home, id)
+	require.NoError(t, err, out)
+	require.Regexp(t, `\d+ allowed, [1-9]\d* denied, from \d{4}-\d\d-\d\d \S+ to \d{4}-\d\d-\d\d`, out)
 }
 
 func TestGatewaySandboxDeleteCreatesAFreshSandboxOnNextOpen(t *testing.T) {
