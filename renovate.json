@@ -1,7 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    ":disableDependencyDashboard",
     "config:recommended",
     ":semanticCommits",
     "schedule:weekdays",
@@ -22,7 +21,8 @@
     "enabled": true
   },
   "postUpdateOptions": [
-    "gomodTidy"
+    "gomodTidy",
+    "gomodUpdateImportPaths"
   ],
   "automerge": true,
   "automergeType": "pr",
@@ -52,6 +52,17 @@
         "buildkite"
       ],
       "groupName": "buildkite-plugins"
+    },
+    {
+      "description": "Majors of modules coupled to generated code need regeneration and a planned migration, so they wait for approval on the dependency dashboard",
+      "matchPackageNames": [
+        "/(^|:)connectrpc\\.com/connect/",
+        "/(^|:)google\\.golang\\.org/protobuf/"
+      ],
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "dependencyDashboardApproval": true
     },
     {
       "description": "Do not automerge major updates",
