@@ -230,21 +230,31 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	case <-ctx.Done():
 	}
 
+	return shutdownServe(ctx, srv, cancelBase, rcv, registry)
+}
+
+// shutdownServe drains the API, then the receiver, and reports both errors.
+func shutdownServe(ctx context.Context, srv *http.Server, cancelBase context.CancelFunc, rcv *receiver, registry *server.Registry) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	err = srv.Shutdown(shutdownCtx)
+	err := srv.Shutdown(shutdownCtx)
 	cancelBase()
-	if rerr := rcv.close(shutdownCtx); rerr != nil {
-		return fmt.Errorf("failed to shut down telemetry: %w", rerr)
-	}
-	// Interrupted runs resume on the next open.
-	registry.Close()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		// Open streams may outlast the grace period.
 		_ = srv.Close()
-		return fmt.Errorf("failed to shut down: %w", err)
+		err = fmt.Errorf("failed to shut down: %w", err)
+	} else {
+		err = nil
 	}
-	return nil
+	// The receiver gets its own deadline, because a slow API drain leaves shutdownCtx expired.
+	rctx, rcancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer rcancel()
+	if rerr := rcv.close(rctx); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("failed to shut down telemetry: %w", rerr))
+	}
+	// Interrupted runs resume on the next open.
+	registry.Close()
+	return err
 }
 
 // writeServerInfo replaces path atomically, so a reader never sees a partial token.

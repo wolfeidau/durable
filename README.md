@@ -229,8 +229,12 @@ headers_file = "/home/<you>/.durable/otlp-headers"
 - Restart the gateway, which reads the headers file at startup. Sandboxes pick up the setting when
   they restart.
 - The endpoint must be reachable from the sandbox supervisors, not just from the host.
-- Delivery is best-effort. When the exporter drops events, `sandbox-audit` warns with the count.
-- Events are matched to a session by its sandbox name.
+- Delivery is best-effort. The store keeps only the fields of each decision, not the raw OCSF body.
+- Events are matched to a session by its sandbox name. Decisions that carry no sandbox are not
+  stored; the server logs a warning and counts them per day.
+- `sandbox-audit` says when data is missing: events the exporter dropped (for the sandbox, and
+  gateway-wide where the sandbox is unknown), decisions that matched no sandbox, history that
+  starts after the requested period, and raw events pruned past `telemetry.retention`.
 
 #### Git host tokens
 
@@ -301,7 +305,8 @@ servers, and its grants.
   bypass refusals. With [network telemetry](#network-telemetry) enabled it reads the full history
   from the telemetry store; otherwise it reads the gateway's recent log lines, so the summary shows
   the span it covers. Check it after granting something new; `--denied` shows only refusals,
-  `--since` sets how far back to read, and `--daily` with `--days` prints per-day totals.
+  `--since` sets how far back to read (default `24h`), and `--daily` with `--days` prints per-day
+  totals. `--daily` and `--since` are mutually exclusive: combining them is an error.
 - **Go image:** `HOME` is the workspace `/sandbox`, and only `/tmp` and `/sandbox` are writable, so
   caches live under `/tmp`. `GOPROXY` has no `direct`, so private modules fail, and
   `GOTOOLCHAIN=local` fails a `go` line newer than the image's Go.

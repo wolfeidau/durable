@@ -2,7 +2,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -20,6 +22,7 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/wolfeidau/durable/internal/config"
 	"github.com/wolfeidau/durable/internal/sandbox"
 )
 
@@ -77,8 +80,18 @@ func gapRecord() *logspb.LogRecord {
 
 func exportLogs(t *testing.T, addr, token string, recs ...*logspb.LogRecord) int {
 	t.Helper()
+	return exportLogsFrom(t, addr, token, fixtureSandboxID, recs...)
+}
+
+// exportLogsFrom sends recs with no sandbox id on the resource when sandboxID is empty.
+func exportLogsFrom(t *testing.T, addr, token, sandboxID string, recs ...*logspb.LogRecord) int {
+	t.Helper()
+	var attrs []*commonpb.KeyValue
+	if sandboxID != "" {
+		attrs = append(attrs, strAttr("openshell.sandbox.id", sandboxID))
+	}
 	body, err := proto.Marshal(&collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{{
-		Resource:  &resourcepb.Resource{Attributes: []*commonpb.KeyValue{strAttr("openshell.sandbox.id", fixtureSandboxID)}},
+		Resource:  &resourcepb.Resource{Attributes: attrs},
 		ScopeLogs: []*logspb.ScopeLogs{{LogRecords: recs}},
 	}}})
 	require.NoError(t, err)
@@ -158,14 +171,14 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 	require.Regexp(t, `denied\s+\S*:REFUSE\s+.*mise-versions\.jdx\.dev`, out)
 	require.Contains(t, out, "2 allowed, 2 denied")
 	require.Contains(t, out, "source: telemetry")
-	require.Contains(t, out, "warning: 3 events dropped since ")
+	require.Contains(t, out, "warning: 3 events from this sandbox were dropped before export since ")
 
 	out, err = sandboxAudit(t, home, session, "--since", auditSince, "--denied")
 	require.NoError(t, err, out)
 	require.NotContains(t, out, "allowed  ")
 	require.Contains(t, out, "mise-versions.jdx.dev")
 
-	out, err = sandboxAudit(t, home, session, "--since", auditSince, "--daily", "--days", "3650")
+	out, err = sandboxAudit(t, home, session, "--daily", "--days", "3650")
 	require.NoError(t, err, out)
 	require.Contains(t, out, "DAY")
 	require.Contains(t, out, "TOP DENIED")
@@ -226,4 +239,78 @@ func TestMalformedHeadersFileFailsStartup(t *testing.T) {
 
 	require.Contains(t, out, "otlp-headers")
 	require.NoFileExists(t, filepath.Join(home, ".durable", "server.json"))
+}
+
+func TestReceiverCloseWithExpiredContextStillClosesStore(t *testing.T) {
+	home := t.TempDir()
+	settings := &config.Settings{TelemetryAddr: "127.0.0.1:0", TelemetryRetention: time.Hour}
+	r, _, err := startReceiver(t.Context(), slog.New(slog.DiscardHandler), home, settings, nil)
+	require.NoError(t, err)
+
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+	_ = r.close(expired)
+
+	_, err = r.store.Decisions(t.Context(), fixtureSandbox, time.Time{})
+	require.ErrorContains(t, err, "closed")
+}
+
+func TestAuditDailyRejectsSince(t *testing.T) {
+	home := t.TempDir()
+	writeAuditPin(t, home, "cccccccccccccccc")
+
+	out, err := sandboxAudit(t, home, "cccccccccccccccc", "--daily", "--since", "1h")
+
+	require.Error(t, err, out)
+	require.Contains(t, out, "--since does not apply to --daily; use --days")
+}
+
+// ocsfWithoutDevice is a decision the receiver cannot attribute to a sandbox.
+func ocsfWithoutDevice(t *testing.T) *logspb.LogRecord {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "internal", "sandbox", "openshell", "testdata", "ocsf", "net-denied-curl.json"))
+	require.NoError(t, err)
+	var ev map[string]any
+	require.NoError(t, json.Unmarshal(body, &ev))
+	delete(ev, "device")
+	body, err = json.Marshal(ev)
+	require.NoError(t, err)
+	return &logspb.LogRecord{
+		ObservedTimeUnixNano: uint64(time.Now().UnixNano()),
+		Body:                 &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: string(body)}},
+		Attributes:           []*commonpb.KeyValue{strAttr("ocsf.metadata.uid", "unattributed-1"), intAttr("ocsf.class_uid", 4001)},
+	}
+}
+
+func TestAuditReportsDropsAndCoverage(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, telemetryConfig)
+	r := startIn(t, home)
+	addr := readOTLPAddr(t, home)
+	token := readHeadersToken(t, home)
+	require.Equal(t, http.StatusOK, exportLogs(t, addr, token, fixtureRecords(t)...))
+	require.Equal(t, http.StatusOK, exportLogs(t, addr, token, gapRecord()))
+	require.Equal(t, http.StatusOK, exportLogsFrom(t, addr, token, "", gapRecord()))
+	require.Equal(t, http.StatusOK, exportLogs(t, addr, token, ocsfWithoutDevice(t)))
+	const session = "dddddddddddddddd"
+	writeAuditPin(t, home, session)
+
+	out, err := sandboxAudit(t, home, session, "--since", auditSince)
+	require.NoError(t, err, out)
+	require.Contains(t, out, "warning: 3 events from this sandbox were dropped before export since ")
+	require.Contains(t, out, "warning: 3 events were dropped gateway-wide since ")
+	require.Contains(t, out, "; some may belong to this sandbox")
+	require.Contains(t, out, "warning: 1 network decisions since ")
+	require.Contains(t, out, " could not be matched to any sandbox")
+	require.Contains(t, out, "note: telemetry history for this sandbox starts at ")
+	require.Contains(t, out, "; earlier decisions were not recorded")
+	require.Contains(t, out, "note: raw events older than 720h0m0s are pruned; use --daily for older totals")
+
+	out, err = sandboxAudit(t, home, session, "--daily", "--days", "3650")
+	require.NoError(t, err, out)
+	require.Contains(t, out, "note: telemetry history for this sandbox starts on ")
+	require.Contains(t, out, "warning: 3 events from this sandbox were dropped before export since ")
+	require.Contains(t, out, "warning: 3 events were dropped gateway-wide since ")
+	require.Contains(t, out, "warning: 1 network decisions since ")
+	stopServer(t, r)
 }

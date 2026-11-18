@@ -12,6 +12,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/wolfeidau/durable/internal/config"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/sandbox/openshell"
 	"github.com/wolfeidau/durable/internal/server"
@@ -141,15 +142,21 @@ func (c *sandboxDeleteCmd) Run(ctx context.Context) error {
 }
 
 type sandboxAuditCmd struct {
-	Session string        `arg:"" help:"Session id, as shown in the session directory name."`
-	Since   time.Duration `default:"24h" help:"How far back to read the network decisions."`
-	Denied  bool          `help:"List only denied requests."`
-	Daily   bool          `help:"Print per-day totals from the telemetry store instead of the requests."`
-	Days    int           `default:"30" help:"How many days --daily covers."`
+	Session string `arg:"" help:"Session id, as shown in the session directory name."`
+	// Zero means the 24h default, so --daily can tell an explicit --since.
+	Since  time.Duration `help:"How far back to read the network decisions (default 24h). Not allowed with --daily."`
+	Denied bool          `help:"List only denied requests."`
+	Daily  bool          `help:"Print per-day totals from the telemetry store instead of the requests. Use --days, not --since."`
+	Days   int           `default:"30" help:"How many days --daily covers."`
 }
+
+const defaultAuditSince = 24 * time.Hour
 
 // Run takes no lock, because it only reads the telemetry store and the sandbox log.
 func (c *sandboxAuditCmd) Run(ctx context.Context) error {
+	if c.Daily && c.Since != 0 {
+		return errors.New("--since does not apply to --daily; use --days")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("failed to find home directory: %w", err)
@@ -173,23 +180,41 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 		return errors.New("no telemetry store; enable telemetry.otlp_addr in config.json")
 	}
 	var store *telemetry.Store
+	var retention time.Duration
 	if hasStore {
+		settings, err := config.Load(home)
+		if err != nil {
+			return err
+		}
+		retention = settings.TelemetryRetention
 		if store, err = telemetry.OpenReadOnly(ctx, dbPath); err != nil {
 			return fmt.Errorf("failed to open telemetry store: %w", err)
 		}
 		defer store.Close()
 	}
 	if c.Daily {
-		return c.printDaily(ctx, store, pin.Name, now)
+		return c.printDaily(ctx, store, pin.Name, now, retention)
 	}
 
-	since := now.Add(-c.Since)
-	ds, source, store, err := auditDecisions(ctx, store, pin.Name, since)
+	since := c.Since
+	if since == 0 {
+		since = defaultAuditSince
+	}
+	start := now.Add(-since)
+	ds, fromStore, err := readDecisions(ctx, store, pin.Name, start)
 	if err != nil {
 		return err
 	}
+	return c.printDecisions(ctx, store, pin.Name, ds, fromStore, start, now, retention)
+}
+
+func (c *sandboxAuditCmd) printDecisions(ctx context.Context, store *telemetry.Store, name string, ds []openshell.Decision, fromStore bool, start, now time.Time, retention time.Duration) error {
 	if len(ds) == 0 {
-		fmt.Println("No network decisions in the sandbox log for that period.")
+		if store != nil {
+			fmt.Println("No network decisions for that period; checked the telemetry store and the gateway log.")
+			return printStoreNotes(ctx, store, name, start, now, retention)
+		}
+		fmt.Println("No network decisions for that period; checked the gateway log, because there is no telemetry store.")
 		return nil
 	}
 	var allowed, denied int
@@ -210,24 +235,34 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 	// The span can be shorter than --since, because the gateway keeps only recent log lines.
 	fmt.Printf("%d allowed, %d denied, from %s to %s\n", allowed, denied,
 		ds[0].Time.Local().Format(time.DateTime), ds[len(ds)-1].Time.Local().Format(time.DateTime))
-	fmt.Println("source: " + source)
-	if store != nil {
-		return printGaps(ctx, store, pin.Name, since)
+	if fromStore {
+		fmt.Println("source: telemetry")
+		return printStoreNotes(ctx, store, name, start, now, retention)
 	}
-	return nil
+	fmt.Println("source: gateway log \u2014 only the gateway's most recent lines; older decisions are not shown")
+	if ds[0].Time.After(start) {
+		fmt.Printf("note: the gateway log starts at %s, after the requested --since; earlier decisions are missing\n", localTime(ds[0].Time))
+	}
+	if store == nil {
+		return nil
+	}
+	fmt.Println("note: the telemetry store has no decisions for this sandbox in this period; showing the gateway log instead")
+	return printStoreNotes(ctx, store, name, start, now, retention)
 }
 
-// auditDecisions prefers the telemetry store and falls back to the gateway's log; the returned store is nil when it was not the source.
-func auditDecisions(ctx context.Context, store *telemetry.Store, name string, since time.Time) ([]openshell.Decision, string, *telemetry.Store, error) {
+// readDecisions prefers the telemetry store and falls back to the gateway's log.
+func readDecisions(ctx context.Context, store *telemetry.Store, name string, start time.Time) ([]openshell.Decision, bool, error) {
 	if store != nil {
-		ds, err := store.Decisions(ctx, name, since)
+		ds, err := store.Decisions(ctx, name, start)
 		if err != nil || len(ds) > 0 {
-			return ds, "telemetry", store, err
+			return ds, true, err
 		}
 	}
-	ds, err := gatewayDecisions(ctx, name, since)
-	return ds, "gateway log (recent lines only)", nil, err
+	ds, err := gatewayDecisions(ctx, name, start)
+	return ds, false, err
 }
+
+func localTime(t time.Time) string { return t.Local().Format(time.DateTime) }
 
 func gatewayDecisions(ctx context.Context, name string, since time.Time) ([]openshell.Decision, error) {
 	l, err := openshell.New(openshell.Config{})
@@ -238,54 +273,96 @@ func gatewayDecisions(ctx context.Context, name string, since time.Time) ([]open
 	return l.Decisions(ctx, name, since)
 }
 
-func printGaps(ctx context.Context, store *telemetry.Store, name string, since time.Time) error {
+// printStoreNotes says what the telemetry store cannot show for a window starting at start.
+func printStoreNotes(ctx context.Context, store *telemetry.Store, name string, start, now time.Time, retention time.Duration) error {
+	if err := printDrops(ctx, store, name, start); err != nil {
+		return err
+	}
+	if earliest, ok, err := store.EarliestDecision(ctx, name); err != nil {
+		return err
+	} else if ok && earliest.After(start) {
+		fmt.Printf("note: telemetry history for this sandbox starts at %s; earlier decisions were not recorded\n", localTime(earliest))
+	}
+	if start.Before(now.Add(-retention)) {
+		fmt.Printf("note: raw events older than %s are pruned; use --daily for older totals\n", retention)
+	}
+	return nil
+}
+
+// printDrops reports events lost before or during receipt: exporter drops and decisions with no sandbox.
+func printDrops(ctx context.Context, store *telemetry.Store, name string, start time.Time) error {
 	ids, err := store.SandboxIDs(ctx, name)
 	if err != nil {
 		return err
 	}
-	gaps, err := store.Gaps(ctx, ids, since)
+	gaps, err := store.Gaps(ctx, ids, start)
 	if err != nil {
 		return err
 	}
-	if len(gaps) == 0 {
-		return nil
-	}
-	var dropped int64
-	earliest := gaps[0].Since
+	var own, wide int64
+	var ownSince, wideSince time.Time
 	for _, g := range gaps {
-		dropped += g.Dropped
-		if g.Since.Before(earliest) {
-			earliest = g.Since
+		n, since := &own, &ownSince
+		if g.SandboxID == "" {
+			n, since = &wide, &wideSince
+		}
+		*n += g.Dropped
+		if since.IsZero() || g.Since.Before(*since) {
+			*since = g.Since
 		}
 	}
-	fmt.Printf("warning: %d events dropped since %s\n", dropped, earliest.Local().Format(time.DateTime))
+	if own > 0 {
+		fmt.Printf("warning: %d events from this sandbox were dropped before export since %s\n", own, localTime(ownSince))
+	}
+	if wide > 0 {
+		fmt.Printf("warning: %d events were dropped gateway-wide since %s; some may belong to this sandbox\n", wide, localTime(wideSince))
+	}
+	unattributed, err := store.Unattributed(ctx, start)
+	if err != nil {
+		return err
+	}
+	if unattributed > 0 {
+		fmt.Printf("warning: %d network decisions since %s could not be matched to any sandbox\n", unattributed, localTime(start))
+	}
 	return nil
 }
 
-func (c *sandboxAuditCmd) printDaily(ctx context.Context, store *telemetry.Store, name string, now time.Time) error {
-	days, err := store.Daily(ctx, name, now.Add(-time.Duration(c.Days)*24*time.Hour))
+func (c *sandboxAuditCmd) printDaily(ctx context.Context, store *telemetry.Store, name string, now time.Time, retention time.Duration) error {
+	start := now.Add(-time.Duration(c.Days) * 24 * time.Hour)
+	days, err := store.Daily(ctx, name, start)
 	if err != nil {
 		return err
 	}
 	if len(days) == 0 {
 		fmt.Println("No network decisions in the telemetry store for that period.")
-		return nil
-	}
-	tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(tw, "DAY\tALLOWED\tDENIED\tTOP DENIED")
-	for _, d := range days {
-		hosts := make([]string, len(d.TopDenied))
-		for i, h := range d.TopDenied {
-			hosts[i] = fmt.Sprintf("%s (%d)", h.Host, h.Count)
+	} else {
+		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		fmt.Fprintln(tw, "DAY\tALLOWED\tDENIED\tTOP DENIED")
+		for _, d := range days {
+			hosts := make([]string, len(d.TopDenied))
+			for i, h := range d.TopDenied {
+				hosts[i] = fmt.Sprintf("%s (%d)", h.Host, h.Count)
+			}
+			top := "-"
+			if len(hosts) > 0 {
+				top = strings.Join(hosts, ", ")
+			}
+			fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n", d.Day, d.Allowed, d.Denied, top)
 		}
-		top := "-"
-		if len(hosts) > 0 {
-			top = strings.Join(hosts, ", ")
+		if err := tw.Flush(); err != nil {
+			return fmt.Errorf("failed to write daily totals: %w", err)
 		}
-		fmt.Fprintf(tw, "%s\t%d\t%d\t%s\n", d.Day, d.Allowed, d.Denied, top)
 	}
-	if err := tw.Flush(); err != nil {
-		return fmt.Errorf("failed to write daily totals: %w", err)
+	if first, ok, err := store.FirstDay(ctx, name); err != nil {
+		return err
+	} else if ok && start.UTC().Format(time.DateOnly) < first {
+		fmt.Printf("note: telemetry history for this sandbox starts on %s\n", first)
+	}
+	if err := printDrops(ctx, store, name, start); err != nil {
+		return err
+	}
+	if start.Before(now.Add(-retention)) {
+		fmt.Printf("note: drop records older than %s are pruned, so the drop warnings above may be incomplete for this range\n", retention)
 	}
 	return nil
 }

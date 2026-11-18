@@ -83,7 +83,11 @@ func startReceiver(ctx context.Context, logger *slog.Logger, home string, settin
 		return nil, nil, fmt.Errorf("failed to open telemetry store: %w", err)
 	}
 	handler, err := otlp.Handler(token, func(ctx context.Context, recs []otlp.Record) error {
-		return store.Add(ctx, events(recs, time.Now()))
+		skipped, err := store.Add(ctx, events(recs, time.Now()))
+		if skipped > 0 {
+			logger.WarnContext(ctx, "telemetry dropped network decisions it could not match to a sandbox", slog.Int("count", skipped))
+		}
+		return err
 	})
 	if err != nil {
 		_ = store.Close()
@@ -101,6 +105,7 @@ func startReceiver(ctx context.Context, logger *slog.Logger, home string, settin
 		srv: &http.Server{
 			Handler:           handler,
 			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       30 * time.Second,
 			BaseContext:       baseContext,
 		},
 	}
@@ -137,7 +142,7 @@ func events(recs []otlp.Record, now time.Time) []telemetry.Event {
 		if id == "" {
 			id = rec.SandboxID
 		}
-		out = append(out, telemetry.Event{Decision: d, UID: rec.UID, SandboxName: name, SandboxID: id, Observed: observed, Body: rec.Body})
+		out = append(out, telemetry.Event{Decision: d, UID: rec.UID, SandboxName: name, SandboxID: id, Observed: observed})
 	}
 	return out
 }

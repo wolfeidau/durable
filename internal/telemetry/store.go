@@ -32,8 +32,7 @@ CREATE TABLE IF NOT EXISTS decisions (
 	path TEXT NOT NULL,
 	pattern TEXT NOT NULL,
 	policy TEXT NOT NULL,
-	reason TEXT NOT NULL,
-	body TEXT NOT NULL
+	reason TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS decisions_sandbox_time ON decisions (sandbox_name, time_ms);
 CREATE INDEX IF NOT EXISTS decisions_time ON decisions (time_ms);
@@ -59,6 +58,10 @@ CREATE TABLE IF NOT EXISTS gaps (
 	dropped INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS gaps_observed ON gaps (observed_ms);
+CREATE TABLE IF NOT EXISTS unattributed (
+	day TEXT PRIMARY KEY,
+	count INTEGER NOT NULL
+);
 `
 
 const topDenied = 3
@@ -70,7 +73,6 @@ type Event struct {
 	SandboxName string
 	SandboxID   string
 	Observed    time.Time
-	Body        []byte
 	Gap         *otlp.Gap // when set, only SandboxID and Observed are used
 }
 
@@ -143,14 +145,15 @@ func open(dsn string) (*sql.DB, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-// Add stores evs in one transaction; decisions without a UID or sandbox name are skipped, and duplicate UIDs count once.
-func (s *Store) Add(ctx context.Context, evs []Event) error {
+// Add stores evs in one transaction and returns how many decisions it could not attribute, which it counts in the
+// unattributed table instead of storing. Duplicate UIDs count once.
+func (s *Store) Add(ctx context.Context, evs []Event) (skipped int, err error) {
 	if len(evs) == 0 {
-		return nil
+		return 0, nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to begin telemetry transaction: %w", err)
+		return 0, fmt.Errorf("failed to begin telemetry transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, ev := range evs {
@@ -158,21 +161,31 @@ func (s *Store) Add(ctx context.Context, evs []Event) error {
 			_, err = tx.ExecContext(ctx, `INSERT INTO gaps (sandbox_id, observed_ms, since_ms, dropped) VALUES (?, ?, ?, ?)`,
 				ev.SandboxID, ev.Observed.UnixMilli(), ev.Gap.Since.UnixMilli(), ev.Gap.Dropped)
 			if err != nil {
-				return fmt.Errorf("failed to insert gap: %w", err)
+				return 0, fmt.Errorf("failed to insert gap: %w", err)
 			}
 			continue
 		}
 		if ev.UID == "" || ev.SandboxName == "" {
+			skipped++
+			t := ev.Decision.Time
+			if t.IsZero() {
+				t = ev.Observed
+			}
+			_, err = tx.ExecContext(ctx, `INSERT INTO unattributed (day, count) VALUES (?, 1)
+				ON CONFLICT DO UPDATE SET count = count + 1`, day(t))
+			if err != nil {
+				return 0, fmt.Errorf("failed to count unattributed decision: %w", err)
+			}
 			continue
 		}
 		if err := addDecision(ctx, tx, ev); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit telemetry transaction: %w", err)
+		return 0, fmt.Errorf("failed to commit telemetry transaction: %w", err)
 	}
-	return nil
+	return skipped, nil
 }
 
 func addDecision(ctx context.Context, tx *sql.Tx, ev Event) error {
@@ -182,10 +195,10 @@ func addDecision(ctx context.Context, tx *sql.Tx, ev Event) error {
 	}
 	pattern := d.Pattern()
 	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO decisions
-		(uid, sandbox_name, sandbox_id, time_ms, observed_ms, allowed, kind, activity, binary, method, host, path, pattern, policy, reason, body)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(uid, sandbox_name, sandbox_id, time_ms, observed_ms, allowed, kind, activity, binary, method, host, path, pattern, policy, reason)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ev.UID, ev.SandboxName, ev.SandboxID, d.Time.UnixMilli(), ev.Observed.UnixMilli(), d.Allowed, d.Kind, d.Activity, d.Binary,
-		d.Method, d.Host, d.Path, pattern, d.Policy, d.Reason, string(ev.Body))
+		d.Method, d.Host, d.Path, pattern, d.Policy, d.Reason)
 	if err != nil {
 		return fmt.Errorf("failed to insert decision: %w", err)
 	}
@@ -392,4 +405,35 @@ func (s *Store) Gaps(ctx context.Context, sandboxIDs []string, since time.Time) 
 		return nil, fmt.Errorf("failed to read gaps: %w", err)
 	}
 	return out, nil
+}
+
+// Unattributed returns how many decisions could not be matched to a sandbox since the UTC day of since.
+func (s *Store) Unattributed(ctx context.Context, since time.Time) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(count), 0) FROM unattributed WHERE day >= ?`, day(since)).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query unattributed decisions: %w", err)
+	}
+	return n, nil
+}
+
+// EarliestDecision returns the time of the sandbox's oldest stored decision; ok is false when it has none.
+func (s *Store) EarliestDecision(ctx context.Context, sandboxName string) (t time.Time, ok bool, err error) {
+	var ms sql.NullInt64
+	if err := s.db.QueryRowContext(ctx, `SELECT MIN(time_ms) FROM decisions WHERE sandbox_name = ?`, sandboxName).Scan(&ms); err != nil {
+		return time.Time{}, false, fmt.Errorf("failed to query earliest decision: %w", err)
+	}
+	if !ms.Valid {
+		return time.Time{}, false, nil
+	}
+	return time.UnixMilli(ms.Int64).UTC(), true, nil
+}
+
+// FirstDay returns the UTC day of the sandbox's first daily row, which outlives pruning; ok is false when it has none.
+func (s *Store) FirstDay(ctx context.Context, sandboxName string) (dy string, ok bool, err error) {
+	var v sql.NullString
+	if err := s.db.QueryRowContext(ctx, `SELECT MIN(day) FROM daily WHERE sandbox_name = ?`, sandboxName).Scan(&v); err != nil {
+		return "", false, fmt.Errorf("failed to query first day: %w", err)
+	}
+	return v.String, v.Valid, nil
 }
