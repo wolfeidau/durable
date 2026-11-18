@@ -6,6 +6,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,14 +15,17 @@ import {
 } from "react";
 import { cancel, decideApproval, listSessions, submit } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { ApprovalStatus, SubmissionStatus } from "./gen/durable/v1/durable_pb";
-import { chip, defaultOpen, summary } from "./calls";
+import { activeTurn, activityText, isActive } from "./activity";
+import { chip, defaultOpen, isRunning, summary } from "./calls";
+import { CopyButton } from "./CopyButton";
 import { Markdown } from "./markdown";
-import { kindText, where } from "./sessions";
 import type { WatchSummary } from "./StatusLine";
 import { ReportPanel } from "./ReportPanel";
 import { TranscriptBuilder, type CallEntry, type Turn } from "./transcript";
+import { nearBottom } from "./scroll";
 import { getToken } from "./token";
 import { buildReport, compact, money, percent, summarize, turnFooter } from "./usage";
+import { useNow } from "./useNow";
 import { useWatchEvents } from "./useWatchEvents";
 
 const errText = (err: unknown) => ConnectError.from(err).rawMessage;
@@ -56,8 +60,6 @@ function pretty(input: string): string {
   }
 }
 
-const active = (s: SubmissionStatus) => s === SubmissionStatus.QUEUED || s === SubmissionStatus.RUNNING;
-
 const OpenCalls = createContext<{ open: boolean; version: number }>({ open: false, version: 0 });
 
 const noOutput: ReadonlyMap<string, string> = new Map();
@@ -69,10 +71,16 @@ interface CallProps {
   busy: boolean;
 }
 
+// Only a running call ticks, so finished calls never re-render on the clock.
+function CallBadge({ call, output }: { call: CallEntry; output?: string }): ReactElement {
+  const now = useNow(call.startedAt !== undefined && isRunning(call));
+  const state = chip(call, output, now);
+  return <span className={`badge ${state.tone}`}>{state.text}</span>;
+}
+
 const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): ReactElement {
   const a = call.approval;
   const pending = a?.status === ApprovalStatus.PENDING;
-  const state = chip(call, output);
   const [open, setOpen] = useState(() => defaultOpen(call, output));
   const touched = useRef(false);
   const bulk = useContext(OpenCalls);
@@ -105,7 +113,7 @@ const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): Re
         <summary className="call-head">
           <span className="call-name">{call.name}</span>
           <span className="call-summary">{preview}</span>
-          <span className={`badge ${state.tone}`}>{state.text}</span>
+          <CallBadge call={call} output={output} />
         </summary>
         <div className="call-body">
           {call.rewritten ? (
@@ -166,6 +174,7 @@ const TurnView = memo(function TurnView({ turn, usage, localText, partial, toolO
           return (
             <div key={i} className="msg assistant">
               <Markdown text={e.text} />
+              <CopyButton text={e.text} />
             </div>
           );
         }
@@ -185,8 +194,8 @@ const TurnView = memo(function TurnView({ turn, usage, localText, partial, toolO
           <span className={`badge ${statusTone[turn.status]}`}>{statusText[turn.status]}</span>
         )}
         {turn.error && <span className="error-text">{turn.error}</span>}
-        {usage && !active(turn.status) && <span className="turn-usage muted">{usage}</span>}
-        {requestId && active(turn.status) && (
+        {usage && !isActive(turn.status) && <span className="turn-usage muted">{usage}</span>}
+        {requestId && isActive(turn.status) && (
           <button className="secondary" onClick={() => onCancel(requestId)}>
             Cancel
           </button>
@@ -221,6 +230,11 @@ function liveOutput(turn: Turn, all: ReadonlyMap<string, string>): ReadonlyMap<s
   return out ?? noOutput;
 }
 
+function Activity({ turn }: { turn: Turn }): ReactElement {
+  const now = useNow(true);
+  return <span className="tone-link activity">{activityText(turn, now)}</span>;
+}
+
 interface Props {
   sessionId: string;
   onWatch: (w: WatchSummary | undefined) => void;
@@ -247,6 +261,11 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
   const footers = useMemo(() => new Map(report.turns.map((t) => [t.seq, turnFooter(t)])), [report]);
   const [calls, setCalls] = useState({ open: false, version: 0 });
   const [text, setText] = useState("");
+  const [behind, setBehind] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLDivElement>(null);
+  const transcript = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
   const [note, setNote] = useState("");
   // This tab's own submissions, so a queued turn has text before the user message commits.
   const [mine, setMine] = useState<ReadonlyMap<string, string>>(new Map());
@@ -258,6 +277,7 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
   const send = () => {
     const prompt = text.trim();
     if (!prompt) return;
+    following.current = true;
     const requestId = crypto.randomUUID();
     setMine((m) => new Map(m).set(requestId, prompt));
     setText("");
@@ -300,76 +320,83 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
 
   const seen = new Set(turns.map((t) => t.requestId));
   const unseen = [...mine].filter(([id]) => !seen.has(id));
+  const loading = w.events.length === 0 && (status === "connecting" || status === "reconnecting");
+  const latest = activeTurn(turns);
+  const onReport = tab === "report";
+
+  const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight });
+
+  // The user's own scrolling decides whether new content is followed, so scrolling up is never fought.
+  useEffect(() => {
+    const onScroll = () => {
+      const el = document.documentElement;
+      following.current = nearBottom(el.scrollTop, el.clientHeight, el.scrollHeight);
+      if (following.current) setBehind(false);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (onReport) return;
+    if (following.current) toBottom();
+    else setBehind(true);
+  }, [w.events, w.partialText, w.toolOutput, mine, loading, onReport]);
+
+  // The transcript's bottom padding tracks the composer, and content that grows after render (calls settling, markdown) is still followed.
+  useLayoutEffect(() => {
+    const el = composer.current;
+    const host = root.current;
+    if (!el || !host) return;
+    const measure = () => {
+      host.style.setProperty("--composer-h", `${el.offsetHeight}px`);
+      if (following.current) toBottom();
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (transcript.current) ro.observe(transcript.current);
+    return () => {
+      ro.disconnect();
+      host.style.removeProperty("--composer-h");
+    };
+  }, [onReport]);
 
   return (
-    <div className="session-view">
-      <div className="info card">
-        <h1>{meta?.name || sessionId}</h1>
-        {meta && (
-          <p className="info-where">
-            <span className="kind faint">{kindText(meta)}</span>
-            <span className="mono" title={where(meta)}>
-              {where(meta)}
-            </span>
-          </p>
-        )}
-        <p className="session-id mono faint" title={sessionId}>
-          {sessionId}
-        </p>
-        <div className="stats">
-          <div className="meter">
-            <span className="stat-label" id="ctx-label">
-              Context
-            </span>
-            {stats.contextFraction !== undefined ? (
-              <>
-                <meter
-                  aria-labelledby="ctx-label"
-                  min={0}
-                  max={1}
-                  low={0.7}
-                  high={0.9}
-                  optimum={0}
-                  value={Math.min(1, stats.contextFraction)}
-                  aria-valuetext={`${percent(stats.contextFraction)} of ${compact(stats.contextWindow!)}`}
-                />
-                <span>
-                  {percent(stats.contextFraction)} of {compact(stats.contextWindow!)}
-                </span>
-              </>
-            ) : (
-              <span>{stats.contextTokens ? `${compact(stats.contextTokens)} tokens` : "—"}</span>
-            )}
+    <div className="session-view" ref={root}>
+      <div className="toolbar">
+        <div className="tabs" role="group" aria-label="View">
+          <button className="secondary" aria-pressed={!onReport} onClick={() => onTab(undefined)}>
+            Transcript
+          </button>
+          <button className="secondary" aria-pressed={onReport} onClick={() => onTab("report")}>
+            Report
+          </button>
+        </div>
+        {!onReport && (
+          <div className="tool-actions">
+            <button
+              className="secondary"
+              aria-label="Collapse all tool calls"
+              title="Collapse all tool calls"
+              onClick={() => setCalls((c) => ({ open: false, version: c.version + 1 }))}
+            >
+              Collapse all
+            </button>
+            <button
+              className="secondary"
+              aria-label="Expand all tool calls"
+              title="Expand all tool calls"
+              onClick={() => setCalls((c) => ({ open: true, version: c.version + 1 }))}
+            >
+              Expand all
+            </button>
           </div>
-          <span title={stats.unknownCost ? `${stats.unknownCost} replies have no known cost` : undefined}>
-            <span className="stat-label">Cost </span>
-            {money(stats.cost, stats.estimated)}
-          </span>
-          <span>
-            <span className="stat-label">Cache hit </span>
-            {percent(stats.cacheHit)}
-          </span>
-        </div>
-        <div className="actions">
-          <button className="secondary" onClick={() => setCalls((c) => ({ open: false, version: c.version + 1 }))}>
-            Collapse tool calls
-          </button>
-          <button className="secondary" onClick={() => setCalls((c) => ({ open: true, version: c.version + 1 }))}>
-            Expand tool calls
-          </button>
-        </div>
+        )}
       </div>
-      <div className="tabs" role="group" aria-label="View">
-        <button className="secondary" aria-pressed={tab !== "report"} onClick={() => onTab(undefined)}>
-          Transcript
-        </button>
-        <button className="secondary" aria-pressed={tab === "report"} onClick={() => onTab("report")}>
-          Report
-        </button>
-      </div>
-      {tab === "report" && <ReportPanel report={report} />}
+      {onReport && <ReportPanel report={report} />}
       <OpenCalls.Provider value={calls}>
-        <div className="transcript" hidden={tab === "report"}>
+        <div className="transcript" ref={transcript} hidden={onReport}>
           {turns.map((t) => (
             <TurnView
               key={String(t.seq)}
@@ -386,26 +413,80 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
           {unseen.map(([id, prompt]) => (
             <PendingTurn key={id} id={id} prompt={prompt} onCancel={stop} />
           ))}
-          {turns.length === 0 && unseen.length === 0 && <p className="muted">No messages yet.</p>}
+          {loading && <p className="muted">Loading…</p>}
+          {!loading && turns.length === 0 && unseen.length === 0 && <p className="muted">No messages yet.</p>}
         </div>
       </OpenCalls.Provider>
-      {note && <p className="banner tone-error">{note}</p>}
-      <div className="composer">
-        <textarea
-          value={text}
-          rows={3}
-          placeholder="Message"
-          aria-label="Message"
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={onKey}
-        />
-        <div className="composer-foot">
-          <span className="faint hint">⌘/Ctrl+Enter to send</span>
-          <button disabled={!text.trim()} onClick={send}>
-            Submit
-          </button>
-        </div>
-      </div>
+      {!onReport && (
+        <>
+          {behind && (
+            <button
+              className="latest"
+              onClick={() => {
+                following.current = true;
+                setBehind(false);
+                toBottom();
+              }}
+            >
+              ↓ Latest
+            </button>
+          )}
+          <div className="composer" ref={composer}>
+            {note && <p className="banner tone-error">{note}</p>}
+            <textarea
+              value={text}
+              rows={3}
+              placeholder="Message"
+              aria-label="Message"
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={onKey}
+            />
+            <div className="composer-foot">
+              <div className="stats">
+                <div className="meter">
+                  <span className="stat-label" id="ctx-label">
+                    Context
+                  </span>
+                  {stats.contextFraction !== undefined ? (
+                    <>
+                      <meter
+                        aria-labelledby="ctx-label"
+                        min={0}
+                        max={1}
+                        low={0.7}
+                        high={0.9}
+                        optimum={0}
+                        value={Math.min(1, stats.contextFraction)}
+                        aria-valuetext={`${percent(stats.contextFraction)} of ${compact(stats.contextWindow!)}`}
+                      />
+                      <span>
+                        {percent(stats.contextFraction)} of {compact(stats.contextWindow!)}
+                      </span>
+                    </>
+                  ) : (
+                    <span>{stats.contextTokens ? `${compact(stats.contextTokens)} tokens` : "—"}</span>
+                  )}
+                </div>
+                <span title={stats.unknownCost ? `${stats.unknownCost} replies have no known cost` : undefined}>
+                  <span className="stat-label">Cost </span>
+                  {money(stats.cost, stats.estimated)}
+                </span>
+                <span>
+                  <span className="stat-label">Cache hit </span>
+                  {percent(stats.cacheHit)}
+                </span>
+                {latest && <Activity turn={latest} />}
+              </div>
+              <div className="send">
+                <span className="faint hint">⌘/Ctrl+Enter</span>
+                <button disabled={!text.trim()} onClick={send}>
+                  Submit
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -1,15 +1,25 @@
 import { ApprovalStatus } from "./gen/durable/v1/durable_pb";
 import type { CallEntry } from "./transcript";
+import { duration } from "./usage";
 
-export function chip(call: CallEntry, output: string | undefined): { text: string; tone: string } {
+export function isRunning(call: CallEntry): boolean {
+  const s = call.approval?.status;
+  return call.result === undefined && s !== ApprovalStatus.PENDING && s !== ApprovalStatus.DECLINED && s !== ApprovalStatus.CANCELLED;
+}
+
+const timed = (label: string, ms: number | undefined) => (ms === undefined ? label : `${label} ${duration(ms)}`);
+
+export function chip(call: CallEntry, output: string | undefined, now: number = Date.now()): { text: string; tone: string } {
   const a = call.approval;
   if (a?.status === ApprovalStatus.PENDING) return { text: "waiting", tone: "tone-warn" };
   if (a?.status === ApprovalStatus.DECLINED) return { text: "denied", tone: "tone-error" };
   if (a?.status === ApprovalStatus.CANCELLED) return { text: "cancelled", tone: "tone-cancelled" };
   if (call.result !== undefined) {
-    return call.isError ? { text: "error", tone: "tone-error" } : { text: "done", tone: "tone-ok" };
+    const ms = call.startedAt !== undefined && call.doneAt !== undefined ? call.doneAt - call.startedAt : undefined;
+    return call.isError ? { text: timed("error", ms), tone: "tone-error" } : { text: timed("done", ms), tone: "tone-ok" };
   }
-  return { text: "running", tone: output ? "tone-link pulse" : "tone-link" };
+  const ms = call.startedAt === undefined ? undefined : now - call.startedAt;
+  return { text: timed("running", ms), tone: output ? "tone-link pulse" : "tone-link" };
 }
 
 const previewKeys = ["command", "path", "pattern", "file_path", "url", "query"];

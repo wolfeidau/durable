@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import {
   ApprovalStatus,
   EventKind,
@@ -8,7 +9,7 @@ import {
   SubmissionStatus,
   type Event,
 } from "./gen/durable/v1/durable_pb";
-import { buildTranscript, TranscriptBuilder, type Turn } from "./transcript";
+import { buildTranscript, TranscriptBuilder, type CallEntry, type Turn } from "./transcript";
 
 let n = 0n;
 const ev = (init: MessageInitShape<typeof EventSchema>): Event => create(EventSchema, { seq: ++n, submission: 1n, ...init });
@@ -174,6 +175,57 @@ function realisticEvents(): Event[] {
     ev({ kind: EventKind.CALL_DONE, call: { id: "c2", name: "read" }, isError: true }),
   ];
 }
+
+const stamp = (ms: number, e: Event): Event => {
+  e.at = timestampFromMs(ms);
+  return e;
+};
+
+describe("call and turn times", () => {
+  const call = { id: "c1", name: "bash" };
+
+  test("started and done come from event timestamps", () => {
+    const [t] = buildTranscript([
+      stamp(1000, sub(SubmissionStatus.RUNNING)),
+      stamp(2000, ev({ kind: EventKind.CALL_STARTED, call })),
+      stamp(4100, ev({ kind: EventKind.CALL_DONE, call })),
+    ]);
+    expect(t!.startedAt).toBe(1000);
+    expect(t!.entries[0]).toMatchObject({ startedAt: 2000, doneAt: 4100 });
+  });
+
+  test("a replay restarts the clock", () => {
+    const [t] = buildTranscript([
+      stamp(2000, ev({ kind: EventKind.CALL_STARTED, call })),
+      stamp(9000, ev({ kind: EventKind.CALL_REPLAYED, call })),
+      stamp(9500, ev({ kind: EventKind.CALL_DONE, call })),
+    ]);
+    expect(t!.entries[0]).toMatchObject({ startedAt: 9000, doneAt: 9500 });
+  });
+
+  test("events without a timestamp leave times unset", () => {
+    const [t] = buildTranscript([sub(SubmissionStatus.RUNNING), ev({ kind: EventKind.CALL_STARTED, call })]);
+    expect(t!.startedAt).toBeUndefined();
+    const c = t!.entries[0] as CallEntry;
+    expect(c.startedAt).toBeUndefined();
+    expect(c.doneAt).toBeUndefined();
+  });
+
+  test("a done event keeps untouched calls and turns", () => {
+    const other = { id: "c2", name: "read" };
+    const events = [
+      stamp(1, ev({ kind: EventKind.CALL_STARTED, call })),
+      stamp(2, ev({ kind: EventKind.CALL_STARTED, call: other })),
+      stamp(3, at(2n, ev({ kind: EventKind.CALL_STARTED, call: { id: "c3", name: "x" } }))),
+    ];
+    const b = new TranscriptBuilder();
+    const before = b.update(events);
+    const after = b.update([...events, stamp(4, ev({ kind: EventKind.CALL_DONE, call }))]);
+    expect(after[1]).toBe(before[1]!);
+    expect(after[0]!.entries[0]).not.toBe(before[0]!.entries[0]!);
+    expect(after[0]!.entries[1]).toBe(before[0]!.entries[1]!);
+  });
+});
 
 describe("TranscriptBuilder", () => {
   test("incremental updates equal a full build at every split point", () => {

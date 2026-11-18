@@ -1,3 +1,4 @@
+import { timestampMs } from "@bufbuild/protobuf/wkt";
 import { ApprovalStatus, EventKind, Role, SubmissionStatus, type Event } from "./gen/durable/v1/durable_pb";
 
 export interface ApprovalEntry {
@@ -15,6 +16,9 @@ export interface CallEntry {
   result?: string;
   isError: boolean;
   approval?: ApprovalEntry;
+  // Milliseconds; unset when an old event has no timestamp.
+  startedAt?: number;
+  doneAt?: number;
 }
 
 export type Entry = { kind: "user" | "assistant" | "notice"; text: string } | CallEntry;
@@ -24,6 +28,8 @@ export interface Turn {
   requestId?: string;
   status: SubmissionStatus;
   error?: string;
+  // When the turn began running.
+  startedAt?: number;
   entries: Entry[];
 }
 
@@ -131,6 +137,7 @@ export class TranscriptBuilder {
 
   private apply(e: Event): void {
     const seq = e.submission;
+    const when = e.at ? timestampMs(e.at) : undefined;
     this.ensure(seq);
     switch (e.kind) {
       case EventKind.SUBMISSION: {
@@ -138,6 +145,7 @@ export class TranscriptBuilder {
         t.status = e.status;
         if (e.requestId) t.requestId = e.requestId;
         if (e.error) t.error = e.error;
+        if (e.status === SubmissionStatus.RUNNING && t.startedAt === undefined) t.startedAt = when;
         break;
       }
       case EventKind.MESSAGE: {
@@ -176,17 +184,23 @@ export class TranscriptBuilder {
       }
       case EventKind.CALL_STARTED:
         if (e.call) {
-          const ref = this.callFor(seq, e.call.id, e.call.name, decode(e.call.input));
-          if (ref.call.input === undefined && !ref.call.rewritten) this.editCall(e.call.id).input = decode(e.call.input);
+          this.callFor(seq, e.call.id, e.call.name, decode(e.call.input));
+          const c = this.editCall(e.call.id);
+          if (c.input === undefined && !c.rewritten) c.input = decode(e.call.input);
+          c.startedAt = when;
         }
         break;
       case EventKind.CALL_REPLAYED:
+        // A replay restarts the clock, as in buildReport.
+        if (e.call && this.calls.has(e.call.id)) this.editCall(e.call.id).startedAt = when;
         this.edit(seq).entries.push({ kind: "notice", text: `${e.call?.name ?? "A tool call"} ran again after a restart` });
         break;
       case EventKind.CALL_DONE:
         if (e.call) {
           this.callFor(seq, e.call.id, e.call.name);
-          this.editCall(e.call.id).isError = e.isError;
+          const c = this.editCall(e.call.id);
+          c.isError = e.isError;
+          c.doneAt = when;
         }
         break;
       case EventKind.COMPACTED:

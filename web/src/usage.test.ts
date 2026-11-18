@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { EventKind, EventSchema, Role, SubmissionStatus, type Event } from "./gen/durable/v1/durable_pb";
-import { buildReport, compact, money, percent, percentile, summarize, turnFooter } from "./usage";
+import { buildReport, compact, duration, money, percent, percentile, seconds, summarize, turnFooter } from "./usage";
 
 let n = 0n;
 const ev = (ms: number | undefined, init: MessageInitShape<typeof EventSchema>): Event =>
@@ -152,7 +152,7 @@ describe("format", () => {
   });
 
   test("turn footer omits unknown parts", () => {
-    expect(turnFooter({ seq: 1n, cost: 0.0042, estimated: false, wallMs: 12_300, calls: 5 })).toBe("$0.0042 · 12.3 s · 5 calls");
+    expect(turnFooter({ seq: 1n, cost: 0.0042, estimated: false, wallMs: 12_300, calls: 5 })).toBe("$0.0042 · 12s · 5 calls");
     expect(turnFooter({ seq: 1n, estimated: false, calls: 1 })).toBe("1 call");
     expect(turnFooter({ seq: 1n, estimated: false, calls: 0 })).toBe("");
   });
@@ -165,5 +165,25 @@ describe("percent", () => {
     expect(percent(0.0037)).toBe("<1%");
     expect(percent(0.005)).toBe("1%");
     expect(percent(0.42)).toBe("42%");
+  });
+});
+
+describe("duration", () => {
+  test("formats by size", () => {
+    expect(duration(0)).toBe("0ms");
+    expect(duration(33)).toBe("33ms");
+    expect(duration(999.6)).toBe("1.0s");
+    expect(duration(1000)).toBe("1.0s");
+    expect(duration(2140)).toBe("2.1s");
+    expect(duration(12400)).toBe("12s");
+    expect(duration(65000)).toBe("1m 05s");
+    expect(duration(-5)).toBe("0ms");
+  });
+});
+
+describe("seconds", () => {
+  test("uses the duration format, with a dash when unknown", () => {
+    expect(seconds(undefined)).toBe("—");
+    expect(seconds(2140)).toBe("2.1s");
   });
 });

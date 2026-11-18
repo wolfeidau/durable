@@ -36,6 +36,10 @@ export function where(s: SessionInfo): string {
   }
 }
 
+// Each path segment is encoded on its own, because a branch may hold "/" and "#".
+export const repoHref = (s: SessionInfo): string =>
+  `https://${s.repo}/tree/${s.branch.split("/").map(encodeURIComponent).join("/")}`;
+
 export function kindLabel(s: SessionInfo): "Directory" | "Empty" | "Repo" {
   switch (s.workspace) {
     case Workspace.EMPTY:

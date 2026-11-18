@@ -5,6 +5,7 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@ta
 import { useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
+import { SessionBar } from "./SessionBar";
 import { SessionList } from "./SessionList";
 import { SessionView } from "./SessionView";
 import { ConnectionPill, TokenInput, type WatchSummary } from "./StatusLine";
@@ -95,6 +96,7 @@ function App(): ReactElement {
             </>
           )}
         </nav>
+        {sessionId && <SessionBar sessionId={sessionId} />}
         <div className="topbar-right">
           <a
             className="nav-link"

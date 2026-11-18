@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chip, defaultOpen, summary } from "./calls";
+import { chip, defaultOpen, isRunning, summary } from "./calls";
 import { ApprovalStatus } from "./gen/durable/v1/durable_pb";
 import type { CallEntry } from "./transcript";
 
@@ -26,6 +26,39 @@ describe("chip", () => {
     expect(chip(call(), undefined)).toEqual({ text: "running", tone: "tone-link" });
     expect(chip(call(), "out")).toEqual({ text: "running", tone: "tone-link pulse" });
     expect(chip(call({ approval: approval(ApprovalStatus.ALLOWED), result: "ok" }), undefined).text).toBe("done");
+  });
+});
+
+describe("chip durations", () => {
+  const timed = { startedAt: 1000, doneAt: 3100 };
+
+  test("finished calls show their duration", () => {
+    expect(chip(call({ result: "ok", ...timed }), undefined).text).toBe("done 2.1s");
+    expect(chip(call({ result: "bad", isError: true, startedAt: 1000, doneAt: 1400 }), undefined).text).toBe("error 400ms");
+  });
+
+  test("a running call shows elapsed time", () => {
+    expect(chip(call({ startedAt: 1000 }), undefined, 4000)).toEqual({ text: "running 3.0s", tone: "tone-link" });
+    expect(chip(call({ startedAt: 1000 }), "out", 14000).text).toBe("running 13s");
+  });
+
+  test("missing timestamps show no time", () => {
+    expect(chip(call({ result: "ok", startedAt: 1000 }), undefined).text).toBe("done");
+    expect(chip(call({ result: "ok", doneAt: 1000 }), undefined).text).toBe("done");
+    expect(chip(call(), undefined, 5000).text).toBe("running");
+  });
+
+  test("approval states carry no time", () => {
+    expect(chip(call({ approval: approval(ApprovalStatus.PENDING), startedAt: 1 }), undefined, 9).text).toBe("waiting");
+  });
+});
+
+describe("isRunning", () => {
+  test("only an unfinished, undecided call runs", () => {
+    expect(isRunning(call())).toBe(true);
+    expect(isRunning(call({ result: "ok" }))).toBe(false);
+    expect(isRunning(call({ approval: approval(ApprovalStatus.PENDING) }))).toBe(false);
+    expect(isRunning(call({ approval: approval(ApprovalStatus.ALLOWED) }))).toBe(true);
   });
 });
 
