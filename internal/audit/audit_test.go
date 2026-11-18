@@ -68,7 +68,7 @@ func TestReadFromStoreSkipsGateway(t *testing.T) {
 	res, err := audit.Read(t.Context(), query(s, gw, since))
 
 	require.NoError(t, err)
-	require.Len(t, res.Decisions, 1)
+	require.Len(t, res.Events, 1)
 	require.Zero(t, *calls)
 	require.Equal(t, audit.SourceStore, res.Coverage.Source)
 	require.True(t, res.Coverage.StoreAvailable)
@@ -88,7 +88,8 @@ func TestReadFallsBackWhenStoreHasNone(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 1, *calls)
-	require.Equal(t, gwDecisions, res.Decisions)
+	require.Len(t, res.Events, 1)
+	require.Equal(t, gwDecisions[0], res.Events[0].Decision)
 	require.Equal(t, audit.SourceGateway, res.Coverage.Source)
 	require.True(t, res.Coverage.StoreEmpty)
 	require.Equal(t, gwDecisions[0].Time, res.Coverage.GatewayStart)
@@ -117,7 +118,7 @@ func TestReadGatewayErrorIsCoverageNotFailure(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			res, err := audit.Read(t.Context(), query(store, gw, since))
 			require.NoError(t, err)
-			require.Empty(t, res.Decisions)
+			require.Empty(t, res.Events)
 			require.ErrorIs(t, res.Coverage.GatewayErr, boom)
 		})
 	}
@@ -201,7 +202,7 @@ func TestReadEmpty(t *testing.T) {
 	res, err := audit.Read(t.Context(), query(s, gw, now.Add(-time.Hour)))
 
 	require.NoError(t, err)
-	require.Empty(t, res.Decisions)
+	require.Empty(t, res.Events)
 	require.Equal(t, audit.SourceGateway, res.Coverage.Source)
 	require.True(t, res.Coverage.StoreEmpty)
 	require.NoError(t, res.Coverage.GatewayErr)

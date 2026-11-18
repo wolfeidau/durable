@@ -4,6 +4,7 @@ package audit
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/wolfeidau/durable/internal/sandbox/openshell"
@@ -68,34 +69,55 @@ type Query struct {
 	Since     time.Time
 	Now       time.Time
 	Retention time.Duration
+	// After is a NextCursor from an earlier Result; empty reads the newest Limit events in the window.
+	After string
+	// Limit caps the events returned; zero or less returns them all.
+	Limit int
 }
 
-// Result is the decisions, oldest first, and their coverage.
+// Event is one decision with the id that orders it. The id is the store's uid, or for the gateway log a hash of the
+// decision's content, because the log has no uid.
+type Event struct {
+	ID string
+	openshell.Decision
+}
+
+// Result is the events, oldest first, and their coverage.
 type Result struct {
-	Decisions []openshell.Decision
-	Coverage  Coverage
+	Events   []Event
+	Coverage Coverage
+	// NextCursor resumes after the last event; it echoes Query.After when there are none.
+	NextCursor string
+	// Truncated means Limit left events out: older ones in the window when Query.After is empty, newer ones otherwise.
+	Truncated bool
 }
 
 var errNoGateway = errors.New("no gateway log reader is configured")
 
+// ErrBadCursor marks a cursor that is malformed or that this server cannot resume.
+var ErrBadCursor = errors.New("invalid cursor")
+
 // Read prefers the telemetry store and falls back to the gateway log when the store has none.
 // A gateway failure is reported in Coverage.GatewayErr, not returned, because the store may still add coverage.
+// A cursor stays with the source that issued it, so a store cursor never falls back to the log.
 func Read(ctx context.Context, q Query) (Result, error) {
-	res := Result{Coverage: Coverage{Source: SourceStore, StoreAvailable: q.Store != nil}}
-	if q.Store != nil {
-		ds, err := q.Store.Decisions(ctx, q.Sandbox, q.Since)
-		if err != nil {
+	cur, err := parseCursor(q.After)
+	if err != nil {
+		return Result{}, err
+	}
+	if cur != nil && cur.source == SourceStore && q.Store == nil {
+		return Result{}, fmt.Errorf("%w: it came from the telemetry store, which is not available", ErrBadCursor)
+	}
+	res := Result{NextCursor: q.After, Coverage: Coverage{Source: SourceStore, StoreAvailable: q.Store != nil}}
+	if q.Store != nil && (cur == nil || cur.source == SourceStore) {
+		if err := q.readStore(ctx, cur, &res); err != nil {
 			return Result{}, err
 		}
-		res.Decisions = ds
 	}
-	if len(res.Decisions) == 0 {
+	if len(res.Events) == 0 && (cur == nil || cur.source == SourceGateway) {
 		res.Coverage.Source = SourceGateway
-		res.Coverage.StoreEmpty = q.Store != nil
-		res.Decisions, res.Coverage.GatewayErr = q.gateway(ctx)
-		if len(res.Decisions) > 0 && res.Decisions[0].Time.After(q.Since) {
-			res.Coverage.GatewayStart = res.Decisions[0].Time
-		}
+		res.Coverage.StoreEmpty = q.Store != nil && cur == nil
+		q.readGateway(ctx, cur, &res)
 	}
 	if q.Store == nil {
 		return res, nil
@@ -104,6 +126,41 @@ func Read(ctx context.Context, q Query) (Result, error) {
 		return Result{}, err
 	}
 	return res, nil
+}
+
+func (q Query) readStore(ctx context.Context, cur *cursor, res *Result) error {
+	var after *telemetry.Position
+	if cur != nil {
+		after = &cur.pos
+	}
+	rows, more, err := q.Store.DecisionsPage(ctx, q.Sandbox, q.Since, after, q.Limit)
+	if err != nil {
+		return err
+	}
+	for _, r := range rows {
+		res.Events = append(res.Events, Event{ID: r.UID, Decision: r.Decision})
+	}
+	res.Truncated = more
+	res.setNext(SourceStore)
+	return nil
+}
+
+func (q Query) readGateway(ctx context.Context, cur *cursor, res *Result) {
+	if q.Gateway == nil {
+		res.Coverage.GatewayErr = errNoGateway
+		return
+	}
+	ds, err := q.Gateway(ctx, q.Sandbox, q.Since)
+	if err != nil {
+		res.Coverage.GatewayErr = err
+		return
+	}
+	events := gatewayEvents(ds)
+	if len(events) > 0 && events[0].Time.After(q.Since) {
+		res.Coverage.GatewayStart = events[0].Time
+	}
+	res.Events, res.Truncated = pageEvents(events, cur, q.Limit)
+	res.setNext(SourceGateway)
 }
 
 // ReadStoreCoverage fills the fields of c that only the telemetry store can answer.
@@ -122,13 +179,6 @@ func ReadStoreCoverage(ctx context.Context, store *telemetry.Store, name string,
 	c.Retention = retention
 	c.Pruned = since.Before(now.Add(-retention))
 	return nil
-}
-
-func (q Query) gateway(ctx context.Context) ([]openshell.Decision, error) {
-	if q.Gateway == nil {
-		return nil, errNoGateway
-	}
-	return q.Gateway(ctx, q.Sandbox, q.Since)
 }
 
 // ReadDrops reports events lost before or during receipt: exporter drops and decisions with no sandbox.

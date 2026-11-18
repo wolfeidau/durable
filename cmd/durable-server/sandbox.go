@@ -251,7 +251,11 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 }
 
 func (c *sandboxAuditCmd) printDecisions(w io.Writer, res audit.Result, start time.Time) error {
-	ds, cov := res.Decisions, res.Coverage
+	cov := res.Coverage
+	ds := make([]openshell.Decision, len(res.Events))
+	for i, e := range res.Events {
+		ds[i] = e.Decision
+	}
 	if len(ds) == 0 {
 		switch {
 		case cov.GatewayErr != nil:
