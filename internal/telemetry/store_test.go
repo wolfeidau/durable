@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -244,17 +245,73 @@ func TestEarliestDecisionAndFirstDay(t *testing.T) {
 	require.Equal(t, "2026-01-02", dy)
 }
 
-func TestSchemaHasNoBody(t *testing.T) {
+func TestRawEventRoundTrip(t *testing.T) {
+	ctx := context.Background()
 	s, _ := openStore(t)
-	rows, err := s.db.QueryContext(context.Background(), `SELECT name FROM pragma_table_info('decisions')`)
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	e := ev("u1", "a", "i", t0, true, "x")
+	e.Body = []byte(`{"cmd":"curl x"}`)
+	old := ev("u0", "a", "i", t0.Add(-time.Hour), true, "x")
+	old.Body = []byte(`{"old":1}`)
+	other := ev("u2", "b", "i", t0, true, "x")
+	other.Body = []byte(`{"b":1}`)
+	mustAdd(t, s, []Event{e, old, other})
+
+	got, err := s.RawEvents(ctx, "a", t0)
 	require.NoError(t, err)
-	defer rows.Close()
-	for rows.Next() {
-		var name string
-		require.NoError(t, rows.Scan(&name))
-		require.NotEqual(t, "body", name)
-	}
-	require.NoError(t, rows.Err())
+	require.Equal(t, []RawEvent{{UID: "u1", Time: t0, Body: json.RawMessage(`{"cmd":"curl x"}`)}}, got)
+	got, err = s.RawEvents(ctx, "a", time.Time{})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.Equal(t, "u0", got[0].UID)
+}
+
+func TestRawEventDuplicateStoresOnce(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	e := ev("u1", "a", "i", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), true, "x")
+	e.Body = []byte(`{"n":1}`)
+	dup := e
+	dup.Body = []byte(`{"n":2}`)
+	mustAdd(t, s, []Event{e, dup})
+	mustAdd(t, s, []Event{dup})
+
+	got, err := s.RawEvents(ctx, "a", time.Time{})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.JSONEq(t, `{"n":1}`, string(got[0].Body))
+}
+
+func TestRawEventSkippedWithoutBodyOrSandbox(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	t0 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	noBody := ev("1", "a", "i", t0, true, "x")
+	noSandbox := ev("2", "", "i", t0, true, "x")
+	noSandbox.Body = []byte(`{"n":1}`)
+	mustAdd(t, s, []Event{noBody, noSandbox})
+
+	var n int
+	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_events`).Scan(&n))
+	require.Zero(t, n)
+}
+
+func TestPruneRemovesRawEvents(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	cut := old.Add(24 * time.Hour)
+	a, b := ev("1", "a", "i", old, true, "x"), ev("2", "a", "i", cut, true, "x")
+	a.Body, b.Body = []byte(`{"n":1}`), []byte(`{"n":2}`)
+	mustAdd(t, s, []Event{a, b})
+
+	n, err := s.Prune(ctx, cut)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, n)
+	got, err := s.RawEvents(ctx, "a", time.Time{})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "2", got[0].UID)
 }
 
 func TestZeroDecisionTimeUsesObserved(t *testing.T) {

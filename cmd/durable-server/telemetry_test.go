@@ -24,6 +24,7 @@ import (
 
 	"github.com/wolfeidau/durable/internal/config"
 	"github.com/wolfeidau/durable/internal/sandbox"
+	"github.com/wolfeidau/durable/internal/telemetry"
 )
 
 const (
@@ -193,6 +194,14 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 		}
 	}
 	require.Equal(t, 1, rows, out)
+
+	store, err := telemetry.OpenReadOnly(t.Context(), filepath.Join(home, ".durable", "telemetry.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = store.Close() })
+	raw, err := store.RawEvents(t.Context(), fixtureSandbox, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, raw, 4, "one raw event per distinct decision")
+	require.True(t, json.Valid(raw[0].Body))
 	stopServer(t, r)
 }
 

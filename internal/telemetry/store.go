@@ -3,6 +3,7 @@ package telemetry
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
@@ -36,6 +37,13 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 CREATE INDEX IF NOT EXISTS decisions_sandbox_time ON decisions (sandbox_name, time_ms);
 CREATE INDEX IF NOT EXISTS decisions_time ON decisions (time_ms);
+CREATE TABLE IF NOT EXISTS raw_events (
+	uid TEXT PRIMARY KEY,
+	sandbox_name TEXT NOT NULL,
+	time_ms INTEGER NOT NULL,
+	body TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS raw_events_time ON raw_events (time_ms);
 CREATE TABLE IF NOT EXISTS daily (
 	day TEXT NOT NULL,
 	sandbox_name TEXT NOT NULL,
@@ -73,7 +81,15 @@ type Event struct {
 	SandboxName string
 	SandboxID   string
 	Observed    time.Time
+	Body        []byte    // raw OCSF JSON, stored apart from the parsed fields
 	Gap         *otlp.Gap // when set, only SandboxID and Observed are used
+}
+
+// RawEvent is the stored OCSF body of one decision.
+type RawEvent struct {
+	UID  string
+	Time time.Time
+	Body json.RawMessage
 }
 
 // Day is the decision counts for one UTC day.
@@ -207,6 +223,13 @@ func addDecision(ctx context.Context, tx *sql.Tx, ev Event) error {
 	} else if n != 1 {
 		return nil
 	}
+	if len(ev.Body) > 0 {
+		_, err = tx.ExecContext(ctx, `INSERT INTO raw_events (uid, sandbox_name, time_ms, body) VALUES (?, ?, ?, ?)`,
+			ev.UID, ev.SandboxName, d.Time.UnixMilli(), string(ev.Body))
+		if err != nil {
+			return fmt.Errorf("failed to insert raw event: %w", err)
+		}
+	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO daily (day, sandbox_name, allowed, kind, activity, binary, method, host, pattern, policy, count)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
 		ON CONFLICT DO UPDATE SET count = count + 1`,
@@ -219,7 +242,7 @@ func addDecision(ctx context.Context, tx *sql.Tx, ev Event) error {
 
 func day(t time.Time) string { return t.UTC().Format(time.DateOnly) }
 
-// Prune deletes decisions and gaps older than before, keeping the daily counts.
+// Prune deletes decisions, raw events and gaps older than before, keeping the daily counts.
 func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -227,7 +250,7 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 	}
 	defer func() { _ = tx.Rollback() }()
 	var total int64
-	for _, q := range []string{`DELETE FROM decisions WHERE time_ms < ?`, `DELETE FROM gaps WHERE observed_ms < ?`} {
+	for _, q := range []string{`DELETE FROM decisions WHERE time_ms < ?`, `DELETE FROM raw_events WHERE time_ms < ?`, `DELETE FROM gaps WHERE observed_ms < ?`} {
 		res, err := tx.ExecContext(ctx, q, before.UnixMilli())
 		if err != nil {
 			return 0, fmt.Errorf("failed to prune telemetry: %w", err)
@@ -264,6 +287,31 @@ func (s *Store) Decisions(ctx context.Context, sandboxName string, since time.Ti
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read decisions: %w", err)
+	}
+	return out, nil
+}
+
+// RawEvents returns the sandbox's stored OCSF bodies at or after since, oldest first.
+func (s *Store) RawEvents(ctx context.Context, sandboxName string, since time.Time) ([]RawEvent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT uid, time_ms, body FROM raw_events
+		WHERE sandbox_name = ? AND time_ms >= ? ORDER BY time_ms, uid`, sandboxName, since.UnixMilli())
+	if err != nil {
+		return nil, fmt.Errorf("failed to query raw events: %w", err)
+	}
+	defer rows.Close()
+	var out []RawEvent
+	for rows.Next() {
+		var e RawEvent
+		var ms int64
+		var body string
+		if err := rows.Scan(&e.UID, &ms, &body); err != nil {
+			return nil, fmt.Errorf("failed to scan raw event: %w", err)
+		}
+		e.Time, e.Body = time.UnixMilli(ms).UTC(), json.RawMessage(body)
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read raw events: %w", err)
 	}
 	return out, nil
 }

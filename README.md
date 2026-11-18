@@ -229,7 +229,8 @@ headers_file = "/home/<you>/.durable/otlp-headers"
 - Restart the gateway, which reads the headers file at startup. Sandboxes pick up the setting when
   they restart.
 - The endpoint must be reachable from the sandbox supervisors, not just from the host.
-- Delivery is best-effort. The store keeps only the fields of each decision, not the raw OCSF body.
+- Delivery is best-effort. The store also keeps each decision's raw OCSF event, which can include
+  command lines and process ancestry, for the same retention.
 - Events are matched to a session by its sandbox name. Decisions that carry no sandbox are not
   stored; the server logs a warning and counts them per day.
 - `sandbox-audit` says when data is missing: events the exporter dropped (for the sandbox, and

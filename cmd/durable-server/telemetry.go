@@ -142,7 +142,7 @@ func events(recs []otlp.Record, now time.Time) []telemetry.Event {
 		if id == "" {
 			id = rec.SandboxID
 		}
-		out = append(out, telemetry.Event{Decision: d, UID: rec.UID, SandboxName: name, SandboxID: id, Observed: observed})
+		out = append(out, telemetry.Event{Decision: d, UID: rec.UID, SandboxName: name, SandboxID: id, Observed: observed, Body: rec.Body})
 	}
 	return out
 }
