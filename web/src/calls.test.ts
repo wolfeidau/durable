@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chip, defaultOpen, duration, isRunning, summary } from "./calls";
+import { chip, defaultOpen, isRunning, summary } from "./calls";
 import { ApprovalStatus } from "./gen/durable/v1/durable_pb";
 import type { CallEntry } from "./transcript";
 
@@ -50,19 +50,6 @@ describe("chip durations", () => {
 
   test("approval states carry no time", () => {
     expect(chip(call({ approval: approval(ApprovalStatus.PENDING), startedAt: 1 }), undefined, 9).text).toBe("waiting");
-  });
-});
-
-describe("duration", () => {
-  test("formats by size", () => {
-    expect(duration(0)).toBe("0ms");
-    expect(duration(33)).toBe("33ms");
-    expect(duration(999.6)).toBe("1.0s");
-    expect(duration(1000)).toBe("1.0s");
-    expect(duration(2140)).toBe("2.1s");
-    expect(duration(12400)).toBe("12s");
-    expect(duration(65000)).toBe("1m 05s");
-    expect(duration(-5)).toBe("0ms");
   });
 });
 

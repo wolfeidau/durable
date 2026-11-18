@@ -3,7 +3,7 @@ import type { ReactElement } from "react";
 import { getServerInfo, listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { Workspace } from "./gen/durable/v1/durable_pb";
 import { environmentLabel } from "./newSession";
-import { where } from "./sessions";
+import { repoHref, where } from "./sessions";
 import { useCopy } from "./useCopy";
 
 // Workspace, environment and id of the open session, shown in the topbar.
@@ -20,7 +20,7 @@ export function SessionBar({ sessionId }: { sessionId: string }): ReactElement |
       {meta.workspace === Workspace.REPO ? (
         <a
           className="mono bar-where"
-          href={`https://${meta.repo}/tree/${encodeURI(meta.branch)}`}
+          href={repoHref(meta)}
           target="_blank"
           rel="noopener noreferrer"
           title={place}

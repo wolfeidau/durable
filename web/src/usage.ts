@@ -236,15 +236,23 @@ export function money(usd: number | undefined, estimated = false): string {
   return `${estimated ? "~" : ""}$${usd.toFixed(usd < 1 ? 4 : 2)}`;
 }
 
-export function seconds(ms: number | undefined): string {
-  return ms === undefined ? dash : `${(ms / 1000).toFixed(1)} s`;
+// "33ms" under a second, "2.1s" under ten seconds, "42s" under a minute, then "1m 05s".
+export function duration(ms: number): string {
+  const rounded = Math.max(0, Math.round(ms));
+  if (rounded < 1000) return `${rounded}ms`;
+  const secs = rounded / 1000;
+  if (secs < 10) return `${secs.toFixed(1)}s`;
+  const whole = Math.round(secs);
+  return whole < 60 ? `${whole}s` : `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
 }
+
+export const seconds = (ms: number | undefined): string => (ms === undefined ? dash : duration(ms));
 
 // A small non-zero share reads "<1%", because "0%" looks like nothing is used.
 export const percent = (f: number | undefined): string =>
   f === undefined ? dash : f > 0 && f < 0.005 ? "<1%" : `${Math.round(f * 100)}%`;
 
-// "$0.0042 · 12.3 s · 5 calls", leaving out what is unknown.
+// "$0.0042 · 12s · 5 calls", leaving out what is unknown.
 export function turnFooter(t: TurnRow): string {
   const parts: string[] = [];
   if (t.cost !== undefined) parts.push(money(t.cost, t.estimated));

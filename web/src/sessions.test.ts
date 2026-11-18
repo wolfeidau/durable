@@ -2,7 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { describe, expect, test } from "bun:test";
 import { SessionInfoSchema, Workspace } from "./gen/durable/v1/durable_pb";
-import { age, kindLabel, kindText, sorted, where } from "./sessions";
+import { age, kindLabel, kindText, repoHref, sorted, where } from "./sessions";
 
 const now = 1_700_000_000_000;
 
@@ -84,5 +84,14 @@ describe("sorted", () => {
     const list = [info({ id: "a", createdMs: 1 }), info({ id: "b", createdMs: 2 })];
     sorted(list);
     expect(list.map((s) => s.id)).toEqual(["a", "b"]);
+  });
+});
+
+describe("repoHref", () => {
+  test("encodes each branch segment, keeping slashes", () => {
+    const s = (branch: string) => info({ workspace: Workspace.REPO, repo: "github.com/o/r", branch });
+    expect(repoHref(s("main"))).toBe("https://github.com/o/r/tree/main");
+    expect(repoHref(s("feat/web"))).toBe("https://github.com/o/r/tree/feat/web");
+    expect(repoHref(s("fix#12"))).toBe("https://github.com/o/r/tree/fix%2312");
   });
 });

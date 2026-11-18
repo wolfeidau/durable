@@ -1,15 +1,6 @@
 import { ApprovalStatus } from "./gen/durable/v1/durable_pb";
 import type { CallEntry } from "./transcript";
-
-// "33ms" under a second, "2.1s" under ten seconds, "42s" under a minute, then "1m 05s".
-export function duration(ms: number): string {
-  const rounded = Math.max(0, Math.round(ms));
-  if (rounded < 1000) return `${rounded}ms`;
-  const secs = rounded / 1000;
-  if (secs < 10) return `${secs.toFixed(1)}s`;
-  const whole = Math.round(secs);
-  return whole < 60 ? `${whole}s` : `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
-}
+import { duration } from "./usage";
 
 export function isRunning(call: CallEntry): boolean {
   const s = call.approval?.status;
