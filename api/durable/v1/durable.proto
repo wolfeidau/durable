@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package durable.v1;
 
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 
 option go_package = "github.com/wolfeidau/durable/api/durable/v1;durablev1";
@@ -26,6 +27,11 @@ service SessionService {
   rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
   // GetServerInfo reports which workspace kinds CreateSession accepts: EMPTY and REPO for a sandboxed server, else DIRECTORY.
   rpc GetServerInfo(GetServerInfoRequest) returns (GetServerInfoResponse);
+  // ListNetworkEvents lists the network requests the session's sandbox proxy allowed or denied, with a coverage
+  // report that says what the list cannot show. It is read-only and never opens the sandbox or the session.
+  // An unknown session returns NOT_FOUND, a session with no sandbox returns FAILED_PRECONDITION, and a malformed
+  // cursor, or one this server cannot resume, returns INVALID_ARGUMENT.
+  rpc ListNetworkEvents(ListNetworkEventsRequest) returns (ListNetworkEventsResponse);
 }
 
 // Workspace is the kind of workspace a session runs in.
@@ -331,4 +337,120 @@ message Event {
 message EpochMismatch {
   string epoch = 1;
   int64 last_seq = 2;
+}
+
+message ListNetworkEventsRequest {
+  string session_id = 1;
+  // since is the start of the window: a duration back from now, or an absolute time. Default 24h.
+  // The response coverage.since reports the window actually used.
+  oneof since {
+    google.protobuf.Duration since_ago = 2;
+    google.protobuf.Timestamp since_time = 3;
+  }
+  // after is the next_cursor of an earlier response. Empty returns the newest limit events in the window.
+  // The server keeps no state for a cursor: it names a position in the telemetry store's insertion order.
+  // With GATEWAY_LOG there is no cursor: poll without after.
+  string after = 4;
+  // limit is the most events to return. Default and maximum 1000; 0 means the default.
+  int32 limit = 5;
+}
+
+message ListNetworkEventsResponse {
+  // events are oldest first by (time, id) when after is empty or cursor_reset is set, and for GATEWAY_LOG. With after they are
+  // in storage order, which can include times earlier than events already returned, because the gateway's exporter
+  // retries failed batches. The client should merge them into its list and sort by (time, id).
+  repeated NetworkEvent events = 1;
+  NetworkCoverage coverage = 2;
+  // next_cursor resumes after everything stored so far: for a first load, the newest event the store held when it was
+  // read; when resuming, the last event returned. With no events it repeats the request's after. It is empty for
+  // GATEWAY_LOG, so each poll re-reads the log and moves to the store once the store has decisions.
+  string next_cursor = 3;
+  // truncated means limit left events out. Without after, older events in the window were left out; with after,
+  // newer events remain and the next request should follow immediately.
+  bool truncated = 4;
+  // cursor_reset means after no longer matches the store, because the rows it named were deleted and their ids reused.
+  // The events are a first load: replace the list, do not append.
+  bool cursor_reset = 5;
+}
+
+// NetworkEvent is one network request the sandbox proxy allowed or denied.
+message NetworkEvent {
+  google.protobuf.Timestamp time = 1;
+  // id is unique per event and orders events with the same time. It is the telemetry uid for the store source, and a
+  // hash of the decision's content for the gateway log source, which has no uid.
+  string id = 2;
+  bool allowed = 3;
+  // kind is "NET" or "HTTP".
+  string kind = 4;
+  // activity is "OPEN" or "REFUSE" for NET; empty for HTTP.
+  string activity = 5;
+  // binary is the NET process path; empty when no process is known.
+  string binary = 6;
+  // method is the HTTP method; empty for NET.
+  string method = 7;
+  // host is host:port for NET (no port for DNS refusals), host for HTTP.
+  string host = 8;
+  // path is the HTTP path without the query.
+  string path = 9;
+  // pattern is the path with versioned, numeric and hash-like segments shown as "*", so repeated requests group.
+  string pattern = 10;
+  // policy is the policy that decided; empty when none.
+  string policy = 11;
+  string reason = 12;
+}
+
+enum NetworkSource {
+  NETWORK_SOURCE_UNSPECIFIED = 0;
+  // STORE is the server's telemetry store, fed by the sandbox gateway over OTLP.
+  NETWORK_SOURCE_STORE = 1;
+  // GATEWAY_LOG is the gateway's own log, which keeps only its most recent lines.
+  NETWORK_SOURCE_GATEWAY_LOG = 2;
+}
+
+// NetworkDrop is a count of events lost before or during receipt.
+message NetworkDrop {
+  int64 dropped = 1;
+  // since is the start of the earliest gap that contributed to dropped.
+  google.protobuf.Timestamp since = 2;
+}
+
+// NetworkCoverage says what the events cannot show. An absent or zero field means the server found nothing to report,
+// except where noted.
+message NetworkCoverage {
+  NetworkSource source = 1;
+  // source_bounded is set for GATEWAY_LOG: the source holds only recent lines, so events older than its start are
+  // missing whatever the window asked for.
+  bool source_bounded = 2;
+  // resumable is false for GATEWAY_LOG, which issues no cursor: each poll re-reads the log from the window start, and
+  // ids come from content, so use them to dedupe.
+  bool resumable = 3;
+  // store_available is false when the server has no telemetry store, so the fields below that come from the store are
+  // empty because they are unknown, not because nothing was lost.
+  bool store_available = 4;
+  // store_empty means the store had no decisions for this sandbox in the window, so the gateway log was read instead.
+  bool store_empty = 5;
+  // gateway_error is set when the gateway log was needed and could not be read. The detail is in the server log.
+  string gateway_error = 6;
+  // gateway_log_start is the time of the log's oldest decision, set when it is after since: earlier events are missing.
+  google.protobuf.Timestamp gateway_log_start = 7;
+  // history_start is the sandbox's earliest stored decision, set when it is after since: the store did not record
+  // anything earlier.
+  google.protobuf.Timestamp history_start = 8;
+  // dropped_own counts events the gateway's exporter dropped for this sandbox before they were sent.
+  NetworkDrop dropped_own = 9;
+  // dropped_gateway_wide counts events dropped for the whole gateway, so some may belong to this sandbox.
+  NetworkDrop dropped_gateway_wide = 10;
+  // dropped_unknown counts events dropped for sandboxes the store has no named event for, so some may belong to this sandbox.
+  NetworkDrop dropped_unknown = 11;
+  // unattributed counts decisions that had no sandbox or event id, so they cannot be shown for any sandbox. It is
+  // counted per UTC day, so it covers all of unattributed_from_day.
+  int64 unattributed = 12;
+  // unattributed_from_day is the UTC day (YYYY-MM-DD) the unattributed count starts from; empty without a store.
+  string unattributed_from_day = 13;
+  // retention is how long the store keeps raw events; zero without a store.
+  google.protobuf.Duration retention = 14;
+  // pruned is set when the window starts before the retention cutoff, so older events were deleted.
+  bool pruned = 15;
+  // since is the window start the server used, which is the default when the request gave none.
+  google.protobuf.Timestamp since = 16;
 }

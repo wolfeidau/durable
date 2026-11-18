@@ -240,6 +240,14 @@ headers_file = "/home/<you>/.durable/otlp-headers"
 - `sandbox-audit` says when data is missing: events the exporter dropped (for the sandbox, and
   gateway-wide or for sandboxes with no stored events), decisions with no sandbox or event id,
   history that starts after the requested period, and raw events pruned past `telemetry.retention`.
+- The `ListNetworkEvents` API call returns the same decisions to clients, read-only and without
+  opening the session. It pages with an opaque cursor over the store's insertion order: the first
+  call returns the newest `limit` events in the window, and later calls with `after` return
+  everything stored since, including late-arriving events with older times, so clients merge and
+  sort by `(time, id)`. The gateway log issues no cursor.
+  Its `coverage` carries the same warnings as structured fields (source, drops by category,
+  unattributed decisions, history start, pruning). Without the store it reads the gateway log,
+  which keeps only recent lines, so the coverage marks it bounded and not resumable.
 
 #### Git host tokens
 

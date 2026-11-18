@@ -4,15 +4,15 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import type { Duration, Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_duration, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message as Message$1 } from "@bufbuild/protobuf";
 
 /**
  * Describes the file durable/v1/durable.proto.
  */
 export const file_durable_v1_durable: GenFile = /*@__PURE__*/
-  fileDesc("ChhkdXJhYmxlL3YxL2R1cmFibGUucHJvdG8SCmR1cmFibGUudjEiFgoUR2V0U2VydmVySW5mb1JlcXVlc3Qi1QEKFUdldFNlcnZlckluZm9SZXNwb25zZRIpCgp3b3Jrc3BhY2VzGAEgAygOMhUuZHVyYWJsZS52MS5Xb3Jrc3BhY2USMQoMZW52aXJvbm1lbnRzGAIgAygLMhsuZHVyYWJsZS52MS5FbnZpcm9ubWVudEluZm8SJQoIc2V0dGluZ3MYAyADKAsyEy5kdXJhYmxlLnYxLlNldHRpbmcSEAoId2FybmluZ3MYBCADKAkSJQoGZ3JhbnRzGAUgAygLMhUuZHVyYWJsZS52MS5HcmFudEluZm8iNwoHU2V0dGluZxINCgVmaWVsZBgBIAEoCRINCgV2YWx1ZRgCIAEoCRIOCgZzb3VyY2UYAyABKAkiSwoJR3JhbnRJbmZvEgwKBG5hbWUYASABKAkSDwoHc3VtbWFyeRgCIAEoCRIQCghiaW5hcmllcxgDIAMoCRINCgVob3N0cxgEIAMoCSJRCg9FbnZpcm9ubWVudEluZm8SDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIOCgZncmFudHMYAyADKAkSEQoJYXBwcm92YWxzGAQgASgJIqIBChRDcmVhdGVTZXNzaW9uUmVxdWVzdBILCgNjd2QYASABKAkSDAoEbmFtZRgCIAEoCRIoCgl3b3Jrc3BhY2UYAyABKA4yFS5kdXJhYmxlLnYxLldvcmtzcGFjZRISCgpyZXF1ZXN0X2lkGAQgASgJEgwKBHJlcG8YBSABKAkSDgoGYnJhbmNoGAYgASgJEhMKC2Vudmlyb25tZW50GAcgASgJIlIKFUNyZWF0ZVNlc3Npb25SZXNwb25zZRIoCgdzZXNzaW9uGAEgASgLMhcuZHVyYWJsZS52MS5TZXNzaW9uSW5mbxIPCgdjcmVhdGVkGAIgASgIIhUKE0xpc3RTZXNzaW9uc1JlcXVlc3QiUwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKQoIc2Vzc2lvbnMYASADKAsyFy5kdXJhYmxlLnYxLlNlc3Npb25JbmZvEhAKCHdhcm5pbmdzGAIgAygJIvwBCgtTZXNzaW9uSW5mbxIKCgJpZBgBIAEoCRILCgNjd2QYAiABKAkSDAoEbmFtZRgDIAEoCRIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZChFwZW5kaW5nX2FwcHJvdmFscxgFIAEoBRIeChZ1bmZpbmlzaGVkX3N1Ym1pc3Npb25zGAYgASgFEigKCXdvcmtzcGFjZRgHIAEoDjIVLmR1cmFibGUudjEuV29ya3NwYWNlEgwKBHJlcG8YCCABKAkSDgoGYnJhbmNoGAkgASgJEhMKC2Vudmlyb25tZW50GAogASgJIkUKDVN1Ym1pdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJEgwKBHRleHQYAyABKAkiPAoOU3VibWl0UmVzcG9uc2USKgoKc3VibWlzc2lvbhgBIAEoCzIWLmR1cmFibGUudjEuU3VibWlzc2lvbiI3Cg1DYW5jZWxSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEgoKcmVxdWVzdF9pZBgCIAEoCSI8Cg5DYW5jZWxSZXNwb25zZRIqCgpzdWJtaXNzaW9uGAEgASgLMhYuZHVyYWJsZS52MS5TdWJtaXNzaW9uIlwKFURlY2lkZUFwcHJvdmFsUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhQKDGFwcHJvdmFsX3NlcRgCIAEoAxINCgVhbGxvdxgDIAEoCBIKCgJieRgEIAEoCSJAChZEZWNpZGVBcHByb3ZhbFJlc3BvbnNlEiYKCGFwcHJvdmFsGAEgASgLMhQuZHVyYWJsZS52MS5BcHByb3ZhbCJiChJXYXRjaEV2ZW50c1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgVlcG9jaBgCIAEoCRIRCglhZnRlcl9zZXEYAyABKAMSFgoOaW5jbHVkZV9kZWx0YXMYBCABKAgikQEKE1dhdGNoRXZlbnRzUmVzcG9uc2USIgoFZXZlbnQYASABKAsyES5kdXJhYmxlLnYxLkV2ZW50SAASKgoJaGVhcnRiZWF0GAIgASgLMhUuZHVyYWJsZS52MS5IZWFydGJlYXRIABIiCgVkZWx0YRgDIAEoCzIRLmR1cmFibGUudjEuRGVsdGFIAEIGCgRpdGVtIgsKCUhlYXJ0YmVhdCJxCgVEZWx0YRIQCghsYXN0X3NlcRgBIAEoAxIjCgRraW5kGAIgASgOMhUuZHVyYWJsZS52MS5EZWx0YUtpbmQSEgoKc3VibWlzc2lvbhgDIAEoAxIPCgdjYWxsX2lkGAQgASgJEgwKBHRleHQYBSABKAkiiAEKClN1Ym1pc3Npb24SCwoDc2VxGAEgASgDEhIKCnJlcXVlc3RfaWQYAiABKAkSDAoEdGV4dBgDIAEoCRIsCgZzdGF0dXMYBCABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDgoGcmVzdWx0GAUgASgJEg0KBWVycm9yGAYgASgJIqIBCghBcHByb3ZhbBILCgNzZXEYASABKAMSEgoKc3VibWlzc2lvbhgCIAEoAxIiCgRjYWxsGAMgASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YBCABKAgSKgoGc3RhdHVzGAUgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GAYgASgJIjMKCFRvb2xDYWxsEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDQoFaW5wdXQYAyABKAwi0QEKB01lc3NhZ2USHgoEcm9sZRgBIAEoDjIQLmR1cmFibGUudjEuUm9sZRIMCgR0ZXh0GAIgASgJEigKCnRvb2xfY2FsbHMYAyADKAsyFC5kdXJhYmxlLnYxLlRvb2xDYWxsEhQKDHRvb2xfY2FsbF9pZBgEIAEoCRIQCghpc19lcnJvchgFIAEoCBIWCg5jb250ZXh0X3Rva2VucxgGIAEoAxIMCgRub3RlGAcgASgIEiAKBXVzYWdlGAggASgLMhEuZHVyYWJsZS52MS5Vc2FnZSLoAQoFVXNhZ2USFAoMaW5wdXRfdG9rZW5zGAEgASgDEhkKEWNhY2hlX3JlYWRfdG9rZW5zGAIgASgDEhoKEmNhY2hlX3dyaXRlX3Rva2VucxgDIAEoAxIVCg1vdXRwdXRfdG9rZW5zGAQgASgDEhgKEHJlYXNvbmluZ190b2tlbnMYBSABKAMSEAoIY29zdF91c2QYBiABKAESEwoLY29zdF9zb3VyY2UYByABKAkSDQoFbW9kZWwYCCABKAkSFgoOY29udGV4dF93aW5kb3cYCSABKAMSEwoLZHVyYXRpb25fbXMYCiABKAMinAMKBUV2ZW50EgsKA3NlcRgBIAEoAxINCgVlcG9jaBgCIAEoCRIjCgRraW5kGAMgASgOMhUuZHVyYWJsZS52MS5FdmVudEtpbmQSEgoKc3VibWlzc2lvbhgEIAEoAxIsCgZzdGF0dXMYBSABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDQoFZXJyb3IYBiABKAkSJAoHbWVzc2FnZRgHIAEoCzITLmR1cmFibGUudjEuTWVzc2FnZRIiCgRjYWxsGAggASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YCSABKAgSEAoIaXNfZXJyb3IYCiABKAgSFAoMYXBwcm92YWxfc2VxGAsgASgDEiwKCGFwcHJvdmFsGAwgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GA0gASgJEhIKCnJlcXVlc3RfaWQYDiABKAkSJgoCYXQYDyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjAKDUVwb2NoTWlzbWF0Y2gSDQoFZXBvY2gYASABKAkSEAoIbGFzdF9zZXEYAiABKAMqaAoJV29ya3NwYWNlEhkKFVdPUktTUEFDRV9VTlNQRUNJRklFRBAAEhcKE1dPUktTUEFDRV9ESVJFQ1RPUlkQARITCg9XT1JLU1BBQ0VfRU1QVFkQAhISCg5XT1JLU1BBQ0VfUkVQTxADKm4KCURlbHRhS2luZBIaChZERUxUQV9LSU5EX1VOU1BFQ0lGSUVEEAASFAoQREVMVEFfS0lORF9SRVNFVBABEhMKD0RFTFRBX0tJTkRfVEVYVBACEhoKFkRFTFRBX0tJTkRfVE9PTF9PVVRQVVQQAyrNAQoQU3VibWlzc2lvblN0YXR1cxIhCh1TVUJNSVNTSU9OX1NUQVRVU19VTlNQRUNJRklFRBAAEhwKGFNVQk1JU1NJT05fU1RBVFVTX1FVRVVFRBABEh0KGVNVQk1JU1NJT05fU1RBVFVTX1JVTk5JTkcQAhIaChZTVUJNSVNTSU9OX1NUQVRVU19ET05FEAMSHAoYU1VCTUlTU0lPTl9TVEFUVVNfRkFJTEVEEAQSHwobU1VCTUlTU0lPTl9TVEFUVVNfQ0FOQ0VMTEVEEAUqqAEKDkFwcHJvdmFsU3RhdHVzEh8KG0FQUFJPVkFMX1NUQVRVU19VTlNQRUNJRklFRBAAEhsKF0FQUFJPVkFMX1NUQVRVU19QRU5ESU5HEAESGwoXQVBQUk9WQUxfU1RBVFVTX0FMTE9XRUQQAhIcChhBUFBST1ZBTF9TVEFUVVNfREVDTElORUQQAxIdChlBUFBST1ZBTF9TVEFUVVNfQ0FOQ0VMTEVEEAQqrwIKCUV2ZW50S2luZBIaChZFVkVOVF9LSU5EX1VOU1BFQ0lGSUVEEAASGQoVRVZFTlRfS0lORF9TVUJNSVNTSU9OEAESFgoSRVZFTlRfS0lORF9NRVNTQUdFEAISGwoXRVZFTlRfS0lORF9DQUxMX1NUQVJURUQQAxIcChhFVkVOVF9LSU5EX0NBTExfUkVQTEFZRUQQBBIYChRFVkVOVF9LSU5EX0NBTExfRE9ORRAFEhgKFEVWRU5UX0tJTkRfQ09NUEFDVEVEEAYSIAocRVZFTlRfS0lORF9DT01QQUNUSU9OX0ZBSUxFRBAHEiEKHUVWRU5UX0tJTkRfQVBQUk9WQUxfUkVRVUVTVEVEEAgSHwobRVZFTlRfS0lORF9BUFBST1ZBTF9ERUNJREVEEAkqTgoEUm9sZRIUChBST0xFX1VOU1BFQ0lGSUVEEAASDQoJUk9MRV9VU0VSEAESEgoOUk9MRV9BU1NJU1RBTlQQAhINCglST0xFX1RPT0wQAzK8BAoOU2Vzc2lvblNlcnZpY2USPwoGU3VibWl0EhkuZHVyYWJsZS52MS5TdWJtaXRSZXF1ZXN0GhouZHVyYWJsZS52MS5TdWJtaXRSZXNwb25zZRI/CgZDYW5jZWwSGS5kdXJhYmxlLnYxLkNhbmNlbFJlcXVlc3QaGi5kdXJhYmxlLnYxLkNhbmNlbFJlc3BvbnNlElcKDkRlY2lkZUFwcHJvdmFsEiEuZHVyYWJsZS52MS5EZWNpZGVBcHByb3ZhbFJlcXVlc3QaIi5kdXJhYmxlLnYxLkRlY2lkZUFwcHJvdmFsUmVzcG9uc2USUAoLV2F0Y2hFdmVudHMSHi5kdXJhYmxlLnYxLldhdGNoRXZlbnRzUmVxdWVzdBofLmR1cmFibGUudjEuV2F0Y2hFdmVudHNSZXNwb25zZTABElEKDExpc3RTZXNzaW9ucxIfLmR1cmFibGUudjEuTGlzdFNlc3Npb25zUmVxdWVzdBogLmR1cmFibGUudjEuTGlzdFNlc3Npb25zUmVzcG9uc2USVAoNQ3JlYXRlU2Vzc2lvbhIgLmR1cmFibGUudjEuQ3JlYXRlU2Vzc2lvblJlcXVlc3QaIS5kdXJhYmxlLnYxLkNyZWF0ZVNlc3Npb25SZXNwb25zZRJUCg1HZXRTZXJ2ZXJJbmZvEiAuZHVyYWJsZS52MS5HZXRTZXJ2ZXJJbmZvUmVxdWVzdBohLmR1cmFibGUudjEuR2V0U2VydmVySW5mb1Jlc3BvbnNlQjdaNWdpdGh1Yi5jb20vd29sZmVpZGF1L2R1cmFibGUvYXBpL2R1cmFibGUvdjE7ZHVyYWJsZXYxYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChhkdXJhYmxlL3YxL2R1cmFibGUucHJvdG8SCmR1cmFibGUudjEiFgoUR2V0U2VydmVySW5mb1JlcXVlc3Qi1QEKFUdldFNlcnZlckluZm9SZXNwb25zZRIpCgp3b3Jrc3BhY2VzGAEgAygOMhUuZHVyYWJsZS52MS5Xb3Jrc3BhY2USMQoMZW52aXJvbm1lbnRzGAIgAygLMhsuZHVyYWJsZS52MS5FbnZpcm9ubWVudEluZm8SJQoIc2V0dGluZ3MYAyADKAsyEy5kdXJhYmxlLnYxLlNldHRpbmcSEAoId2FybmluZ3MYBCADKAkSJQoGZ3JhbnRzGAUgAygLMhUuZHVyYWJsZS52MS5HcmFudEluZm8iNwoHU2V0dGluZxINCgVmaWVsZBgBIAEoCRINCgV2YWx1ZRgCIAEoCRIOCgZzb3VyY2UYAyABKAkiSwoJR3JhbnRJbmZvEgwKBG5hbWUYASABKAkSDwoHc3VtbWFyeRgCIAEoCRIQCghiaW5hcmllcxgDIAMoCRINCgVob3N0cxgEIAMoCSJRCg9FbnZpcm9ubWVudEluZm8SDAoEbmFtZRgBIAEoCRINCgVpbWFnZRgCIAEoCRIOCgZncmFudHMYAyADKAkSEQoJYXBwcm92YWxzGAQgASgJIqIBChRDcmVhdGVTZXNzaW9uUmVxdWVzdBILCgNjd2QYASABKAkSDAoEbmFtZRgCIAEoCRIoCgl3b3Jrc3BhY2UYAyABKA4yFS5kdXJhYmxlLnYxLldvcmtzcGFjZRISCgpyZXF1ZXN0X2lkGAQgASgJEgwKBHJlcG8YBSABKAkSDgoGYnJhbmNoGAYgASgJEhMKC2Vudmlyb25tZW50GAcgASgJIlIKFUNyZWF0ZVNlc3Npb25SZXNwb25zZRIoCgdzZXNzaW9uGAEgASgLMhcuZHVyYWJsZS52MS5TZXNzaW9uSW5mbxIPCgdjcmVhdGVkGAIgASgIIhUKE0xpc3RTZXNzaW9uc1JlcXVlc3QiUwoUTGlzdFNlc3Npb25zUmVzcG9uc2USKQoIc2Vzc2lvbnMYASADKAsyFy5kdXJhYmxlLnYxLlNlc3Npb25JbmZvEhAKCHdhcm5pbmdzGAIgAygJIvwBCgtTZXNzaW9uSW5mbxIKCgJpZBgBIAEoCRILCgNjd2QYAiABKAkSDAoEbmFtZRgDIAEoCRIuCgpjcmVhdGVkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIZChFwZW5kaW5nX2FwcHJvdmFscxgFIAEoBRIeChZ1bmZpbmlzaGVkX3N1Ym1pc3Npb25zGAYgASgFEigKCXdvcmtzcGFjZRgHIAEoDjIVLmR1cmFibGUudjEuV29ya3NwYWNlEgwKBHJlcG8YCCABKAkSDgoGYnJhbmNoGAkgASgJEhMKC2Vudmlyb25tZW50GAogASgJIkUKDVN1Ym1pdFJlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJEgwKBHRleHQYAyABKAkiPAoOU3VibWl0UmVzcG9uc2USKgoKc3VibWlzc2lvbhgBIAEoCzIWLmR1cmFibGUudjEuU3VibWlzc2lvbiI3Cg1DYW5jZWxSZXF1ZXN0EhIKCnNlc3Npb25faWQYASABKAkSEgoKcmVxdWVzdF9pZBgCIAEoCSI8Cg5DYW5jZWxSZXNwb25zZRIqCgpzdWJtaXNzaW9uGAEgASgLMhYuZHVyYWJsZS52MS5TdWJtaXNzaW9uIlwKFURlY2lkZUFwcHJvdmFsUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEhQKDGFwcHJvdmFsX3NlcRgCIAEoAxINCgVhbGxvdxgDIAEoCBIKCgJieRgEIAEoCSJAChZEZWNpZGVBcHByb3ZhbFJlc3BvbnNlEiYKCGFwcHJvdmFsGAEgASgLMhQuZHVyYWJsZS52MS5BcHByb3ZhbCJiChJXYXRjaEV2ZW50c1JlcXVlc3QSEgoKc2Vzc2lvbl9pZBgBIAEoCRINCgVlcG9jaBgCIAEoCRIRCglhZnRlcl9zZXEYAyABKAMSFgoOaW5jbHVkZV9kZWx0YXMYBCABKAgikQEKE1dhdGNoRXZlbnRzUmVzcG9uc2USIgoFZXZlbnQYASABKAsyES5kdXJhYmxlLnYxLkV2ZW50SAASKgoJaGVhcnRiZWF0GAIgASgLMhUuZHVyYWJsZS52MS5IZWFydGJlYXRIABIiCgVkZWx0YRgDIAEoCzIRLmR1cmFibGUudjEuRGVsdGFIAEIGCgRpdGVtIgsKCUhlYXJ0YmVhdCJxCgVEZWx0YRIQCghsYXN0X3NlcRgBIAEoAxIjCgRraW5kGAIgASgOMhUuZHVyYWJsZS52MS5EZWx0YUtpbmQSEgoKc3VibWlzc2lvbhgDIAEoAxIPCgdjYWxsX2lkGAQgASgJEgwKBHRleHQYBSABKAkiiAEKClN1Ym1pc3Npb24SCwoDc2VxGAEgASgDEhIKCnJlcXVlc3RfaWQYAiABKAkSDAoEdGV4dBgDIAEoCRIsCgZzdGF0dXMYBCABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDgoGcmVzdWx0GAUgASgJEg0KBWVycm9yGAYgASgJIqIBCghBcHByb3ZhbBILCgNzZXEYASABKAMSEgoKc3VibWlzc2lvbhgCIAEoAxIiCgRjYWxsGAMgASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YBCABKAgSKgoGc3RhdHVzGAUgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GAYgASgJIjMKCFRvb2xDYWxsEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDQoFaW5wdXQYAyABKAwi0QEKB01lc3NhZ2USHgoEcm9sZRgBIAEoDjIQLmR1cmFibGUudjEuUm9sZRIMCgR0ZXh0GAIgASgJEigKCnRvb2xfY2FsbHMYAyADKAsyFC5kdXJhYmxlLnYxLlRvb2xDYWxsEhQKDHRvb2xfY2FsbF9pZBgEIAEoCRIQCghpc19lcnJvchgFIAEoCBIWCg5jb250ZXh0X3Rva2VucxgGIAEoAxIMCgRub3RlGAcgASgIEiAKBXVzYWdlGAggASgLMhEuZHVyYWJsZS52MS5Vc2FnZSLoAQoFVXNhZ2USFAoMaW5wdXRfdG9rZW5zGAEgASgDEhkKEWNhY2hlX3JlYWRfdG9rZW5zGAIgASgDEhoKEmNhY2hlX3dyaXRlX3Rva2VucxgDIAEoAxIVCg1vdXRwdXRfdG9rZW5zGAQgASgDEhgKEHJlYXNvbmluZ190b2tlbnMYBSABKAMSEAoIY29zdF91c2QYBiABKAESEwoLY29zdF9zb3VyY2UYByABKAkSDQoFbW9kZWwYCCABKAkSFgoOY29udGV4dF93aW5kb3cYCSABKAMSEwoLZHVyYXRpb25fbXMYCiABKAMinAMKBUV2ZW50EgsKA3NlcRgBIAEoAxINCgVlcG9jaBgCIAEoCRIjCgRraW5kGAMgASgOMhUuZHVyYWJsZS52MS5FdmVudEtpbmQSEgoKc3VibWlzc2lvbhgEIAEoAxIsCgZzdGF0dXMYBSABKA4yHC5kdXJhYmxlLnYxLlN1Ym1pc3Npb25TdGF0dXMSDQoFZXJyb3IYBiABKAkSJAoHbWVzc2FnZRgHIAEoCzITLmR1cmFibGUudjEuTWVzc2FnZRIiCgRjYWxsGAggASgLMhQuZHVyYWJsZS52MS5Ub29sQ2FsbBIRCglyZXdyaXR0ZW4YCSABKAgSEAoIaXNfZXJyb3IYCiABKAgSFAoMYXBwcm92YWxfc2VxGAsgASgDEiwKCGFwcHJvdmFsGAwgASgOMhouZHVyYWJsZS52MS5BcHByb3ZhbFN0YXR1cxISCgpkZWNpZGVkX2J5GA0gASgJEhIKCnJlcXVlc3RfaWQYDiABKAkSJgoCYXQYDyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wIjAKDUVwb2NoTWlzbWF0Y2gSDQoFZXBvY2gYASABKAkSEAoIbGFzdF9zZXEYAiABKAMitwEKGExpc3ROZXR3b3JrRXZlbnRzUmVxdWVzdBISCgpzZXNzaW9uX2lkGAEgASgJEi4KCXNpbmNlX2FnbxgCIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbkgAEjAKCnNpbmNlX3RpbWUYAyABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wSAASDQoFYWZ0ZXIYBCABKAkSDQoFbGltaXQYBSABKAVCBwoFc2luY2UisgEKGUxpc3ROZXR3b3JrRXZlbnRzUmVzcG9uc2USKAoGZXZlbnRzGAEgAygLMhguZHVyYWJsZS52MS5OZXR3b3JrRXZlbnQSLQoIY292ZXJhZ2UYAiABKAsyGy5kdXJhYmxlLnYxLk5ldHdvcmtDb3ZlcmFnZRITCgtuZXh0X2N1cnNvchgDIAEoCRIRCgl0cnVuY2F0ZWQYBCABKAgSFAoMY3Vyc29yX3Jlc2V0GAUgASgIIuIBCgxOZXR3b3JrRXZlbnQSKAoEdGltZRgBIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASCgoCaWQYAiABKAkSDwoHYWxsb3dlZBgDIAEoCBIMCgRraW5kGAQgASgJEhAKCGFjdGl2aXR5GAUgASgJEg4KBmJpbmFyeRgGIAEoCRIOCgZtZXRob2QYByABKAkSDAoEaG9zdBgIIAEoCRIMCgRwYXRoGAkgASgJEg8KB3BhdHRlcm4YCiABKAkSDgoGcG9saWN5GAsgASgJEg4KBnJlYXNvbhgMIAEoCSJJCgtOZXR3b3JrRHJvcBIPCgdkcm9wcGVkGAEgASgDEikKBXNpbmNlGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLLBAoPTmV0d29ya0NvdmVyYWdlEikKBnNvdXJjZRgBIAEoDjIZLmR1cmFibGUudjEuTmV0d29ya1NvdXJjZRIWCg5zb3VyY2VfYm91bmRlZBgCIAEoCBIRCglyZXN1bWFibGUYAyABKAgSFwoPc3RvcmVfYXZhaWxhYmxlGAQgASgIEhMKC3N0b3JlX2VtcHR5GAUgASgIEhUKDWdhdGV3YXlfZXJyb3IYBiABKAkSNQoRZ2F0ZXdheV9sb2dfc3RhcnQYByABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEjEKDWhpc3Rvcnlfc3RhcnQYCCABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEiwKC2Ryb3BwZWRfb3duGAkgASgLMhcuZHVyYWJsZS52MS5OZXR3b3JrRHJvcBI1ChRkcm9wcGVkX2dhdGV3YXlfd2lkZRgKIAEoCzIXLmR1cmFibGUudjEuTmV0d29ya0Ryb3ASMAoPZHJvcHBlZF91bmtub3duGAsgASgLMhcuZHVyYWJsZS52MS5OZXR3b3JrRHJvcBIUCgx1bmF0dHJpYnV0ZWQYDCABKAMSHQoVdW5hdHRyaWJ1dGVkX2Zyb21fZGF5GA0gASgJEiwKCXJldGVudGlvbhgOIAEoCzIZLmdvb2dsZS5wcm90b2J1Zi5EdXJhdGlvbhIOCgZwcnVuZWQYDyABKAgSKQoFc2luY2UYECABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wKmgKCVdvcmtzcGFjZRIZChVXT1JLU1BBQ0VfVU5TUEVDSUZJRUQQABIXChNXT1JLU1BBQ0VfRElSRUNUT1JZEAESEwoPV09SS1NQQUNFX0VNUFRZEAISEgoOV09SS1NQQUNFX1JFUE8QAypuCglEZWx0YUtpbmQSGgoWREVMVEFfS0lORF9VTlNQRUNJRklFRBAAEhQKEERFTFRBX0tJTkRfUkVTRVQQARITCg9ERUxUQV9LSU5EX1RFWFQQAhIaChZERUxUQV9LSU5EX1RPT0xfT1VUUFVUEAMqzQEKEFN1Ym1pc3Npb25TdGF0dXMSIQodU1VCTUlTU0lPTl9TVEFUVVNfVU5TUEVDSUZJRUQQABIcChhTVUJNSVNTSU9OX1NUQVRVU19RVUVVRUQQARIdChlTVUJNSVNTSU9OX1NUQVRVU19SVU5OSU5HEAISGgoWU1VCTUlTU0lPTl9TVEFUVVNfRE9ORRADEhwKGFNVQk1JU1NJT05fU1RBVFVTX0ZBSUxFRBAEEh8KG1NVQk1JU1NJT05fU1RBVFVTX0NBTkNFTExFRBAFKqgBCg5BcHByb3ZhbFN0YXR1cxIfChtBUFBST1ZBTF9TVEFUVVNfVU5TUEVDSUZJRUQQABIbChdBUFBST1ZBTF9TVEFUVVNfUEVORElORxABEhsKF0FQUFJPVkFMX1NUQVRVU19BTExPV0VEEAISHAoYQVBQUk9WQUxfU1RBVFVTX0RFQ0xJTkVEEAMSHQoZQVBQUk9WQUxfU1RBVFVTX0NBTkNFTExFRBAEKq8CCglFdmVudEtpbmQSGgoWRVZFTlRfS0lORF9VTlNQRUNJRklFRBAAEhkKFUVWRU5UX0tJTkRfU1VCTUlTU0lPThABEhYKEkVWRU5UX0tJTkRfTUVTU0FHRRACEhsKF0VWRU5UX0tJTkRfQ0FMTF9TVEFSVEVEEAMSHAoYRVZFTlRfS0lORF9DQUxMX1JFUExBWUVEEAQSGAoURVZFTlRfS0lORF9DQUxMX0RPTkUQBRIYChRFVkVOVF9LSU5EX0NPTVBBQ1RFRBAGEiAKHEVWRU5UX0tJTkRfQ09NUEFDVElPTl9GQUlMRUQQBxIhCh1FVkVOVF9LSU5EX0FQUFJPVkFMX1JFUVVFU1RFRBAIEh8KG0VWRU5UX0tJTkRfQVBQUk9WQUxfREVDSURFRBAJKk4KBFJvbGUSFAoQUk9MRV9VTlNQRUNJRklFRBAAEg0KCVJPTEVfVVNFUhABEhIKDlJPTEVfQVNTSVNUQU5UEAISDQoJUk9MRV9UT09MEAMqaQoNTmV0d29ya1NvdXJjZRIeChpORVRXT1JLX1NPVVJDRV9VTlNQRUNJRklFRBAAEhgKFE5FVFdPUktfU09VUkNFX1NUT1JFEAESHgoaTkVUV09SS19TT1VSQ0VfR0FURVdBWV9MT0cQAjKeBQoOU2Vzc2lvblNlcnZpY2USPwoGU3VibWl0EhkuZHVyYWJsZS52MS5TdWJtaXRSZXF1ZXN0GhouZHVyYWJsZS52MS5TdWJtaXRSZXNwb25zZRI/CgZDYW5jZWwSGS5kdXJhYmxlLnYxLkNhbmNlbFJlcXVlc3QaGi5kdXJhYmxlLnYxLkNhbmNlbFJlc3BvbnNlElcKDkRlY2lkZUFwcHJvdmFsEiEuZHVyYWJsZS52MS5EZWNpZGVBcHByb3ZhbFJlcXVlc3QaIi5kdXJhYmxlLnYxLkRlY2lkZUFwcHJvdmFsUmVzcG9uc2USUAoLV2F0Y2hFdmVudHMSHi5kdXJhYmxlLnYxLldhdGNoRXZlbnRzUmVxdWVzdBofLmR1cmFibGUudjEuV2F0Y2hFdmVudHNSZXNwb25zZTABElEKDExpc3RTZXNzaW9ucxIfLmR1cmFibGUudjEuTGlzdFNlc3Npb25zUmVxdWVzdBogLmR1cmFibGUudjEuTGlzdFNlc3Npb25zUmVzcG9uc2USVAoNQ3JlYXRlU2Vzc2lvbhIgLmR1cmFibGUudjEuQ3JlYXRlU2Vzc2lvblJlcXVlc3QaIS5kdXJhYmxlLnYxLkNyZWF0ZVNlc3Npb25SZXNwb25zZRJUCg1HZXRTZXJ2ZXJJbmZvEiAuZHVyYWJsZS52MS5HZXRTZXJ2ZXJJbmZvUmVxdWVzdBohLmR1cmFibGUudjEuR2V0U2VydmVySW5mb1Jlc3BvbnNlEmAKEUxpc3ROZXR3b3JrRXZlbnRzEiQuZHVyYWJsZS52MS5MaXN0TmV0d29ya0V2ZW50c1JlcXVlc3QaJS5kdXJhYmxlLnYxLkxpc3ROZXR3b3JrRXZlbnRzUmVzcG9uc2VCN1o1Z2l0aHViLmNvbS93b2xmZWlkYXUvZHVyYWJsZS9hcGkvZHVyYWJsZS92MTtkdXJhYmxldjFiBnByb3RvMw", [file_google_protobuf_duration, file_google_protobuf_timestamp]);
 
 /**
  * @generated from message durable.v1.GetServerInfoRequest
@@ -1014,6 +1014,359 @@ export const EpochMismatchSchema: GenMessage<EpochMismatch> = /*@__PURE__*/
   messageDesc(file_durable_v1_durable, 26);
 
 /**
+ * @generated from message durable.v1.ListNetworkEventsRequest
+ */
+export type ListNetworkEventsRequest = Message$1<"durable.v1.ListNetworkEventsRequest"> & {
+  /**
+   * @generated from field: string session_id = 1;
+   */
+  sessionId: string;
+
+  /**
+   * since is the start of the window: a duration back from now, or an absolute time. Default 24h.
+   * The response coverage.since reports the window actually used.
+   *
+   * @generated from oneof durable.v1.ListNetworkEventsRequest.since
+   */
+  since: {
+    /**
+     * @generated from field: google.protobuf.Duration since_ago = 2;
+     */
+    value: Duration;
+    case: "sinceAgo";
+  } | {
+    /**
+     * @generated from field: google.protobuf.Timestamp since_time = 3;
+     */
+    value: Timestamp;
+    case: "sinceTime";
+  } | { case: undefined; value?: undefined };
+
+  /**
+   * after is the next_cursor of an earlier response. Empty returns the newest limit events in the window.
+   * The server keeps no state for a cursor: it names a position in the telemetry store's insertion order.
+   * With GATEWAY_LOG there is no cursor: poll without after.
+   *
+   * @generated from field: string after = 4;
+   */
+  after: string;
+
+  /**
+   * limit is the most events to return. Default and maximum 1000; 0 means the default.
+   *
+   * @generated from field: int32 limit = 5;
+   */
+  limit: number;
+};
+
+/**
+ * Describes the message durable.v1.ListNetworkEventsRequest.
+ * Use `create(ListNetworkEventsRequestSchema)` to create a new message.
+ */
+export const ListNetworkEventsRequestSchema: GenMessage<ListNetworkEventsRequest> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 27);
+
+/**
+ * @generated from message durable.v1.ListNetworkEventsResponse
+ */
+export type ListNetworkEventsResponse = Message$1<"durable.v1.ListNetworkEventsResponse"> & {
+  /**
+   * events are oldest first by (time, id) when after is empty or cursor_reset is set, and for GATEWAY_LOG. With after they are
+   * in storage order, which can include times earlier than events already returned, because the gateway's exporter
+   * retries failed batches. The client should merge them into its list and sort by (time, id).
+   *
+   * @generated from field: repeated durable.v1.NetworkEvent events = 1;
+   */
+  events: NetworkEvent[];
+
+  /**
+   * @generated from field: durable.v1.NetworkCoverage coverage = 2;
+   */
+  coverage?: NetworkCoverage | undefined;
+
+  /**
+   * next_cursor resumes after everything stored so far: for a first load, the newest event the store held when it was
+   * read; when resuming, the last event returned. With no events it repeats the request's after. It is empty for
+   * GATEWAY_LOG, so each poll re-reads the log and moves to the store once the store has decisions.
+   *
+   * @generated from field: string next_cursor = 3;
+   */
+  nextCursor: string;
+
+  /**
+   * truncated means limit left events out. Without after, older events in the window were left out; with after,
+   * newer events remain and the next request should follow immediately.
+   *
+   * @generated from field: bool truncated = 4;
+   */
+  truncated: boolean;
+
+  /**
+   * cursor_reset means after no longer matches the store, because the rows it named were deleted and their ids reused.
+   * The events are a first load: replace the list, do not append.
+   *
+   * @generated from field: bool cursor_reset = 5;
+   */
+  cursorReset: boolean;
+};
+
+/**
+ * Describes the message durable.v1.ListNetworkEventsResponse.
+ * Use `create(ListNetworkEventsResponseSchema)` to create a new message.
+ */
+export const ListNetworkEventsResponseSchema: GenMessage<ListNetworkEventsResponse> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 28);
+
+/**
+ * NetworkEvent is one network request the sandbox proxy allowed or denied.
+ *
+ * @generated from message durable.v1.NetworkEvent
+ */
+export type NetworkEvent = Message$1<"durable.v1.NetworkEvent"> & {
+  /**
+   * @generated from field: google.protobuf.Timestamp time = 1;
+   */
+  time?: Timestamp | undefined;
+
+  /**
+   * id is unique per event and orders events with the same time. It is the telemetry uid for the store source, and a
+   * hash of the decision's content for the gateway log source, which has no uid.
+   *
+   * @generated from field: string id = 2;
+   */
+  id: string;
+
+  /**
+   * @generated from field: bool allowed = 3;
+   */
+  allowed: boolean;
+
+  /**
+   * kind is "NET" or "HTTP".
+   *
+   * @generated from field: string kind = 4;
+   */
+  kind: string;
+
+  /**
+   * activity is "OPEN" or "REFUSE" for NET; empty for HTTP.
+   *
+   * @generated from field: string activity = 5;
+   */
+  activity: string;
+
+  /**
+   * binary is the NET process path; empty when no process is known.
+   *
+   * @generated from field: string binary = 6;
+   */
+  binary: string;
+
+  /**
+   * method is the HTTP method; empty for NET.
+   *
+   * @generated from field: string method = 7;
+   */
+  method: string;
+
+  /**
+   * host is host:port for NET (no port for DNS refusals), host for HTTP.
+   *
+   * @generated from field: string host = 8;
+   */
+  host: string;
+
+  /**
+   * path is the HTTP path without the query.
+   *
+   * @generated from field: string path = 9;
+   */
+  path: string;
+
+  /**
+   * pattern is the path with versioned, numeric and hash-like segments shown as "*", so repeated requests group.
+   *
+   * @generated from field: string pattern = 10;
+   */
+  pattern: string;
+
+  /**
+   * policy is the policy that decided; empty when none.
+   *
+   * @generated from field: string policy = 11;
+   */
+  policy: string;
+
+  /**
+   * @generated from field: string reason = 12;
+   */
+  reason: string;
+};
+
+/**
+ * Describes the message durable.v1.NetworkEvent.
+ * Use `create(NetworkEventSchema)` to create a new message.
+ */
+export const NetworkEventSchema: GenMessage<NetworkEvent> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 29);
+
+/**
+ * NetworkDrop is a count of events lost before or during receipt.
+ *
+ * @generated from message durable.v1.NetworkDrop
+ */
+export type NetworkDrop = Message$1<"durable.v1.NetworkDrop"> & {
+  /**
+   * @generated from field: int64 dropped = 1;
+   */
+  dropped: bigint;
+
+  /**
+   * since is the start of the earliest gap that contributed to dropped.
+   *
+   * @generated from field: google.protobuf.Timestamp since = 2;
+   */
+  since?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message durable.v1.NetworkDrop.
+ * Use `create(NetworkDropSchema)` to create a new message.
+ */
+export const NetworkDropSchema: GenMessage<NetworkDrop> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 30);
+
+/**
+ * NetworkCoverage says what the events cannot show. An absent or zero field means the server found nothing to report,
+ * except where noted.
+ *
+ * @generated from message durable.v1.NetworkCoverage
+ */
+export type NetworkCoverage = Message$1<"durable.v1.NetworkCoverage"> & {
+  /**
+   * @generated from field: durable.v1.NetworkSource source = 1;
+   */
+  source: NetworkSource;
+
+  /**
+   * source_bounded is set for GATEWAY_LOG: the source holds only recent lines, so events older than its start are
+   * missing whatever the window asked for.
+   *
+   * @generated from field: bool source_bounded = 2;
+   */
+  sourceBounded: boolean;
+
+  /**
+   * resumable is false for GATEWAY_LOG, which issues no cursor: each poll re-reads the log from the window start, and
+   * ids come from content, so use them to dedupe.
+   *
+   * @generated from field: bool resumable = 3;
+   */
+  resumable: boolean;
+
+  /**
+   * store_available is false when the server has no telemetry store, so the fields below that come from the store are
+   * empty because they are unknown, not because nothing was lost.
+   *
+   * @generated from field: bool store_available = 4;
+   */
+  storeAvailable: boolean;
+
+  /**
+   * store_empty means the store had no decisions for this sandbox in the window, so the gateway log was read instead.
+   *
+   * @generated from field: bool store_empty = 5;
+   */
+  storeEmpty: boolean;
+
+  /**
+   * gateway_error is set when the gateway log was needed and could not be read. The detail is in the server log.
+   *
+   * @generated from field: string gateway_error = 6;
+   */
+  gatewayError: string;
+
+  /**
+   * gateway_log_start is the time of the log's oldest decision, set when it is after since: earlier events are missing.
+   *
+   * @generated from field: google.protobuf.Timestamp gateway_log_start = 7;
+   */
+  gatewayLogStart?: Timestamp | undefined;
+
+  /**
+   * history_start is the sandbox's earliest stored decision, set when it is after since: the store did not record
+   * anything earlier.
+   *
+   * @generated from field: google.protobuf.Timestamp history_start = 8;
+   */
+  historyStart?: Timestamp | undefined;
+
+  /**
+   * dropped_own counts events the gateway's exporter dropped for this sandbox before they were sent.
+   *
+   * @generated from field: durable.v1.NetworkDrop dropped_own = 9;
+   */
+  droppedOwn?: NetworkDrop | undefined;
+
+  /**
+   * dropped_gateway_wide counts events dropped for the whole gateway, so some may belong to this sandbox.
+   *
+   * @generated from field: durable.v1.NetworkDrop dropped_gateway_wide = 10;
+   */
+  droppedGatewayWide?: NetworkDrop | undefined;
+
+  /**
+   * dropped_unknown counts events dropped for sandboxes the store has no named event for, so some may belong to this sandbox.
+   *
+   * @generated from field: durable.v1.NetworkDrop dropped_unknown = 11;
+   */
+  droppedUnknown?: NetworkDrop | undefined;
+
+  /**
+   * unattributed counts decisions that had no sandbox or event id, so they cannot be shown for any sandbox. It is
+   * counted per UTC day, so it covers all of unattributed_from_day.
+   *
+   * @generated from field: int64 unattributed = 12;
+   */
+  unattributed: bigint;
+
+  /**
+   * unattributed_from_day is the UTC day (YYYY-MM-DD) the unattributed count starts from; empty without a store.
+   *
+   * @generated from field: string unattributed_from_day = 13;
+   */
+  unattributedFromDay: string;
+
+  /**
+   * retention is how long the store keeps raw events; zero without a store.
+   *
+   * @generated from field: google.protobuf.Duration retention = 14;
+   */
+  retention?: Duration | undefined;
+
+  /**
+   * pruned is set when the window starts before the retention cutoff, so older events were deleted.
+   *
+   * @generated from field: bool pruned = 15;
+   */
+  pruned: boolean;
+
+  /**
+   * since is the window start the server used, which is the default when the request gave none.
+   *
+   * @generated from field: google.protobuf.Timestamp since = 16;
+   */
+  since?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message durable.v1.NetworkCoverage.
+ * Use `create(NetworkCoverageSchema)` to create a new message.
+ */
+export const NetworkCoverageSchema: GenMessage<NetworkCoverage> = /*@__PURE__*/
+  messageDesc(file_durable_v1_durable, 31);
+
+/**
  * Workspace is the kind of workspace a session runs in.
  *
  * @generated from enum durable.v1.Workspace
@@ -1255,6 +1608,36 @@ export const RoleSchema: GenEnum<Role> = /*@__PURE__*/
   enumDesc(file_durable_v1_durable, 5);
 
 /**
+ * @generated from enum durable.v1.NetworkSource
+ */
+export enum NetworkSource {
+  /**
+   * @generated from enum value: NETWORK_SOURCE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * STORE is the server's telemetry store, fed by the sandbox gateway over OTLP.
+   *
+   * @generated from enum value: NETWORK_SOURCE_STORE = 1;
+   */
+  STORE = 1,
+
+  /**
+   * GATEWAY_LOG is the gateway's own log, which keeps only its most recent lines.
+   *
+   * @generated from enum value: NETWORK_SOURCE_GATEWAY_LOG = 2;
+   */
+  GATEWAY_LOG = 2,
+}
+
+/**
+ * Describes the enum durable.v1.NetworkSource.
+ */
+export const NetworkSourceSchema: GenEnum<NetworkSource> = /*@__PURE__*/
+  enumDesc(file_durable_v1_durable, 6);
+
+/**
  * SessionService drives one durable session. session_id is the 16-hex session directory name.
  *
  * @generated from service durable.v1.SessionService
@@ -1331,6 +1714,19 @@ export const SessionService: GenService<{
     methodKind: "unary";
     input: typeof GetServerInfoRequestSchema;
     output: typeof GetServerInfoResponseSchema;
+  },
+  /**
+   * ListNetworkEvents lists the network requests the session's sandbox proxy allowed or denied, with a coverage
+   * report that says what the list cannot show. It is read-only and never opens the sandbox or the session.
+   * An unknown session returns NOT_FOUND, a session with no sandbox returns FAILED_PRECONDITION, and a malformed
+   * cursor, or one this server cannot resume, returns INVALID_ARGUMENT.
+   *
+   * @generated from rpc durable.v1.SessionService.ListNetworkEvents
+   */
+  listNetworkEvents: {
+    methodKind: "unary";
+    input: typeof ListNetworkEventsRequestSchema;
+    output: typeof ListNetworkEventsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_durable_v1_durable, 0);

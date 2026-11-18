@@ -52,6 +52,9 @@ const (
 	// SessionServiceGetServerInfoProcedure is the fully-qualified name of the SessionService's
 	// GetServerInfo RPC.
 	SessionServiceGetServerInfoProcedure = "/durable.v1.SessionService/GetServerInfo"
+	// SessionServiceListNetworkEventsProcedure is the fully-qualified name of the SessionService's
+	// ListNetworkEvents RPC.
+	SessionServiceListNetworkEventsProcedure = "/durable.v1.SessionService/ListNetworkEvents"
 )
 
 // SessionServiceClient is a client for the durable.v1.SessionService service.
@@ -74,6 +77,11 @@ type SessionServiceClient interface {
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
 	// GetServerInfo reports which workspace kinds CreateSession accepts: EMPTY and REPO for a sandboxed server, else DIRECTORY.
 	GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error)
+	// ListNetworkEvents lists the network requests the session's sandbox proxy allowed or denied, with a coverage
+	// report that says what the list cannot show. It is read-only and never opens the sandbox or the session.
+	// An unknown session returns NOT_FOUND, a session with no sandbox returns FAILED_PRECONDITION, and a malformed
+	// cursor, or one this server cannot resume, returns INVALID_ARGUMENT.
+	ListNetworkEvents(context.Context, *connect.Request[v1.ListNetworkEventsRequest]) (*connect.Response[v1.ListNetworkEventsResponse], error)
 }
 
 // NewSessionServiceClient constructs a client for the durable.v1.SessionService service. By
@@ -129,18 +137,25 @@ func NewSessionServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithSchema(sessionServiceMethods.ByName("GetServerInfo")),
 			connect.WithClientOptions(opts...),
 		),
+		listNetworkEvents: connect.NewClient[v1.ListNetworkEventsRequest, v1.ListNetworkEventsResponse](
+			httpClient,
+			baseURL+SessionServiceListNetworkEventsProcedure,
+			connect.WithSchema(sessionServiceMethods.ByName("ListNetworkEvents")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sessionServiceClient implements SessionServiceClient.
 type sessionServiceClient struct {
-	submit         *connect.Client[v1.SubmitRequest, v1.SubmitResponse]
-	cancel         *connect.Client[v1.CancelRequest, v1.CancelResponse]
-	decideApproval *connect.Client[v1.DecideApprovalRequest, v1.DecideApprovalResponse]
-	watchEvents    *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
-	listSessions   *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
-	createSession  *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
-	getServerInfo  *connect.Client[v1.GetServerInfoRequest, v1.GetServerInfoResponse]
+	submit            *connect.Client[v1.SubmitRequest, v1.SubmitResponse]
+	cancel            *connect.Client[v1.CancelRequest, v1.CancelResponse]
+	decideApproval    *connect.Client[v1.DecideApprovalRequest, v1.DecideApprovalResponse]
+	watchEvents       *connect.Client[v1.WatchEventsRequest, v1.WatchEventsResponse]
+	listSessions      *connect.Client[v1.ListSessionsRequest, v1.ListSessionsResponse]
+	createSession     *connect.Client[v1.CreateSessionRequest, v1.CreateSessionResponse]
+	getServerInfo     *connect.Client[v1.GetServerInfoRequest, v1.GetServerInfoResponse]
+	listNetworkEvents *connect.Client[v1.ListNetworkEventsRequest, v1.ListNetworkEventsResponse]
 }
 
 // Submit calls durable.v1.SessionService.Submit.
@@ -178,6 +193,11 @@ func (c *sessionServiceClient) GetServerInfo(ctx context.Context, req *connect.R
 	return c.getServerInfo.CallUnary(ctx, req)
 }
 
+// ListNetworkEvents calls durable.v1.SessionService.ListNetworkEvents.
+func (c *sessionServiceClient) ListNetworkEvents(ctx context.Context, req *connect.Request[v1.ListNetworkEventsRequest]) (*connect.Response[v1.ListNetworkEventsResponse], error) {
+	return c.listNetworkEvents.CallUnary(ctx, req)
+}
+
 // SessionServiceHandler is an implementation of the durable.v1.SessionService service.
 type SessionServiceHandler interface {
 	// Submit is exactly-once per request_id.
@@ -198,6 +218,11 @@ type SessionServiceHandler interface {
 	CreateSession(context.Context, *connect.Request[v1.CreateSessionRequest]) (*connect.Response[v1.CreateSessionResponse], error)
 	// GetServerInfo reports which workspace kinds CreateSession accepts: EMPTY and REPO for a sandboxed server, else DIRECTORY.
 	GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error)
+	// ListNetworkEvents lists the network requests the session's sandbox proxy allowed or denied, with a coverage
+	// report that says what the list cannot show. It is read-only and never opens the sandbox or the session.
+	// An unknown session returns NOT_FOUND, a session with no sandbox returns FAILED_PRECONDITION, and a malformed
+	// cursor, or one this server cannot resume, returns INVALID_ARGUMENT.
+	ListNetworkEvents(context.Context, *connect.Request[v1.ListNetworkEventsRequest]) (*connect.Response[v1.ListNetworkEventsResponse], error)
 }
 
 // NewSessionServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -249,6 +274,12 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 		connect.WithSchema(sessionServiceMethods.ByName("GetServerInfo")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionServiceListNetworkEventsHandler := connect.NewUnaryHandler(
+		SessionServiceListNetworkEventsProcedure,
+		svc.ListNetworkEvents,
+		connect.WithSchema(sessionServiceMethods.ByName("ListNetworkEvents")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/durable.v1.SessionService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionServiceSubmitProcedure:
@@ -265,6 +296,8 @@ func NewSessionServiceHandler(svc SessionServiceHandler, opts ...connect.Handler
 			sessionServiceCreateSessionHandler.ServeHTTP(w, r)
 		case SessionServiceGetServerInfoProcedure:
 			sessionServiceGetServerInfoHandler.ServeHTTP(w, r)
+		case SessionServiceListNetworkEventsProcedure:
+			sessionServiceListNetworkEventsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -300,4 +333,8 @@ func (UnimplementedSessionServiceHandler) CreateSession(context.Context, *connec
 
 func (UnimplementedSessionServiceHandler) GetServerInfo(context.Context, *connect.Request[v1.GetServerInfoRequest]) (*connect.Response[v1.GetServerInfoResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.GetServerInfo is not implemented"))
+}
+
+func (UnimplementedSessionServiceHandler) ListNetworkEvents(context.Context, *connect.Request[v1.ListNetworkEventsRequest]) (*connect.Response[v1.ListNetworkEventsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("durable.v1.SessionService.ListNetworkEvents is not implemented"))
 }

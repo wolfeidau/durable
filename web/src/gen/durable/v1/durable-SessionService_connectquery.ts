@@ -45,3 +45,13 @@ export const createSession = SessionService.method.createSession;
  * @generated from rpc durable.v1.SessionService.GetServerInfo
  */
 export const getServerInfo = SessionService.method.getServerInfo;
+
+/**
+ * ListNetworkEvents lists the network requests the session's sandbox proxy allowed or denied, with a coverage
+ * report that says what the list cannot show. It is read-only and never opens the sandbox or the session.
+ * An unknown session returns NOT_FOUND, a session with no sandbox returns FAILED_PRECONDITION, and a malformed
+ * cursor, or one this server cannot resume, returns INVALID_ARGUMENT.
+ *
+ * @generated from rpc durable.v1.SessionService.ListNetworkEvents
+ */
+export const listNetworkEvents = SessionService.method.listNetworkEvents;
