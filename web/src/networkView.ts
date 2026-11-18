@@ -69,7 +69,7 @@ export function stableDenied(prev: Map<string, NetworkEvent[]>, next: Map<string
 }
 
 export function hostSummary(events: NetworkEvent[], limit = chipHostLimit): string {
-  const hosts = [...new Set(events.map((e) => e.host || "unknown host"))];
+  const hosts = [...new Set(events.map((e) => hostName(e.host) || "unknown host"))];
   const shown = hosts.slice(0, limit).join(", ");
   return hosts.length > limit ? `${shown} +${hosts.length - limit} more` : shown;
 }

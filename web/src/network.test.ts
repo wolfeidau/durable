@@ -58,6 +58,15 @@ describe("merge", () => {
     expect(s.olderTruncated).toBe(false);
   });
 
+  test("every gateway-log poll updates truncation", () => {
+    const gwCov = cov({ source: NetworkSource.GATEWAY_LOG, resumable: false });
+    const first = merge(base(), res({ events: [ev("a", 1)], coverage: gwCov }), true);
+    expect(first.olderTruncated).toBe(false);
+    const s = merge(first, res({ events: [ev("b", 2)], coverage: gwCov, truncated: true }), false);
+    expect(s.olderTruncated).toBe(true);
+    expect(merge(s, res({ events: [ev("b", 2)], coverage: gwCov }), false).olderTruncated).toBe(false);
+  });
+
   test("ties on time order by id", () => {
     const s = merge(base(), res({ events: [ev("b", 5), ev("a", 5)] }), true);
     expect(ids(s)).toEqual(["a", "b"]);

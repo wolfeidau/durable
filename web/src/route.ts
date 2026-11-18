@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 export type Route = { view: "list" } | { view: "server" } | { view: "session"; id: string; tab?: "report" | "network"; call?: string; focus?: string };
 
 const focusPattern = /^(call|turn)-.+$/;
-const callPattern = /^[A-Za-z0-9_.:-]+$/;
 
 export type Tab = "report" | "network";
 
@@ -18,7 +17,7 @@ export function parseRoute(search: string): Route {
       view: "session",
       id,
       ...(tab === "report" || tab === "network" ? { tab } : {}),
-      ...(tab === "network" && call && callPattern.test(call) ? { call } : {}),
+      ...(tab === "network" && call ? { call } : {}),
       ...(focus && focusPattern.test(focus) ? { focus } : {}),
     };
   }

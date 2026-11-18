@@ -65,7 +65,8 @@ export function merge(prev: NetworkState, res: ListNetworkEventsResponse, isFirs
     ...prev,
     events,
     coverage: res.coverage ?? prev.coverage,
-    olderTruncated: replace ? res.truncated : prev.olderTruncated,
+    // A gateway-log poll re-reads the whole log, so its truncation is current on every response.
+    olderTruncated: replace || res.coverage?.resumable === false ? res.truncated : prev.olderTruncated,
     capped,
     error: undefined,
   };

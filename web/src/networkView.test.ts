@@ -99,4 +99,7 @@ describe("hostSummary", () => {
     expect(hostSummary(events)).toBe("a, b, c, d, e +2 more");
     expect(hostSummary([ev("x", 1, { host: "" })])).toBe("unknown host");
   });
+  test("a DNS refusal and its connection name one host", () => {
+    expect(hostSummary([ev("1", 1, { host: "example.com" }), ev("2", 2, { host: "example.com:443" })])).toBe("example.com");
+  });
 });

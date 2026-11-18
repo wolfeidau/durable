@@ -41,7 +41,8 @@ describe("route", () => {
       call: "toolu_01:a.b-c",
     });
     expect(parseRoute("?session=s-1&tab=network&call=")).toEqual({ view: "session", id: "s-1", tab: "network" });
-    expect(parseRoute("?session=s-1&tab=network&call=a%20b")).toEqual({ view: "session", id: "s-1", tab: "network" });
+    // Providers choose call ids, so any non-empty id is kept, as focus does.
+    expect(parseRoute("?session=s-1&tab=network&call=a%20b%2F%23")).toEqual({ view: "session", id: "s-1", tab: "network", call: "a b/#" });
     expect(parseRoute("?session=s-1&tab=report&call=abc")).toEqual({ view: "session", id: "s-1", tab: "report" });
   });
 });
