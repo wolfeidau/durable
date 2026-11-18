@@ -1,4 +1,4 @@
-import { Workspace, type EnvironmentInfo } from "../gen/durable/v1/durable_pb";
+import { Workspace } from "../gen/durable/v1/durable_pb";
 
 export type Mode = "directory" | "empty" | "repo";
 
@@ -49,16 +49,6 @@ export function canCreate(form: NewSessionForm): boolean {
 export function pickEnvironment(names: readonly string[], chosen?: string): string {
   if (chosen !== undefined && names.includes(chosen)) return chosen;
   return names.includes("default") ? "default" : (names[0] ?? "");
-}
-
-// An empty approvals value means ask.
-export const approvalsLabel = (e: EnvironmentInfo): string => (e.approvals === "auto" ? "auto" : "ask");
-
-// Auto-approve is visible in the picker because it changes what a session may do unasked.
-export const environmentLabel = (e: EnvironmentInfo): string => (e.approvals === "auto" ? `${e.name} · auto-approve` : e.name);
-
-export function environmentHint(e: EnvironmentInfo): string {
-  return `${e.image} · ${e.grants.length > 0 ? e.grants.join(", ") : "no network grants"}`;
 }
 
 // The caller keeps requestId across failed attempts so a retry is the same create. Only an empty session uses it.

@@ -7,13 +7,12 @@ import {
   buildRequest,
   canCreate,
   defaultBranch,
-  environmentHint,
-  environmentLabel,
   modesFor,
   pickEnvironment,
   RequestIds,
   type Mode,
 } from "./newSession";
+import { environmentHint, environmentLabel } from "../lib/environments";
 import { QueryStatus } from "../ui/QueryStatus";
 import { errText } from "../lib/rpc";
 import { readStored, store } from "../lib/storage";

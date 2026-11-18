@@ -3,7 +3,7 @@ import { type ReactElement } from "react";
 import { getServerInfo } from "../gen/durable/v1/durable-SessionService_connectquery";
 import { type EnvironmentInfo, type GrantInfo } from "../gen/durable/v1/durable_pb";
 import { DataTable } from "../ui/DataTable";
-import { approvalsLabel } from "../sessions/newSession";
+import { approvalsLabel } from "../lib/environments";
 import { QueryStatus } from "../ui/QueryStatus";
 import { groupSettings, shortField, settingSourceLabel, sourceTone } from "./server";
 

@@ -2,7 +2,7 @@ import { useQuery } from "@connectrpc/connect-query";
 import type { ReactElement } from "react";
 import { getServerInfo, listSessions } from "../gen/durable/v1/durable-SessionService_connectquery";
 import { Workspace } from "../gen/durable/v1/durable_pb";
-import { environmentLabel } from "./newSession";
+import { environmentLabel } from "../lib/environments";
 import { repoHref, where } from "./sessions";
 import { useCopy } from "../ui/useCopy";
 
