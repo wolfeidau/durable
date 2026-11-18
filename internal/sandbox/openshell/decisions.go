@@ -20,15 +20,16 @@ const decisionLogLines = 5000
 
 // Decision is one network request the sandbox proxy allowed or denied.
 type Decision struct {
-	Time    time.Time
-	Allowed bool
-	Kind    string // "NET" or "HTTP"
-	Binary  string // NET only, without the "(pid)" suffix
-	Method  string // HTTP only
-	Host    string // host:port for NET, host for HTTP
-	Path    string // HTTP only, no query
-	Policy  string // empty when none
-	Reason  string
+	Time     time.Time
+	Allowed  bool
+	Kind     string // "NET" or "HTTP"
+	Activity string // "OPEN" or "REFUSE" for NET; empty for HTTP
+	Binary   string // NET only, without the "(pid)" suffix; empty when no process is known
+	Method   string // HTTP only
+	Host     string // host:port for NET (no port for DNS refusals), host for HTTP
+	Path     string // HTTP only, no query
+	Policy   string // empty when none
+	Reason   string
 }
 
 // parseDecision reads one sandbox log line; it reports false for anything that isn't a network decision.
@@ -41,7 +42,7 @@ func parseDecision(line v1.LogLine) (Decision, bool) {
 		return Decision{}, false
 	}
 	kind, op, ok := strings.Cut(head, ":")
-	if !ok || (kind != "NET" || op != "OPEN") && kind != "HTTP" {
+	if !ok || (kind != "NET" || op != "OPEN" && op != "REFUSE") && kind != "HTTP" {
 		return Decision{}, false
 	}
 	// Skip the "[INFO]" severity.
@@ -53,18 +54,15 @@ func parseDecision(line v1.LogLine) (Decision, bool) {
 	if verdict != "ALLOWED" && verdict != "DENIED" {
 		return Decision{}, false
 	}
-	// No token in the body holds a space, so the first " [" starts the attributes.
-	body, attrs, _ := strings.Cut(rest, " [")
+	// No token in the body holds a space, so the first " [" starts the attributes; the body is empty when they follow the verdict directly.
+	body, attrs, _ := strings.Cut(" "+rest, " [")
+	body = strings.TrimPrefix(body, " ")
 	d := Decision{Time: line.Timestamp, Allowed: verdict == "ALLOWED", Kind: kind}
 	if kind == "NET" {
-		bin, host, ok := strings.Cut(body, " -> ")
-		if !ok {
+		d.Activity = op
+		if d.Binary, d.Host, ok = parseNetBody(body); !ok {
 			return Decision{}, false
 		}
-		if i := strings.LastIndex(bin, "("); i >= 0 {
-			bin = bin[:i]
-		}
-		d.Binary, d.Host = bin, host
 	} else {
 		method, raw, ok := strings.Cut(body, " ")
 		if !ok {
@@ -83,6 +81,26 @@ func parseDecision(line v1.LogLine) (Decision, bool) {
 		d.Reason = strings.TrimSuffix(v, "]")
 	}
 	return d, true
+}
+
+// parseNetBody splits "actor(pid) -> dst/proto", where either side may be absent.
+func parseNetBody(body string) (bin, host string, ok bool) {
+	bin, host, ok = strings.Cut(body, " -> ")
+	if !ok {
+		// With no arrow the body is either the destination or the actor, which ends in "(pid)".
+		if strings.HasSuffix(body, ")") {
+			return "", "", false
+		}
+		bin, host = "", body
+	}
+	if i := strings.LastIndex(bin, "("); i >= 0 {
+		bin = bin[:i]
+	}
+	// Bypass detection appends "/proto" to the destination.
+	if i := strings.LastIndex(host, "/"); i >= 0 {
+		host = host[:i]
+	}
+	return bin, host, host != ""
 }
 
 // Decisions returns the network decisions the sandbox logged since the given time.
@@ -127,12 +145,12 @@ var versionRE = regexp.MustCompile(`\d+\.\d+`)
 // FormatDecisions writes one row per distinct request shape, with how often it happened.
 func FormatDecisions(w io.Writer, ds []Decision) error {
 	type key struct {
-		allowed                                  bool
-		kind, binary, method, host, path, policy string
+		allowed                                            bool
+		kind, activity, binary, method, host, path, policy string
 	}
 	counts := map[key]int{}
 	for _, d := range ds {
-		counts[key{d.Allowed, d.Kind, d.Binary, d.Method, d.Host, d.Pattern(), d.Policy}]++
+		counts[key{d.Allowed, d.Kind, d.Activity, d.Binary, d.Method, d.Host, d.Pattern(), d.Policy}]++
 	}
 	keys := make([]key, 0, len(counts))
 	for k := range counts {
@@ -140,7 +158,7 @@ func FormatDecisions(w io.Writer, ds []Decision) error {
 	}
 	slices.SortFunc(keys, func(a, b key) int {
 		return cmp.Or(cmp.Compare(a.host, b.host), cmp.Compare(a.path, b.path), cmp.Compare(a.binary, b.binary),
-			cmp.Compare(a.method, b.method), cmp.Compare(a.policy, b.policy), cmp.Compare(a.kind, b.kind), cmpBool(a.allowed, b.allowed))
+			cmp.Compare(a.method, b.method), cmp.Compare(a.policy, b.policy), cmp.Compare(a.kind, b.kind), cmp.Compare(a.activity, b.activity), cmpBool(a.allowed, b.allowed))
 	})
 	dash := func(s string) string { return cmp.Or(s, "-") }
 	tw := tabwriter.NewWriter(w, 0, 4, 2, ' ', 0)
@@ -150,7 +168,11 @@ func FormatDecisions(w io.Writer, ds []Decision) error {
 		if k.allowed {
 			verdict = "allowed"
 		}
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n", verdict, k.kind, dash(k.binary), dash(k.method), k.host, dash(k.path), dash(k.policy), counts[k])
+		kind := k.kind
+		if k.activity == "REFUSE" {
+			kind += ":REFUSE"
+		}
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\n", verdict, kind, dash(k.binary), dash(k.method), k.host, dash(k.path), dash(k.policy), counts[k])
 	}
 	return tw.Flush()
 }

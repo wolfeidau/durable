@@ -4,12 +4,18 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
 	"github.com/stretchr/testify/require"
 )
 
 func ocsf(msg string) v1.LogLine { return v1.LogLine{Level: "OCSF", Target: "ocsf", Message: msg} }
+
+var (
+	bypassRefusal = Decision{Kind: "NET", Activity: "REFUSE", Binary: "node", Host: "93.184.216.34:443", Policy: "bypass-detect", Reason: "bypass"}
+	dnsRefusal    = Decision{Kind: "NET", Activity: "REFUSE", Host: "mise-versions.jdx.dev", Reason: "policy_dns_ineligible"}
+)
 
 func TestParseDecision(t *testing.T) {
 	tests := []struct {
@@ -20,11 +26,11 @@ func TestParseDecision(t *testing.T) {
 	}{
 		{
 			name: "allowed net", line: ocsf("NET:OPEN [INFO] ALLOWED /usr/lib/git-core/git-remote-http(0) -> github.com:443 [policy:durable-git engine:opa]"),
-			want: Decision{Allowed: true, Kind: "NET", Binary: "/usr/lib/git-core/git-remote-http", Host: "github.com:443", Policy: "durable-git"}, ok: true,
+			want: Decision{Allowed: true, Kind: "NET", Activity: "OPEN", Binary: "/usr/lib/git-core/git-remote-http", Host: "github.com:443", Policy: "durable-git"}, ok: true,
 		},
 		{
 			name: "denied net", line: ocsf("NET:OPEN [MED] DENIED /usr/local/bin/mise(0) -> api.github.com:443 [reason:transparent_tcp_policy_denied]"),
-			want: Decision{Kind: "NET", Binary: "/usr/local/bin/mise", Host: "api.github.com:443", Reason: "transparent_tcp_policy_denied"}, ok: true,
+			want: Decision{Kind: "NET", Activity: "OPEN", Binary: "/usr/local/bin/mise", Host: "api.github.com:443", Reason: "transparent_tcp_policy_denied"}, ok: true,
 		},
 		{
 			name: "allowed get", line: ocsf("HTTP:GET [INFO] ALLOWED GET https://github.com/o/r.git/info/refs [policy:durable-git engine:l7]"),
@@ -43,6 +49,16 @@ func TestParseDecision(t *testing.T) {
 			name: "query is dropped", line: ocsf("HTTP:GET [INFO] ALLOWED GET https://release-assets.githubusercontent.com/a/b?sig=secret&se=1 [policy:mise engine:l7]"),
 			want: Decision{Allowed: true, Kind: "HTTP", Method: "GET", Host: "release-assets.githubusercontent.com", Path: "/a/b", Policy: "mise"}, ok: true,
 		},
+		{
+			name: "bypass refusal", line: ocsf("NET:REFUSE [MED] DENIED node(1234) -> 93.184.216.34:443/tcp [policy:bypass-detect engine:nftables] [reason:bypass]"),
+			want: bypassRefusal, ok: true,
+		},
+		{
+			name: "DNS refusal without actor", line: ocsf("NET:REFUSE [MED] DENIED mise-versions.jdx.dev [reason:policy_dns_ineligible]"),
+			want: dnsRefusal, ok: true,
+		},
+		{name: "actor only", line: ocsf("NET:REFUSE [MED] DENIED node(1234) [reason:x]")},
+		{name: "refuse without destination", line: ocsf("NET:REFUSE [MED] DENIED [reason:x]")},
 		{name: "config line", line: ocsf("CONFIG:LOADED [INFO] Acknowledged initial policy revision as loaded [version:2] [hash:abc]")},
 		{name: "not ocsf", line: v1.LogLine{Target: "other", Message: "NET:OPEN [INFO] ALLOWED /bin/x(0) -> a.com:443"}},
 		{name: "empty message", line: ocsf("")},
@@ -61,14 +77,16 @@ func TestFormatDecisionsGroupsAndSorts(t *testing.T) {
 	ds := []Decision{
 		{Allowed: true, Kind: "HTTP", Method: "GET", Host: "b.com", Path: "/v1.2.3/x", Policy: "p"},
 		{Allowed: true, Kind: "HTTP", Method: "GET", Host: "b.com", Path: "/v2.0.0/x", Policy: "p"},
-		{Kind: "NET", Binary: "/bin/curl", Host: "a.com:443"},
+		{Kind: "NET", Activity: "OPEN", Binary: "/bin/curl", Host: "a.com:443"},
+		{Kind: "NET", Activity: "REFUSE", Host: "a.com"},
 	}
 	var buf bytes.Buffer
 	require.NoError(t, FormatDecisions(&buf, ds))
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	require.Len(t, lines, 3)
-	require.Equal(t, []string{"denied", "NET", "/bin/curl", "-", "a.com:443", "-", "-", "1"}, strings.Fields(lines[1]))
-	require.Equal(t, []string{"allowed", "HTTP", "-", "GET", "b.com", "/*/x", "p", "2"}, strings.Fields(lines[2]))
+	require.Len(t, lines, 4)
+	require.Equal(t, []string{"denied", "NET:REFUSE", "-", "-", "a.com", "-", "-", "1"}, strings.Fields(lines[1]))
+	require.Equal(t, []string{"denied", "NET", "/bin/curl", "-", "a.com:443", "-", "-", "1"}, strings.Fields(lines[2]))
+	require.Equal(t, []string{"allowed", "HTTP", "-", "GET", "b.com", "/*/x", "p", "2"}, strings.Fields(lines[3]))
 }
 
 func TestDecisionPatternGroupsVersionsAndHashes(t *testing.T) {
@@ -83,5 +101,31 @@ func TestDecisionPatternGroupsVersionsAndHashes(t *testing.T) {
 	}
 	for in, want := range tests {
 		require.Equal(t, want, Decision{Path: in}.Pattern(), in)
+	}
+}
+
+// Both parsers must yield the same Decision for the same event.
+func TestParsersAgreeOnRefusals(t *testing.T) {
+	at := time.UnixMilli(1700000000123).UTC()
+	tests := []struct{ name, line, body string }{
+		{
+			"bypass", "NET:REFUSE [MED] DENIED node(1234) -> 93.184.216.34:443/tcp [policy:bypass-detect engine:nftables] [reason:bypass]",
+			`{"class_uid":4001,"activity_id":5,"action_id":2,"time":1700000000123,"status_detail":"bypass",
+				"dst_endpoint":{"ip":"93.184.216.34","port":443},"actor":{"process":{"name":"node","pid":1234}},
+				"connection_info":{"protocol_name":"tcp"},"firewall_rule":{"name":"bypass-detect","type":"nftables"}}`,
+		},
+		{
+			"dns", "NET:REFUSE [MED] DENIED mise-versions.jdx.dev [reason:policy_dns_ineligible]",
+			`{"class_uid":4001,"activity_id":5,"action_id":2,"time":1700000000123,"status_detail":"policy_dns_ineligible","dst_endpoint":{"domain":"mise-versions.jdx.dev"}}`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fromLine, ok := parseDecision(v1.LogLine{Target: "ocsf", Message: tc.line, Timestamp: at})
+			require.True(t, ok)
+			fromBody, ok := decisionFromOCSF([]byte(tc.body))
+			require.True(t, ok)
+			require.Equal(t, fromBody, fromLine)
+		})
 	}
 }
