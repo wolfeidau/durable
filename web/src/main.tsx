@@ -120,7 +120,8 @@ function App(): ReactElement {
             sessionId={sessionId}
             onWatch={setWatch}
             tab={route.view === "session" ? route.tab : undefined}
-            onTab={(tab) => selectTab(sessionId, tab)}
+            call={route.view === "session" ? route.call : undefined}
+            onTab={(tab, call) => selectTab(sessionId, tab, call)}
             focus={route.view === "session" ? route.focus : undefined}
             onFocus={(target) => selectFocus(sessionId, target)}
           />
