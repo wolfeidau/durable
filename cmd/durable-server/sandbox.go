@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -148,12 +150,19 @@ type sandboxAuditCmd struct {
 	Denied bool          `help:"List only denied requests."`
 	Daily  bool          `help:"Print per-day totals from the telemetry store instead of the requests. Use --days, not --since."`
 	Days   int           `default:"30" help:"How many days --daily covers."`
+	Raw    bool          `help:"Print the stored raw OCSF events as JSON Lines, with notes on stderr. Needs the telemetry store; not allowed with --daily or --denied."`
 }
 
 const defaultAuditSince = 24 * time.Hour
 
 // Run takes no lock, because it only reads the telemetry store and the sandbox log.
 func (c *sandboxAuditCmd) Run(ctx context.Context) error {
+	if c.Raw && c.Daily {
+		return errors.New("--raw does not apply to --daily")
+	}
+	if c.Raw && c.Denied {
+		return errors.New("--denied does not apply to --raw")
+	}
 	if c.Daily && c.Since != 0 {
 		return errors.New("--since does not apply to --daily; use --days")
 	}
@@ -179,6 +188,9 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 	if c.Daily && !hasStore {
 		return errors.New("no telemetry store; enable telemetry.otlp_addr in config.json")
 	}
+	if c.Raw && !hasStore {
+		return errors.New("--raw needs the telemetry store; enable telemetry.otlp_addr in config.json")
+	}
 	var store *telemetry.Store
 	var retention time.Duration
 	if hasStore {
@@ -201,6 +213,9 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 		since = defaultAuditSince
 	}
 	start := now.Add(-since)
+	if c.Raw {
+		return printRaw(ctx, store, pin.Name, start, now, retention)
+	}
 	ds, fromStore, err := readDecisions(ctx, store, pin.Name, start)
 	if err != nil {
 		return err
@@ -212,7 +227,7 @@ func (c *sandboxAuditCmd) printDecisions(ctx context.Context, store *telemetry.S
 	if len(ds) == 0 {
 		if store != nil {
 			fmt.Println("No network decisions for that period; checked the telemetry store and the gateway log.")
-			return printStoreNotes(ctx, store, name, start, now, retention)
+			return printStoreNotes(ctx, os.Stdout, store, name, start, now, retention)
 		}
 		fmt.Println("No network decisions for that period; checked the gateway log, because there is no telemetry store.")
 		return nil
@@ -237,7 +252,7 @@ func (c *sandboxAuditCmd) printDecisions(ctx context.Context, store *telemetry.S
 		ds[0].Time.Local().Format(time.DateTime), ds[len(ds)-1].Time.Local().Format(time.DateTime))
 	if fromStore {
 		fmt.Println("source: telemetry")
-		return printStoreNotes(ctx, store, name, start, now, retention)
+		return printStoreNotes(ctx, os.Stdout, store, name, start, now, retention)
 	}
 	fmt.Println("source: gateway log \u2014 only the gateway's most recent lines; older decisions are not shown")
 	if ds[0].Time.After(start) {
@@ -247,7 +262,30 @@ func (c *sandboxAuditCmd) printDecisions(ctx context.Context, store *telemetry.S
 		return nil
 	}
 	fmt.Println("note: the telemetry store has no decisions for this sandbox in this period; showing the gateway log instead")
-	return printStoreNotes(ctx, store, name, start, now, retention)
+	return printStoreNotes(ctx, os.Stdout, store, name, start, now, retention)
+}
+
+// printRaw writes the stored bodies to stdout and every note to stderr, so stdout stays valid JSON Lines.
+func printRaw(ctx context.Context, store *telemetry.Store, name string, start, now time.Time, retention time.Duration) error {
+	events, err := store.RawEvents(ctx, name, start)
+	if err != nil {
+		return err
+	}
+	var buf bytes.Buffer
+	for _, e := range events {
+		buf.Reset()
+		if err := json.Compact(&buf, e.Body); err != nil {
+			return fmt.Errorf("failed to compact raw event %s: %w", e.UID, err)
+		}
+		buf.WriteByte('\n')
+		if _, err := buf.WriteTo(os.Stdout); err != nil {
+			return fmt.Errorf("failed to write raw event: %w", err)
+		}
+	}
+	if len(events) == 0 {
+		fmt.Fprintln(os.Stderr, "No raw events in the telemetry store for that period.")
+	}
+	return printStoreNotes(ctx, os.Stderr, store, name, start, now, retention)
 }
 
 // readDecisions prefers the telemetry store and falls back to the gateway's log.
@@ -274,23 +312,23 @@ func gatewayDecisions(ctx context.Context, name string, since time.Time) ([]open
 }
 
 // printStoreNotes says what the telemetry store cannot show for a window starting at start.
-func printStoreNotes(ctx context.Context, store *telemetry.Store, name string, start, now time.Time, retention time.Duration) error {
-	if err := printDrops(ctx, store, name, start); err != nil {
+func printStoreNotes(ctx context.Context, w io.Writer, store *telemetry.Store, name string, start, now time.Time, retention time.Duration) error {
+	if err := printDrops(ctx, w, store, name, start); err != nil {
 		return err
 	}
 	if earliest, ok, err := store.EarliestDecision(ctx, name); err != nil {
 		return err
 	} else if ok && earliest.After(start) {
-		fmt.Printf("note: telemetry history for this sandbox starts at %s; earlier decisions were not recorded\n", localTime(earliest))
+		fmt.Fprintf(w, "note: telemetry history for this sandbox starts at %s; earlier decisions were not recorded\n", localTime(earliest))
 	}
 	if start.Before(now.Add(-retention)) {
-		fmt.Printf("note: raw events older than %s are pruned; use --daily for older totals\n", retention)
+		fmt.Fprintf(w, "note: raw events older than %s are pruned; use --daily for older totals\n", retention)
 	}
 	return nil
 }
 
 // printDrops reports events lost before or during receipt: exporter drops and decisions with no sandbox.
-func printDrops(ctx context.Context, store *telemetry.Store, name string, start time.Time) error {
+func printDrops(ctx context.Context, w io.Writer, store *telemetry.Store, name string, start time.Time) error {
 	ids, err := store.SandboxIDs(ctx, name)
 	if err != nil {
 		return err
@@ -312,10 +350,10 @@ func printDrops(ctx context.Context, store *telemetry.Store, name string, start 
 		}
 	}
 	if own > 0 {
-		fmt.Printf("warning: %d events from this sandbox were dropped before export since %s\n", own, localTime(ownSince))
+		fmt.Fprintf(w, "warning: %d events from this sandbox were dropped before export since %s\n", own, localTime(ownSince))
 	}
 	if wide > 0 {
-		fmt.Printf("warning: %d events were dropped gateway-wide since %s; some may belong to this sandbox\n", wide, localTime(wideSince))
+		fmt.Fprintf(w, "warning: %d events were dropped gateway-wide since %s; some may belong to this sandbox\n", wide, localTime(wideSince))
 	}
 	unattributed, err := store.Unattributed(ctx, start)
 	if err != nil {
@@ -323,7 +361,7 @@ func printDrops(ctx context.Context, store *telemetry.Store, name string, start 
 	}
 	if unattributed > 0 {
 		// Unattributed decisions are counted per UTC day, so the count covers the whole first day.
-		fmt.Printf("warning: %d network decisions on or after %s (UTC) could not be matched to any sandbox\n", unattributed, start.UTC().Format(time.DateOnly))
+		fmt.Fprintf(w, "warning: %d network decisions on or after %s (UTC) could not be matched to any sandbox\n", unattributed, start.UTC().Format(time.DateOnly))
 	}
 	return nil
 }
@@ -359,7 +397,7 @@ func (c *sandboxAuditCmd) printDaily(ctx context.Context, store *telemetry.Store
 	} else if ok && start.UTC().Format(time.DateOnly) < first {
 		fmt.Printf("note: telemetry history for this sandbox starts on %s\n", first)
 	}
-	if err := printDrops(ctx, store, name, start); err != nil {
+	if err := printDrops(ctx, os.Stdout, store, name, start); err != nil {
 		return err
 	}
 	if start.Before(now.Add(-retention)) {

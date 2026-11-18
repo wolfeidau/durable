@@ -195,6 +195,24 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 	}
 	require.Equal(t, 1, rows, out)
 
+	stdout, stderr, err := sandboxAuditSplit(t, home, session, "--raw", "--since", auditSince)
+	require.NoError(t, err, stderr)
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	require.Len(t, lines, 4, stdout)
+	uids := map[string]bool{}
+	for _, line := range lines {
+		var ev struct {
+			Metadata struct {
+				UID string `json:"uid"`
+			} `json:"metadata"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(line), &ev), line)
+		require.NotEmpty(t, ev.Metadata.UID, line)
+		require.False(t, uids[ev.Metadata.UID], "duplicate uid %s", ev.Metadata.UID)
+		uids[ev.Metadata.UID] = true
+	}
+	require.Contains(t, stderr, "warning: 3 events from this sandbox were dropped before export since ")
+
 	store, err := telemetry.OpenReadOnly(t.Context(), filepath.Join(home, ".durable", "telemetry.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
@@ -212,6 +230,29 @@ func TestAuditDailyNeedsTelemetryStore(t *testing.T) {
 	out, err := sandboxAudit(t, home, "bbbbbbbbbbbbbbbb", "--daily")
 	require.Error(t, err, out)
 	require.Contains(t, out, "no telemetry store; enable telemetry.otlp_addr in config.json")
+}
+
+func TestAuditRawNeedsTelemetryStore(t *testing.T) {
+	home := t.TempDir()
+	writeAuditPin(t, home, "eeeeeeeeeeeeeeee")
+
+	out, err := sandboxAudit(t, home, "eeeeeeeeeeeeeeee", "--raw")
+
+	require.Error(t, err, out)
+	require.Contains(t, out, "--raw needs the telemetry store; enable telemetry.otlp_addr in config.json")
+}
+
+func TestAuditRawRejectsConflictingFlags(t *testing.T) {
+	home := t.TempDir()
+	writeAuditPin(t, home, "ffffffffffffffff")
+
+	out, err := sandboxAudit(t, home, "ffffffffffffffff", "--raw", "--daily")
+	require.Error(t, err, out)
+	require.Contains(t, out, "--raw does not apply to --daily")
+
+	out, err = sandboxAudit(t, home, "ffffffffffffffff", "--raw", "--denied")
+	require.Error(t, err, out)
+	require.Contains(t, out, "--denied does not apply to --raw")
 }
 
 func TestTelemetryPortClashFailsBeforeServing(t *testing.T) {

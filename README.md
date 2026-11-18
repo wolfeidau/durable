@@ -308,7 +308,9 @@ servers, and its grants.
   from the telemetry store; otherwise it reads the gateway's recent log lines, so the summary shows
   the span it covers. Check it after granting something new; `--denied` shows only refusals,
   `--since` sets how far back to read (default `24h`), and `--daily` with `--days` prints per-day
-  totals. `--daily` and `--since` are mutually exclusive: combining them is an error.
+  totals. `--daily` and `--since` are mutually exclusive: combining them is an error. `--raw` prints
+  the stored raw OCSF events as JSON Lines, with notes on stderr; it needs the telemetry store and
+  doesn't combine with `--daily` or `--denied`.
 - **Go image:** `HOME` is the workspace `/sandbox`, and only `/tmp` and `/sandbox` are writable, so
   caches live under `/tmp`. `GOPROXY` has no `direct`, so private modules fail, and
   `GOTOOLCHAIN=local` fails a `go` line newer than the image's Go.
