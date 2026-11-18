@@ -51,7 +51,8 @@ type ocsfEvent struct {
 	} `json:"http_request"`
 }
 
-// ParseOCSF maps an OCSF event body to its Decision plus the sandbox name and ID from device.container; ok is false for anything that isn't a network decision.
+// ParseOCSF maps an OCSF event body to its Decision plus the sandbox name and ID from device.container; ok is false for
+// anything that isn't a network decision, but the name and ID are still returned so other events can be attributed.
 func ParseOCSF(body []byte) (d Decision, sandboxName, sandboxID string, ok bool) {
 	var e ocsfEvent
 	if json.Unmarshal(body, &e) != nil {
@@ -59,9 +60,9 @@ func ParseOCSF(body []byte) (d Decision, sandboxName, sandboxID string, ok bool)
 	}
 	d, ok = decisionFromEvent(e)
 	if !ok {
-		return Decision{}, "", "", false
+		d = Decision{}
 	}
-	return d, e.Device.Container.Name, e.Device.Container.UID, true
+	return d, e.Device.Container.Name, e.Device.Container.UID, ok
 }
 
 // decisionFromOCSF maps an OCSF event body to the Decision parseDecision yields for the same event; it reports false for anything that isn't a network decision.

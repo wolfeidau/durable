@@ -137,11 +137,13 @@ func events(recs []otlp.Record, now time.Time) []telemetry.Event {
 		}
 		ev := telemetry.Event{UID: rec.UID, SandboxID: rec.SandboxID, Time: rec.Time, Observed: observed, Received: now, Raw: rec.Raw, Gap: rec.Gap}
 		if rec.Gap == nil {
-			if d, name, id, ok := openshell.ParseOCSF(rec.Body); ok {
-				ev.Decision, ev.SandboxName = &d, name
-				if id != "" {
-					ev.SandboxID = id
-				}
+			d, name, id, ok := openshell.ParseOCSF(rec.Body)
+			ev.SandboxName = name
+			if id != "" {
+				ev.SandboxID = id
+			}
+			if ok {
+				ev.Decision = &d
 				// The decision's own time is what the decisions table and prune use, so the archive row agrees.
 				if !d.Time.IsZero() {
 					ev.Time = d.Time

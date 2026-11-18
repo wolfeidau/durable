@@ -97,6 +97,13 @@ func TestParseOCSFDevice(t *testing.T) {
 	require.True(t, ok)
 	require.Empty(t, name)
 	require.Empty(t, id)
+
+	body, err = os.ReadFile(filepath.Join("testdata", "ocsf", "net-session-established.json"))
+	require.NoError(t, err)
+	_, name, id, ok = ParseOCSF(body)
+	require.False(t, ok)
+	require.Equal(t, "dt-63539bd5bc24", name)
+	require.Equal(t, "126316d7-ba94-4724-b97b-50ba61698af0", id)
 }
 
 func TestDecisionFromOCSFFixtures(t *testing.T) {
