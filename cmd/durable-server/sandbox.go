@@ -87,6 +87,15 @@ func (b *lazyBackend) Connect(ctx context.Context, name, token string) (*sandbox
 	return l.Connect(ctx, name, token)
 }
 
+// Decisions shares the backend's connection, so a client polling the gateway log doesn't dial it on every request.
+func (b *lazyBackend) Decisions(ctx context.Context, name string, since time.Time) ([]openshell.Decision, error) {
+	l, err := b.launcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to the gateway: %w", err)
+	}
+	return l.Decisions(ctx, name, since)
+}
+
 func (*lazyBackend) IsUnavailable(err error) bool {
 	var ge errGateway
 	return errors.As(err, &ge) || openshell.IsUnavailable(err)
@@ -239,7 +248,9 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 	if c.Raw {
 		return printRaw(ctx, store, pin.Name, start, now, retention)
 	}
-	res, err := audit.Read(ctx, audit.Query{Store: store, Gateway: gatewayDecisions, Sandbox: pin.Name, Since: start, Now: now, Retention: retention})
+	gw := &lazyBackend{}
+	defer gw.Close()
+	res, err := audit.Read(ctx, audit.Query{Store: store, Gateway: gw.Decisions, Sandbox: pin.Name, Since: start, Now: now, Retention: retention})
 	if err != nil {
 		return err
 	}
@@ -337,15 +348,6 @@ func printRaw(ctx context.Context, store *telemetry.Store, name string, start, n
 }
 
 func localTime(t time.Time) string { return t.Local().Format(time.DateTime) }
-
-func gatewayDecisions(ctx context.Context, name string, since time.Time) ([]openshell.Decision, error) {
-	l, err := openshell.New(openshell.Config{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to the gateway: %w", err)
-	}
-	defer l.Close()
-	return l.Decisions(ctx, name, since)
-}
 
 // printStoreNotes says what the telemetry store cannot show for a window starting at start.
 func printStoreNotes(w io.Writer, cov audit.Coverage, start time.Time) {

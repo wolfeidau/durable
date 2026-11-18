@@ -1,18 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Route = { view: "list" } | { view: "server" } | { view: "session"; id: string; tab?: "report"; focus?: string };
+export type Route = { view: "list" } | { view: "server" } | { view: "session"; id: string; tab?: "report" | "network"; call?: string; focus?: string };
 
 const focusPattern = /^(call|turn)-.+$/;
+
+export type Tab = "report" | "network";
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
   const id = params.get("session");
   if (id) {
     const focus = params.get("focus");
+    const tab = params.get("tab");
+    const call = params.get("call");
     return {
       view: "session",
       id,
-      ...(params.get("tab") === "report" ? { tab: "report" as const } : {}),
+      ...(tab === "report" || tab === "network" ? { tab } : {}),
+      ...(tab === "network" && call ? { call } : {}),
       ...(focus && focusPattern.test(focus) ? { focus } : {}),
     };
   }
@@ -28,7 +33,7 @@ export function useRoute(): [
   Route,
   (id: string) => void,
   () => void,
-  (id: string, tab: "report" | undefined) => void,
+  (id: string, tab: Tab | undefined, call?: string) => void,
   (id: string, focus: string | undefined) => void,
 ] {
   const [route, setRoute] = useState(read);
@@ -49,8 +54,9 @@ export function useRoute(): [
     setRoute(read());
   }, []);
 
-  const selectTab = useCallback((id: string, tab: "report" | undefined) => {
-    history.replaceState(null, "", `?session=${encodeURIComponent(id)}${tab ? `&tab=${tab}` : ""}`);
+  const selectTab = useCallback((id: string, tab: Tab | undefined, call?: string) => {
+    const callParam = tab === "network" && call ? `&call=${encodeURIComponent(call)}` : "";
+    history.replaceState(null, "", `?session=${encodeURIComponent(id)}${tab ? `&tab=${tab}` : ""}${callParam}`);
     setRoute(read());
   }, []);
 

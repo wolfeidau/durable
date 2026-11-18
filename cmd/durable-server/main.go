@@ -210,7 +210,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	api := server.New(server.Config{
 		Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: settings.Heartbeat, Draining: draining,
 		Settings: shown, Warnings: warnings,
-		Telemetry: rcv.telemetryStore(), TelemetryRetention: settings.TelemetryRetention, Gateway: gatewayDecisions,
+		Telemetry: rcv.telemetryStore(), TelemetryRetention: settings.TelemetryRetention, Gateway: backend.Decisions,
 	})
 	srv := &http.Server{
 		Handler:           api.Handler(),

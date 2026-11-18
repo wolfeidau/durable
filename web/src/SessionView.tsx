@@ -1,4 +1,5 @@
 import { ConnectError } from "@connectrpc/connect";
+import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { useMutation, useQuery, useTransport } from "@connectrpc/connect-query";
 import {
   createContext,
@@ -14,18 +15,23 @@ import {
   type ReactElement,
 } from "react";
 import { cancel, decideApproval, listSessions, submit } from "./gen/durable/v1/durable-SessionService_connectquery";
-import { ApprovalStatus, SubmissionStatus } from "./gen/durable/v1/durable_pb";
+import { ApprovalStatus, SubmissionStatus, type NetworkEvent } from "./gen/durable/v1/durable_pb";
 import { activeTurn, activityText, isActive } from "./activity";
 import { chip, defaultOpen, isRunning, summary } from "./calls";
 import { CopyButton } from "./CopyButton";
 import { Markdown } from "./markdown";
+import { deniedByCall } from "./network";
+import { NetworkPanel, noSandboxText } from "./NetworkPanel";
+import { hostSummary, stableDenied } from "./networkView";
 import type { WatchSummary } from "./StatusLine";
 import { ReportPanel } from "./ReportPanel";
 import { buildOverview } from "./report";
+import { TipHost, tipProps, useTip } from "./Tooltip";
 import { TranscriptBuilder, type CallEntry, type Turn } from "./transcript";
 import { nearBottom } from "./scroll";
 import { getToken } from "./token";
 import { buildReport, compact, money, percent, summarize, turnFooter } from "./usage";
+import { useNetwork } from "./useNetwork";
 import { useNow } from "./useNow";
 import { useWatchEvents } from "./useWatchEvents";
 
@@ -68,9 +74,13 @@ const FocusTarget = createContext<string | undefined>(undefined);
 
 const noOutput: ReadonlyMap<string, string> = new Map();
 
+type OpenTab = (tab: "report" | "network" | undefined, call?: string) => void;
+
 interface CallProps {
   call: CallEntry;
   output?: string;
+  denied?: NetworkEvent[];
+  onTab: OpenTab;
   onDecide: (seq: bigint, allow: boolean) => void;
   busy: boolean;
 }
@@ -82,7 +92,40 @@ function CallBadge({ call, output }: { call: CallEntry; output?: string }): Reac
   return <span className={`badge ${state.tone}`}>{state.text}</span>;
 }
 
-const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): ReactElement {
+// Sits inside <summary>, so it must stop the click from toggling the call.
+function DeniedChip({ id, denied, onTab }: { id: string; denied: NetworkEvent[]; onTab: OpenTab }): ReactElement {
+  const tip = useTip();
+  const open = (e: { preventDefault: () => void; stopPropagation: () => void }) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onTab("network", id);
+  };
+  return (
+    <span
+      role="button"
+      tabIndex={0}
+      className="badge tone-error denied-chip"
+      aria-label={`${denied.length} denied network ${denied.length === 1 ? "request" : "requests"} during this call, ${hostSummary(denied)}`}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") open(e);
+      }}
+      {...tipProps(
+        tip,
+        <>
+          <div className="tip-title">
+            Denied during this call <span>{denied.length}</span>
+          </div>
+          <div className="tip-note">{hostSummary(denied)}</div>
+        </>,
+      )}
+    >
+      ✕ {denied.length} denied
+    </span>
+  );
+}
+
+const Call = memo(function Call({ call, output, denied, onTab, onDecide, busy }: CallProps): ReactElement {
   const a = call.approval;
   const pending = a?.status === ApprovalStatus.PENDING;
   const [open, setOpen] = useState(() => defaultOpen(call, output));
@@ -125,6 +168,7 @@ const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): Re
           <span className="call-name">{call.name}</span>
           <span className="call-summary">{preview}</span>
           <CallBadge call={call} output={output} />
+          {denied && <DeniedChip id={call.id} denied={denied} onTab={onTab} />}
         </summary>
         <div className="call-body">
           {call.rewritten ? (
@@ -166,12 +210,14 @@ interface TurnProps {
   localText?: string;
   partial?: string;
   toolOutput: ReadonlyMap<string, string>;
+  denied: ReadonlyMap<string, NetworkEvent[]>;
+  onTab: OpenTab;
   onDecide: (seq: bigint, allow: boolean) => void;
   onCancel: (requestId: string) => void;
   busy: boolean;
 }
 
-const TurnView = memo(function TurnView({ turn, usage, localText, partial, toolOutput, onDecide, onCancel, busy }: TurnProps): ReactElement {
+const TurnView = memo(function TurnView({ turn, usage, localText, partial, toolOutput, denied, onTab, onDecide, onCancel, busy }: TurnProps): ReactElement {
   const hasUser = turn.entries.some((e) => e.kind === "user");
   const { requestId } = turn;
   return (
@@ -179,7 +225,7 @@ const TurnView = memo(function TurnView({ turn, usage, localText, partial, toolO
       {!hasUser && localText && <div className="msg user">{localText}</div>}
       {turn.entries.map((e, i) => {
         if (e.kind === "call") {
-          return <Call key={i} call={e} output={toolOutput.get(e.id)} onDecide={onDecide} busy={busy} />;
+          return <Call key={i} call={e} output={toolOutput.get(e.id)} denied={denied.get(e.id)} onTab={onTab} onDecide={onDecide} busy={busy} />;
         }
         if (e.kind === "assistant") {
           return (
@@ -249,13 +295,14 @@ function Activity({ turn }: { turn: Turn }): ReactElement {
 interface Props {
   sessionId: string;
   onWatch: (w: WatchSummary | undefined) => void;
-  tab?: "report";
-  onTab: (tab: "report" | undefined) => void;
+  tab?: "report" | "network";
+  call?: string;
+  onTab: OpenTab;
   focus?: string;
   onFocus: (target: string | undefined) => void;
 }
 
-export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: Props): ReactElement {
+export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFocus }: Props): ReactElement {
   const transport = useTransport();
   const w = useWatchEvents(transport, sessionId, getToken);
   const resume = useRef(w.resumeAuth);
@@ -272,6 +319,20 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
   const stats = useMemo(() => summarize(w.events), [w.events]);
   const report = useMemo(() => buildReport(w.events), [w.events]);
   const onReport = tab === "report" && !focus;
+  const onNetwork = tab === "network" && !focus;
+  const onTranscript = !onReport && !onNetwork;
+  const sandboxed = Boolean(meta?.environment);
+  const net = useNetwork(transport, sessionId, meta?.createdAt ? timestampDate(meta.createdAt) : undefined, sandboxed);
+  const allCalls = useMemo(() => turns.flatMap((t) => t.entries.filter((e): e is CallEntry => e.kind === "call")), [turns]);
+  const deniedCount = useMemo(() => net?.events.filter((e) => !e.allowed).length ?? 0, [net?.events]);
+  // A running call's window grows, so the clock ticks only while a call runs and something was denied.
+  const ticking = deniedCount > 0 && allCalls.some((c) => c.startedAt !== undefined && isRunning(c));
+  const netNow = useNow(ticking);
+  const prevDenied = useRef<Map<string, NetworkEvent[]>>(new Map());
+  const denied = useMemo(() => {
+    prevDenied.current = stableDenied(prevDenied.current, deniedByCall(net?.events ?? [], allCalls, netNow));
+    return prevDenied.current;
+  }, [net?.events, allCalls, netNow]);
   // Only the Report reads it, and it parses every call's input, so it isn't rebuilt per event behind the Transcript.
   const overview = useMemo(() => (onReport ? buildOverview(w.events, turns, report) : undefined), [onReport, w.events, turns, report]);
   const footers = useMemo(() => new Map(report.turns.map((t) => [t.seq, turnFooter(t)])), [report]);
@@ -379,10 +440,10 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
   }, [focus, onReport, turns, onFocus]);
 
   useLayoutEffect(() => {
-    if (onReport) return;
+    if (!onTranscript) return;
     if (following.current) toBottom();
     else setBehind(true);
-  }, [w.events, w.partialText, w.toolOutput, mine, loading, onReport]);
+  }, [w.events, w.partialText, w.toolOutput, mine, loading, onTranscript]);
 
   // The transcript's bottom padding tracks the composer, and content that grows after render (calls settling, markdown) is still followed.
   useLayoutEffect(() => {
@@ -401,20 +462,25 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
       ro.disconnect();
       host.style.removeProperty("--composer-h");
     };
-  }, [onReport]);
+  }, [onTranscript]);
 
   return (
     <div className="session-view" ref={root}>
       <div className="toolbar">
         <div className="tabs" role="group" aria-label="View">
-          <button className="secondary" aria-pressed={!onReport} onClick={() => onTab(undefined)}>
+          <button className="secondary" aria-pressed={onTranscript} onClick={() => onTab(undefined)}>
             Transcript
           </button>
           <button className="secondary" aria-pressed={onReport} onClick={() => onTab("report")}>
             Report
           </button>
+          {sandboxed && (
+            <button className="secondary" aria-pressed={onNetwork} onClick={() => onTab("network")}>
+              Network{deniedCount > 0 && ` · ${deniedCount} denied`}
+            </button>
+          )}
         </div>
-        {!onReport && (
+        {onTranscript && (
           <div className="tool-actions">
             <button
               className="secondary"
@@ -436,9 +502,23 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
         )}
       </div>
       {overview && <ReportPanel report={report} overview={overview} stats={stats} onJump={jump} />}
+      {onNetwork &&
+        (meta && !sandboxed ? (
+          <p className="muted">{noSandboxText}</p>
+        ) : (
+          <NetworkPanel
+            state={net}
+            calls={allCalls}
+            denied={denied}
+            call={call}
+            onCall={(id) => onTab("network", id)}
+            onJump={jump}
+          />
+        ))}
+      <TipHost>
       <FocusTarget.Provider value={focus}>
       <OpenCalls.Provider value={calls}>
-        <div className="transcript" ref={transcript} hidden={onReport}>
+        <div className="transcript" ref={transcript} hidden={!onTranscript}>
           {turns.map((t) => (
             <TurnView
               key={String(t.seq)}
@@ -447,6 +527,8 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
               localText={t.requestId ? mine.get(t.requestId) : undefined}
               partial={w.partialText.get(t.seq)}
               toolOutput={liveOutput(t, w.toolOutput)}
+              denied={denied}
+              onTab={onTab}
               onDecide={decide}
               onCancel={stop}
               busy={decideM.isPending}
@@ -460,7 +542,8 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
         </div>
       </OpenCalls.Provider>
       </FocusTarget.Provider>
-      {!onReport && (
+      </TipHost>
+      {onTranscript && (
         <>
           {behind && (
             <button
