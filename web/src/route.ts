@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Route = { view: "list" } | { view: "server" } | { view: "session"; id: string; tab?: "report" };
+export type Route = { view: "list" } | { view: "server" } | { view: "session"; id: string; tab?: "report"; focus?: string };
+
+const focusPattern = /^(call|turn)-.+$/;
 
 export function parseRoute(search: string): Route {
   const params = new URLSearchParams(search);
   const id = params.get("session");
-  if (id) return params.get("tab") === "report" ? { view: "session", id, tab: "report" } : { view: "session", id };
+  if (id) {
+    const focus = params.get("focus");
+    return {
+      view: "session",
+      id,
+      ...(params.get("tab") === "report" ? { tab: "report" as const } : {}),
+      ...(focus && focusPattern.test(focus) ? { focus } : {}),
+    };
+  }
   if (params.get("view") === "server") return { view: "server" };
   return { view: "list" };
 }
@@ -14,7 +24,13 @@ const read = () => parseRoute(location.search);
 
 export const serverHref = "?view=server";
 
-export function useRoute(): [Route, (id: string) => void, () => void, (id: string, tab: "report" | undefined) => void] {
+export function useRoute(): [
+  Route,
+  (id: string) => void,
+  () => void,
+  (id: string, tab: "report" | undefined) => void,
+  (id: string, focus: string | undefined) => void,
+] {
   const [route, setRoute] = useState(read);
 
   useEffect(() => {
@@ -38,5 +54,11 @@ export function useRoute(): [Route, (id: string) => void, () => void, (id: strin
     setRoute(read());
   }, []);
 
-  return [route, select, openServer, selectTab];
+  // The query string, not the hash, which the token login reads.
+  const selectFocus = useCallback((id: string, focus: string | undefined) => {
+    history.replaceState(null, "", `?session=${encodeURIComponent(id)}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`);
+    setRoute(read());
+  }, []);
+
+  return [route, select, openServer, selectTab, selectFocus];
 }

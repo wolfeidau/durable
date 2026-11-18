@@ -21,6 +21,7 @@ import { CopyButton } from "./CopyButton";
 import { Markdown } from "./markdown";
 import type { WatchSummary } from "./StatusLine";
 import { ReportPanel } from "./ReportPanel";
+import { buildOverview } from "./report";
 import { TranscriptBuilder, type CallEntry, type Turn } from "./transcript";
 import { nearBottom } from "./scroll";
 import { getToken } from "./token";
@@ -62,6 +63,9 @@ function pretty(input: string): string {
 
 const OpenCalls = createContext<{ open: boolean; version: number }>({ open: false, version: 0 });
 
+// The element id a link into the transcript is aiming at, until it has been scrolled to.
+const FocusTarget = createContext<string | undefined>(undefined);
+
 const noOutput: ReadonlyMap<string, string> = new Map();
 
 interface CallProps {
@@ -86,6 +90,8 @@ const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): Re
   const bulk = useContext(OpenCalls);
   const seenVersion = useRef(bulk.version);
   const wanted = defaultOpen(call, output);
+  const focus = useContext(FocusTarget);
+  const domId = `call-${call.id}`;
 
   // Until the user toggles, the default decides, so a call that loads mid-page doesn't stay open after it finishes.
   useEffect(() => {
@@ -97,10 +103,15 @@ const Call = memo(function Call({ call, output, onDecide, busy }: CallProps): Re
     touched.current = true;
     setOpen(bulk.open);
   }, [bulk]);
+  useEffect(() => {
+    if (focus !== domId) return;
+    touched.current = true;
+    setOpen(true);
+  }, [focus, domId]);
 
   const preview = summary(call);
   return (
-    <div className={`call${pending ? " call-pending" : ""}`}>
+    <div id={domId} className={`call${pending ? " call-pending" : ""}`}>
       <details
         open={open}
         onToggle={(e) => {
@@ -164,7 +175,7 @@ const TurnView = memo(function TurnView({ turn, usage, localText, partial, toolO
   const hasUser = turn.entries.some((e) => e.kind === "user");
   const { requestId } = turn;
   return (
-    <section className="turn">
+    <section className="turn" id={`turn-${turn.seq}`}>
       {!hasUser && localText && <div className="msg user">{localText}</div>}
       {turn.entries.map((e, i) => {
         if (e.kind === "call") {
@@ -240,9 +251,11 @@ interface Props {
   onWatch: (w: WatchSummary | undefined) => void;
   tab?: "report";
   onTab: (tab: "report" | undefined) => void;
+  focus?: string;
+  onFocus: (target: string | undefined) => void;
 }
 
-export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactElement {
+export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: Props): ReactElement {
   const transport = useTransport();
   const w = useWatchEvents(transport, sessionId, getToken);
   const resume = useRef(w.resumeAuth);
@@ -258,6 +271,9 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
   const turns = useMemo(() => builder.current.update(w.events), [w.events]);
   const stats = useMemo(() => summarize(w.events), [w.events]);
   const report = useMemo(() => buildReport(w.events), [w.events]);
+  const onReport = tab === "report" && !focus;
+  // Only the Report reads it, and it parses every call's input, so it isn't rebuilt per event behind the Transcript.
+  const overview = useMemo(() => (onReport ? buildOverview(w.events, turns, report) : undefined), [onReport, w.events, turns, report]);
   const footers = useMemo(() => new Map(report.turns.map((t) => [t.seq, turnFooter(t)])), [report]);
   const [calls, setCalls] = useState({ open: false, version: 0 });
   const [text, setText] = useState("");
@@ -322,7 +338,6 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
   const unseen = [...mine].filter(([id]) => !seen.has(id));
   const loading = w.events.length === 0 && (status === "connecting" || status === "reconnecting");
   const latest = activeTurn(turns);
-  const onReport = tab === "report";
 
   const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight });
 
@@ -336,6 +351,32 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Not following keeps the arriving content from pulling the view away from the target.
+  const jump = useCallback(
+    (target: string) => {
+      following.current = false;
+      onFocus(target);
+    },
+    [onFocus],
+  );
+
+  // The URL drops the target once applied, so a reload doesn't jump again.
+  useEffect(() => {
+    if (!focus || onReport) return;
+    const el = document.getElementById(focus);
+    if (!el) return;
+    following.current = false;
+    const reveal = () => el.scrollIntoView({ block: "start" });
+    reveal();
+    // Turns off screen are laid out lazily, so the first scroll can land short.
+    requestAnimationFrame(() => requestAnimationFrame(reveal));
+    el.classList.remove("flash");
+    void el.offsetWidth;
+    el.classList.add("flash");
+    setTimeout(() => el.classList.remove("flash"), 1500);
+    onFocus(undefined);
+  }, [focus, onReport, turns, onFocus]);
 
   useLayoutEffect(() => {
     if (onReport) return;
@@ -394,7 +435,8 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
           </div>
         )}
       </div>
-      {onReport && <ReportPanel report={report} />}
+      {overview && <ReportPanel report={report} overview={overview} stats={stats} onJump={jump} />}
+      <FocusTarget.Provider value={focus}>
       <OpenCalls.Provider value={calls}>
         <div className="transcript" ref={transcript} hidden={onReport}>
           {turns.map((t) => (
@@ -417,6 +459,7 @@ export function SessionView({ sessionId, onWatch, tab, onTab }: Props): ReactEle
           {!loading && turns.length === 0 && unseen.length === 0 && <p className="muted">No messages yet.</p>}
         </div>
       </OpenCalls.Provider>
+      </FocusTarget.Provider>
       {!onReport && (
         <>
           {behind && (
