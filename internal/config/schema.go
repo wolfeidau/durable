@@ -39,6 +39,8 @@ func Schema() (*jsonschema.Schema, error) {
 		listen.Properties[name].Pattern = durationPattern
 	}
 
+	s.Properties["telemetry"].Properties["retention"].Pattern = durationPattern
+
 	provider := s.Properties["provider"]
 	provider.Properties["name"].Enum = enum(commands.ProviderNames())
 	provider.Properties["protocol"].Enum = enum(commands.ProtocolNames())
