@@ -6,6 +6,7 @@ import { coverageNotes, networkSourceLabel, type NetworkState } from "./network"
 import type { CallEntry } from "./transcript";
 import { eventMs, matches, rowCap, topDenied, type Verdict } from "./networkView";
 import { DataTable } from "./DataTable";
+import { dash } from "./format";
 import { Tile } from "./Tile";
 import { useNow } from "./useNow";
 
@@ -89,7 +90,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
         </Tile>
         <Tile label="Hosts">{stats.hosts}</Tile>
         <Tile label="Source">
-          {state.coverage ? networkSourceLabel[state.coverage.source] : "—"}
+          {state.coverage ? networkSourceLabel[state.coverage.source] : dash}
           {state.coverage?.since && <span className="tile-sub">since {fmtTime(timestampDate(state.coverage.since))}</span>}
         </Tile>
       </div>

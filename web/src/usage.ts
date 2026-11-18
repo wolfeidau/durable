@@ -218,6 +218,6 @@ export function turnFooter(t: TurnRow): string {
   const parts: string[] = [];
   if (t.cost !== undefined) parts.push(money(t.cost, t.estimated));
   if (t.wallMs !== undefined) parts.push(seconds(t.wallMs));
-  if (t.calls > 0) parts.push(`${plural(t.calls, "call")}`);
+  if (t.calls > 0) parts.push(plural(t.calls, "call"));
   return parts.join(" · ");
 }
