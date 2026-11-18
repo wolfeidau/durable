@@ -205,6 +205,33 @@ session.
 - **Hooks** still run on the host, but their input comes from a sandbox the agent controls. See
   [docs/hooks.md](docs/hooks.md).
 
+#### Network telemetry
+
+The gateway keeps only recent log lines. To keep the full history of sandbox network decisions,
+have the server receive them over OTLP/HTTP. Set `telemetry.otlp_addr` in `~/.durable/config.json`:
+
+```json
+{"telemetry": {"otlp_addr": "127.0.0.1:4318"}}
+```
+
+The server stores decisions in `~/.durable/telemetry.db`. `telemetry.retention` (default `720h`)
+sets how long individual events are kept; daily totals are kept forever. On first start the server
+creates `~/.durable/otlp-headers` with a bearer token. Point the gateway at it in `gateway.toml`:
+
+```toml
+[openshell.gateway.otlp.ocsf]
+enabled      = true
+endpoint     = "http://127.0.0.1:4318"
+protocol     = "http/protobuf"
+headers_file = "/home/<you>/.durable/otlp-headers"
+```
+
+- Restart the gateway, which reads the headers file at startup. Sandboxes pick up the setting when
+  they restart.
+- The endpoint must be reachable from the sandbox supervisors, not just from the host.
+- Delivery is best-effort. When the exporter drops events, `sandbox-audit` warns with the count.
+- Events are matched to a session by its sandbox name.
+
 #### Git host tokens
 
 GitHub is the only git host so far.
@@ -269,10 +296,12 @@ servers, and its grants.
   `mise up --bump`), then `mise lock --platform linux-arm64,linux-x64`, and commit `mise.toml` and
   `mise.lock`. Grants match binaries by path, and mise installs under writable `/tmp`, so the
   new grants are read-only.
-- **Auditing grants:** `durable-server sandbox-audit <session>` lists the network requests still in
-  the sandbox's log and which grant allowed or denied each. The gateway keeps only recent log
-  lines, so the summary shows the span it covers. Check it after granting something new; `--denied`
-  shows only refusals and `--since` sets how far back to read.
+- **Auditing grants:** `durable-server sandbox-audit <session>` lists the network requests a
+  sandbox made and which grant allowed or denied each, including `NET:REFUSE` rows for DNS and
+  bypass refusals. With [network telemetry](#network-telemetry) enabled it reads the full history
+  from the telemetry store; otherwise it reads the gateway's recent log lines, so the summary shows
+  the span it covers. Check it after granting something new; `--denied` shows only refusals,
+  `--since` sets how far back to read, and `--daily` with `--days` prints per-day totals.
 - **Go image:** `HOME` is the workspace `/sandbox`, and only `/tmp` and `/sandbox` are writable, so
   caches live under `/tmp`. `GOPROXY` has no `direct`, so private modules fail, and
   `GOTOOLCHAIN=local` fails a `go` line newer than the image's Go.
@@ -538,7 +567,10 @@ model call.
 
 The server's real-binary tests in `cmd/durable-server` cover the API, approvals, idle close and
 network faults. `mise run test:openshell` runs sandboxed sessions, including a repo clone, against a
-local OpenShell gateway. Plain `go test` skips them.
+local OpenShell gateway. Plain `go test` skips them. `mise run test:openshell:otlp` starts its own
+receiver on `DURABLE_TEST_OTLP_ADDR` with the bearer token `DURABLE_TEST_OTLP_TOKEN`, and needs a
+gateway configured as in [Network telemetry](#network-telemetry) to export to that address with
+that token.
 
 ## Docs
 
