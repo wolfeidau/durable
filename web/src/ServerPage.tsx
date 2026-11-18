@@ -1,10 +1,11 @@
-import { ConnectError } from "@connectrpc/connect";
 import { useQuery } from "@connectrpc/connect-query";
 import { type ReactElement } from "react";
 import { getServerInfo } from "./gen/durable/v1/durable-SessionService_connectquery";
 import { type EnvironmentInfo, type GrantInfo } from "./gen/durable/v1/durable_pb";
+import { DataTable } from "./DataTable";
 import { approvalsLabel } from "./newSession";
-import { groupSettings, shortField, sourceLabel, sourceTone } from "./server";
+import { QueryStatus } from "./QueryStatus";
+import { groupSettings, shortField, settingSourceLabel, sourceTone } from "./server";
 
 function Environments({
   environments,
@@ -17,18 +18,7 @@ function Environments({
 }): ReactElement {
   const summary = new Map(grants.map((g) => [g.name, g.summary]));
   return (
-    <div className="table-wrap static">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Image</th>
-            <th>Grants</th>
-            <th>Approvals</th>
-            <th>Source</th>
-          </tr>
-        </thead>
-        <tbody>
+    <DataTable head={["Name", "Image", "Grants", "Approvals", "Source"]} wrapClass="static" numeric={false}>
           {environments.map((e) => (
             <tr key={e.name}>
               <td className="session-name">{e.name}</td>
@@ -47,14 +37,12 @@ function Environments({
               </td>
             </tr>
           ))}
-        </tbody>
-      </table>
-    </div>
+    </DataTable>
   );
 }
 
 function SourceBadge({ source }: { source: string }): ReactElement {
-  return <span className={`badge ${sourceTone(source)}`}>{sourceLabel(source)}</span>;
+  return <span className={`badge ${sourceTone(source)}`}>{settingSourceLabel(source)}</span>;
 }
 
 export function ServerPage(): ReactElement {
@@ -69,26 +57,11 @@ export function ServerPage(): ReactElement {
       <div className="section-head">
         <h2>Server</h2>
       </div>
-      {isPending && !error && <p className="muted">Loading</p>}
-      {error && <p className="banner tone-error">{ConnectError.from(error).rawMessage}</p>}
-      {data?.warnings.map((w) => (
-        <p className="banner tone-warn" key={w}>
-          {w}
-        </p>
-      ))}
+      <QueryStatus isPending={isPending} error={error} warnings={data?.warnings} />
       {groups.map((g) => (
         <section key={g.name}>
           <h3>{g.name}</h3>
-          <div className="table-wrap static">
-            <table>
-              <thead>
-                <tr>
-                  <th>Setting</th>
-                  <th>Value</th>
-                  <th>Source</th>
-                </tr>
-              </thead>
-              <tbody>
+          <DataTable head={["Setting", "Value", "Source"]} wrapClass="static" numeric={false}>
                 {g.settings.map((s) => (
                   <tr key={s.field}>
                     <td className="mono">{shortField(s.field)}</td>
@@ -98,9 +71,7 @@ export function ServerPage(): ReactElement {
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+          </DataTable>
         </section>
       ))}
       {data && (
@@ -116,17 +87,7 @@ export function ServerPage(): ReactElement {
       {data && data.grants.length > 0 && (
         <section>
           <h3>Grants</h3>
-          <div className="table-wrap static">
-            <table>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Allows</th>
-                  <th>Binaries</th>
-                  <th>Hosts</th>
-                </tr>
-              </thead>
-              <tbody>
+          <DataTable head={["Name", "Allows", "Binaries", "Hosts"]} wrapClass="static" numeric={false}>
                 {data.grants.map((g) => (
                   <tr key={g.name}>
                     <td className="session-name">{g.name}</td>
@@ -143,9 +104,7 @@ export function ServerPage(): ReactElement {
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
+          </DataTable>
         </section>
       )}
     </div>

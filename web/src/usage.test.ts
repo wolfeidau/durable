@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { EventKind, EventSchema, Role, SubmissionStatus, type Event } from "./gen/durable/v1/durable_pb";
-import { buildReport, compact, duration, money, percent, percentile, seconds, summarize, turnFooter } from "./usage";
+import { compact, duration, money, percent, seconds } from "./format";
+import { buildReport, percentile, summarize, turnFooter } from "./usage";
 
 let n = 0n;
 const ev = (ms: number | undefined, init: MessageInitShape<typeof EventSchema>): Event =>

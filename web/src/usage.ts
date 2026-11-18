@@ -1,5 +1,7 @@
 import { timestampMs } from "@bufbuild/protobuf/wkt";
 import { EventKind, Role, SubmissionStatus, type Event } from "./gen/durable/v1/durable_pb";
+import { money, plural, seconds } from "./format";
+import { isTerminal } from "./status";
 
 export interface Summary {
   // Undefined when no reply has a known cost.
@@ -59,9 +61,6 @@ export function percentile(samples: readonly number[], p: number): number | unde
 }
 
 const sum = (xs: readonly number[]): number | undefined => (xs.length ? xs.reduce((a, b) => a + b, 0) : undefined);
-
-const isTerminal = (s: SubmissionStatus) =>
-  s === SubmissionStatus.DONE || s === SubmissionStatus.FAILED || s === SubmissionStatus.CANCELLED;
 
 export function summarize(events: readonly Event[]): Summary {
   let cost = 0;
@@ -214,49 +213,11 @@ export function buildReport(events: readonly Event[]): Report {
   };
 }
 
-export function compact(n: number): string {
-  const units: [number, string][] = [
-    [1e9, "B"],
-    [1e6, "M"],
-    [1e3, "K"],
-  ];
-  for (const [size, suffix] of units) {
-    if (n >= size) {
-      const v = n / size;
-      return `${v >= 100 || Number.isInteger(v) ? Math.round(v) : v.toFixed(1)}${suffix}`;
-    }
-  }
-  return String(Math.round(n));
-}
-
-export const dash = "—";
-
-export function money(usd: number | undefined, estimated = false): string {
-  if (usd === undefined) return dash;
-  return `${estimated ? "~" : ""}$${usd.toFixed(usd < 1 ? 4 : 2)}`;
-}
-
-// "33ms" under a second, "2.1s" under ten seconds, "42s" under a minute, then "1m 05s".
-export function duration(ms: number): string {
-  const rounded = Math.max(0, Math.round(ms));
-  if (rounded < 1000) return `${rounded}ms`;
-  const secs = rounded / 1000;
-  if (secs < 10) return `${secs.toFixed(1)}s`;
-  const whole = Math.round(secs);
-  return whole < 60 ? `${whole}s` : `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
-}
-
-export const seconds = (ms: number | undefined): string => (ms === undefined ? dash : duration(ms));
-
-// A small non-zero share reads "<1%", because "0%" looks like nothing is used.
-export const percent = (f: number | undefined): string =>
-  f === undefined ? dash : f > 0 && f < 0.005 ? "<1%" : `${Math.round(f * 100)}%`;
-
 // "$0.0042 · 12s · 5 calls", leaving out what is unknown.
 export function turnFooter(t: TurnRow): string {
   const parts: string[] = [];
   if (t.cost !== undefined) parts.push(money(t.cost, t.estimated));
   if (t.wallMs !== undefined) parts.push(seconds(t.wallMs));
-  if (t.calls > 0) parts.push(`${t.calls} ${t.calls === 1 ? "call" : "calls"}`);
+  if (t.calls > 0) parts.push(`${plural(t.calls, "call")}`);
   return parts.join(" · ");
 }

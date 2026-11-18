@@ -1,18 +1,16 @@
 import { memo, useState, type KeyboardEvent, type PointerEvent, type ReactElement, type ReactNode } from "react";
 import { SubmissionStatus } from "./gen/durable/v1/durable_pb";
+import { activate } from "./a11y";
+import { ContextMeter } from "./ContextMeter";
+import { DataTable, Num } from "./DataTable";
+import { compact, dash, money, percent, plural, seconds } from "./format";
 import { slowestCount, tokenSplit, type CallRow, type Overview, type TurnBar } from "./report";
 import { TipHost, tipProps, useTip } from "./Tooltip";
-import { compact, dash, money, percent, seconds, type Report, type Summary } from "./usage";
+import { statusText } from "./status";
+import { Tile } from "./Tile";
+import type { Report, Summary } from "./usage";
 
 const failedCap = 20;
-
-const statusLabel: Record<number, string> = {
-  [SubmissionStatus.QUEUED]: "queued",
-  [SubmissionStatus.RUNNING]: "running",
-  [SubmissionStatus.DONE]: "done",
-  [SubmissionStatus.FAILED]: "failed",
-  [SubmissionStatus.CANCELLED]: "cancelled",
-};
 
 function Icon({ kind }: { kind: "alert" | "ok" }): ReactElement {
   return (
@@ -29,43 +27,6 @@ function Icon({ kind }: { kind: "alert" | "ok" }): ReactElement {
         </>
       )}
     </svg>
-  );
-}
-
-const activate = (fn: () => void) => (e: KeyboardEvent) => {
-  if (e.key === "Enter" || e.key === " ") {
-    e.preventDefault();
-    fn();
-  }
-};
-
-const Num = ({ children }: { children: ReactNode }) => <td className="num">{children}</td>;
-
-function DataTable({ head, empty, children }: { head: string[]; empty?: string; children: ReactNode }): ReactElement {
-  return (
-    <div className="table-wrap report">
-      <table>
-        <thead>
-          <tr>
-            {head.map((h, i) => (
-              <th key={h} className={i > 0 ? "num" : undefined}>
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {empty && (
-            <tr>
-              <td colSpan={head.length} className="muted">
-                {empty}
-              </td>
-            </tr>
-          )}
-          {children}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -98,15 +59,6 @@ function Legend({ items }: { items: { color: string; label: string; value: strin
   );
 }
 
-function Tile({ label, title, children }: { label: string; title?: string; children: ReactNode }): ReactElement {
-  return (
-    <div className="tile" title={title}>
-      <span className="stat-label">{label}</span>
-      <span className="tile-value">{children}</span>
-    </div>
-  );
-}
-
 function Kpis({ overview, stats, turns }: { overview: Overview; stats: Summary; turns: number }): ReactElement {
   const { errors, totalCalls } = overview;
   return (
@@ -131,27 +83,7 @@ function Kpis({ overview, stats, turns }: { overview: Overview; stats: Summary; 
       </Tile>
       <Tile label="Cache hit">{percent(stats.cacheHit)}</Tile>
       <Tile label="Context">
-        {stats.contextFraction !== undefined ? (
-          <span className="meter-tile">
-            <meter
-              aria-label="Context used"
-              min={0}
-              max={1}
-              low={0.7}
-              high={0.9}
-              optimum={0}
-              value={Math.min(1, stats.contextFraction)}
-              aria-valuetext={`${percent(stats.contextFraction)} of ${compact(stats.contextWindow!)}`}
-            />
-            <span>
-              {percent(stats.contextFraction)} of {compact(stats.contextWindow!)}
-            </span>
-          </span>
-        ) : stats.contextTokens ? (
-          `${compact(stats.contextTokens)} tokens`
-        ) : (
-          dash
-        )}
+        <ContextMeter stats={stats} variant="tile" />
       </Tile>
     </div>
   );
@@ -181,14 +113,14 @@ function TurnTip({ t }: { t: TurnBar }): ReactElement {
       <TipRow label="cost" value={money(t.cost, t.estimated)} />
       <TipRow label="calls" value={t.calls} />
       <TipRow label="errors" value={t.errors} />
-      <TipRow label="status" value={statusLabel[t.status] ?? dash} />
+      <TipRow label="status" value={statusText[t.status] ?? dash} />
     </>
   );
 }
 
 function TurnFlag({ t }: { t: TurnBar }): ReactElement | null {
   if (t.status === SubmissionStatus.FAILED || t.errors > 0) {
-    const text = t.status === SubmissionStatus.FAILED ? "failed" : `${t.errors} ${t.errors === 1 ? "error" : "errors"}`;
+    const text = t.status === SubmissionStatus.FAILED ? "failed" : plural(t.errors, "error");
     return (
       <span className="tl-flag tone-error flag">
         <Icon kind="alert" />
@@ -214,7 +146,7 @@ function Timeline({ overview, onJump }: { overview: Overview; onJump: (target: s
             <tr key={String(t.seq)}>
               <td>{t.n}</td>
               <td className="wrap">{t.prompt}</td>
-              <Num>{statusLabel[t.status] ?? dash}</Num>
+              <Num>{statusText[t.status] ?? dash}</Num>
               <Num>{seconds(t.wallMs)}</Num>
               <Num>{seconds(t.modelMs)}</Num>
               <Num>{seconds(t.toolMs)}</Num>
@@ -261,7 +193,7 @@ function Timeline({ overview, onJump }: { overview: Overview; onJump: (target: s
                   </div>
                   <div className="tl-bar">
                     {t.totalMs > 0 && (
-                      <div className="tl-track" style={{ width: `${(t.totalMs / max) * 100}%` }}>
+                      <div className="tl-track bar-fill" style={{ width: `${(t.totalMs / max) * 100}%` }}>
                         <span className="seg" style={{ flexGrow: t.segModel, background: "var(--series-model)" }} />
                         <span className="seg" style={{ flexGrow: t.segTool, background: "var(--series-tool)" }} />
                         <span className="seg" style={{ flexGrow: t.segOther, background: "var(--series-other)" }} />
@@ -271,9 +203,7 @@ function Timeline({ overview, onJump }: { overview: Overview; onJump: (target: s
                   </div>
                   <div className="tl-meta">
                     {t.cost !== undefined && <span>{money(t.cost, t.estimated)}</span>}
-                    <span>
-                      {t.calls} {t.calls === 1 ? "call" : "calls"}
-                    </span>
+                    <span>{plural(t.calls, "call")}</span>
                   </div>
                 </div>
               );
@@ -512,7 +442,7 @@ function ToolChart({ report, overview, onJump }: { report: Report; overview: Ove
               >
                 <span className="tools-name">{t.name}</span>
                 <span className="tools-bar">
-                  {t.total !== undefined && <span className="tools-fill" style={{ width: `${(t.total / max) * 100}%` }} />}
+                  {t.total !== undefined && <span className="tools-fill bar-fill" style={{ width: `${(t.total / max) * 100}%` }} />}
                   <span className="tools-total">{seconds(t.total)}</span>
                 </span>
                 <span className="num">{t.calls}</span>
