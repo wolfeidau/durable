@@ -37,7 +37,6 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 CREATE INDEX IF NOT EXISTS decisions_sandbox_time ON decisions (sandbox_name, time_ms);
 CREATE INDEX IF NOT EXISTS decisions_time ON decisions (time_ms);
-CREATE INDEX IF NOT EXISTS decisions_sandbox_id ON decisions (sandbox_id);
 CREATE TABLE IF NOT EXISTS raw_events (
 	id INTEGER PRIMARY KEY,
 	uid TEXT UNIQUE,
@@ -49,6 +48,7 @@ CREATE TABLE IF NOT EXISTS raw_events (
 );
 CREATE INDEX IF NOT EXISTS raw_events_time ON raw_events (time_ms);
 CREATE INDEX IF NOT EXISTS raw_events_sandbox_time ON raw_events (sandbox_name, time_ms);
+CREATE INDEX IF NOT EXISTS raw_events_sandbox_id ON raw_events (sandbox_id);
 CREATE TABLE IF NOT EXISTS daily (
 	day TEXT NOT NULL,
 	sandbox_name TEXT NOT NULL,
@@ -119,7 +119,7 @@ type GapInfo struct {
 	Observed  time.Time
 	Since     time.Time
 	Dropped   int64
-	// Unknown is set when SandboxID matches no stored decision, so the gap may belong to any sandbox.
+	// Unknown is set when SandboxID matches no stored named event, so the gap may belong to any sandbox.
 	Unknown bool
 }
 
@@ -195,6 +195,13 @@ func (s *Store) Add(ctx context.Context, evs []Event, notBefore time.Time) (unat
 			tooOld++
 			continue
 		}
+		if ev.Gap != nil {
+			if err := addGap(ctx, tx, ev); err != nil {
+				return 0, 0, err
+			}
+			continue
+		}
+		// Records without a uid can't be deduplicated, so a retried batch may archive them again.
 		fresh, err := addRaw(ctx, tx, ev)
 		if err != nil {
 			return 0, 0, err
@@ -203,12 +210,6 @@ func (s *Store) Add(ctx context.Context, evs []Event, notBefore time.Time) (unat
 			continue
 		}
 		switch {
-		case ev.Gap != nil:
-			_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO gaps (sandbox_id, observed_ms, since_ms, dropped) VALUES (?, ?, ?, ?)`,
-				ev.SandboxID, ev.Observed.UnixMilli(), ev.Gap.Since.UnixMilli(), ev.Gap.Dropped)
-			if err != nil {
-				return 0, 0, fmt.Errorf("failed to insert gap: %w", err)
-			}
 		case ev.Decision == nil:
 		case ev.UID == "" || ev.SandboxName == "":
 			unattributed++
@@ -227,6 +228,24 @@ func (s *Store) Add(ctx context.Context, evs []Event, notBefore time.Time) (unat
 		return 0, 0, fmt.Errorf("failed to commit telemetry transaction: %w", err)
 	}
 	return unattributed, tooOld, nil
+}
+
+// addGap stores the gap and archives it only when the gap row is new, because gaps have no uid to dedupe the archive on.
+func addGap(ctx context.Context, tx *sql.Tx, ev Event) error {
+	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO gaps (sandbox_id, observed_ms, since_ms, dropped) VALUES (?, ?, ?, ?)`,
+		ev.SandboxID, ev.Observed.UnixMilli(), ev.Gap.Since.UnixMilli(), ev.Gap.Dropped)
+	if err != nil {
+		return fmt.Errorf("failed to insert gap: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to count inserted gaps: %w", err)
+	}
+	if n == 0 {
+		return nil
+	}
+	_, err = addRaw(ctx, tx, ev)
+	return err
 }
 
 // addRaw archives the record and reports false when its UID was already archived, which makes raw_events the dedup gate.
@@ -454,7 +473,7 @@ func (s *Store) deniedHosts(ctx context.Context, sandboxName string, from time.T
 
 // SandboxIDs returns the distinct sandbox IDs seen under sandboxName, since a recreated sandbox keeps its name.
 func (s *Store) SandboxIDs(ctx context.Context, sandboxName string) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT sandbox_id FROM decisions WHERE sandbox_name = ? ORDER BY sandbox_id`, sandboxName)
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT sandbox_id FROM raw_events WHERE sandbox_name = ? AND sandbox_id != '' ORDER BY sandbox_id`, sandboxName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query sandbox ids: %w", err)
 	}
@@ -474,7 +493,7 @@ func (s *Store) SandboxIDs(ctx context.Context, sandboxName string) ([]string, e
 }
 
 // Gaps returns gaps observed at or after since for sandboxIDs, gateway-wide gaps, and gaps for sandbox IDs that no stored
-// decision mentions (flagged Unknown), oldest first.
+// named event mentions (flagged Unknown), oldest first.
 func (s *Store) Gaps(ctx context.Context, sandboxIDs []string, since time.Time) ([]GapInfo, error) {
 	args := []any{since.UnixMilli()}
 	var marks strings.Builder
@@ -484,7 +503,7 @@ func (s *Store) Gaps(ctx context.Context, sandboxIDs []string, since time.Time) 
 		args = append(args, id)
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT sandbox_id, observed_ms, since_ms, dropped, unknown FROM (
-			SELECT g.*, g.sandbox_id != '' AND NOT EXISTS (SELECT 1 FROM decisions d WHERE d.sandbox_id = g.sandbox_id) AS unknown FROM gaps g)
+			SELECT g.*, g.sandbox_id != '' AND NOT EXISTS (SELECT 1 FROM raw_events r WHERE r.sandbox_id = g.sandbox_id AND r.sandbox_name != '') AS unknown FROM gaps g)
 		WHERE observed_ms >= ? AND (sandbox_id IN (`+marks.String()+`) OR unknown) ORDER BY observed_ms, id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query gaps: %w", err)

@@ -194,6 +194,43 @@ func TestGapRetryStoresOnce(t *testing.T) {
 	require.Len(t, got, 1)
 }
 
+func TestGapRetryArchivesOnce(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	t0 := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
+	g := Event{SandboxID: "i1", Observed: t0, Gap: &otlp.Gap{Dropped: 5, Since: t0.Add(-time.Minute)}, Raw: []byte(`{"n":"gap"}`)}
+	mustAdd(t, s, []Event{g})
+	mustAdd(t, s, []Event{g})
+
+	var gaps, raws int
+	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM gaps`).Scan(&gaps))
+	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_events`).Scan(&raws))
+	require.Equal(t, 1, gaps)
+	require.Equal(t, 1, raws)
+}
+
+func TestSandboxLearnedFromNonDecisionRecord(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	t0 := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
+	mustAdd(t, s, []Event{
+		{UID: "u1", SandboxName: "a", SandboxID: "id-a", Time: t0, Observed: t0, Raw: []byte(`{"n":"other class"}`)},
+		{SandboxID: "id-a", Observed: t0.Add(time.Second), Gap: &otlp.Gap{Dropped: 3, Since: t0}, Raw: []byte(`{"n":"gap"}`)},
+	})
+
+	ids, err := s.SandboxIDs(ctx, "a")
+	require.NoError(t, err)
+	require.Equal(t, []string{"id-a"}, ids)
+	gaps, err := s.Gaps(ctx, ids, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, gaps, 1)
+	require.False(t, gaps[0].Unknown)
+	raw, err := s.RawEvents(ctx, "a", ids, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, raw, 2)
+	require.JSONEq(t, `{"n":"gap"}`, string(raw[1].Record))
+}
+
 func TestAddSkipsEventsBeforeCutoff(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openStore(t)

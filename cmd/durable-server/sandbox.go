@@ -394,7 +394,7 @@ func printDrops(ctx context.Context, w io.Writer, store *telemetry.Store, name s
 		fmt.Fprintf(w, "warning: %d events were dropped gateway-wide since %s; some may belong to this sandbox\n", wide, localTime(wideSince))
 	}
 	if unknown > 0 {
-		fmt.Fprintf(w, "warning: %d events were dropped for sandboxes with no stored decisions since %s; some may belong to this sandbox\n", unknown, localTime(unknownSince))
+		fmt.Fprintf(w, "warning: %d events were dropped for sandboxes with no stored events since %s; some may belong to this sandbox\n", unknown, localTime(unknownSince))
 	}
 	unattributed, err := store.Unattributed(ctx, start)
 	if err != nil {

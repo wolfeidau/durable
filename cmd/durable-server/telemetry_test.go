@@ -25,6 +25,7 @@ import (
 	"github.com/wolfeidau/durable/internal/config"
 	"github.com/wolfeidau/durable/internal/otlp"
 	"github.com/wolfeidau/durable/internal/sandbox"
+	"github.com/wolfeidau/durable/internal/sandbox/openshell"
 	"github.com/wolfeidau/durable/internal/telemetry"
 )
 
@@ -206,7 +207,7 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
 	require.Len(t, lines, 6, "four decisions, the session event and the gap")
 	uids := map[string]bool{}
-	var gaps int
+	var gaps, namedOther int
 	for _, line := range lines {
 		recs, err := otlp.DecodeRaw([]byte(line))
 		require.NoError(t, err, line)
@@ -216,11 +217,15 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 			gaps++
 			continue
 		}
+		if _, name, _, ok := openshell.ParseOCSF(recs[0].Body); !ok && name == fixtureSandbox {
+			namedOther++
+		}
 		require.NotEmpty(t, recs[0].UID, line)
 		require.False(t, uids[recs[0].UID], "duplicate uid %s", recs[0].UID)
 		uids[recs[0].UID] = true
 	}
 	require.Equal(t, 1, gaps)
+	require.Equal(t, 1, namedOther, "the session event is a non-decision record carrying the sandbox name")
 	require.Len(t, uids, 5)
 	require.Contains(t, stderr, "warning: 3 events from this sandbox were dropped before export since ")
 
@@ -231,6 +236,9 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, raw, 6)
 	require.True(t, json.Valid(raw[0].Record))
+	byName, err := store.RawEvents(t.Context(), fixtureSandbox, nil, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, byName, 5, "everything but the nameless gap is stored under the sandbox name")
 	stopServer(t, r)
 }
 
@@ -362,7 +370,7 @@ func TestAuditReportsDropsAndCoverage(t *testing.T) {
 	require.Contains(t, out, "warning: 3 events from this sandbox were dropped before export since ")
 	require.Contains(t, out, "warning: 3 events were dropped gateway-wide since ")
 	require.Contains(t, out, "; some may belong to this sandbox")
-	require.Contains(t, out, "warning: 3 events were dropped for sandboxes with no stored decisions since ")
+	require.Contains(t, out, "warning: 3 events were dropped for sandboxes with no stored events since ")
 	require.Contains(t, out, "warning: 1 network decisions on or after ")
 	require.Contains(t, out, " (UTC) had no sandbox or event id, so they are not attributed to any sandbox")
 	require.Contains(t, out, "note: telemetry history for this sandbox starts at ")
@@ -393,7 +401,7 @@ func TestAuditWithStoreSurvivesGatewayError(t *testing.T) {
 
 	require.NoError(t, err, stderr)
 	require.Contains(t, stdout, "No network decisions in the telemetry store for that period; the gateway log could not be read: ")
-	require.Contains(t, stdout, "warning: 3 events were dropped for sandboxes with no stored decisions since ")
+	require.Contains(t, stdout, "warning: 3 events were dropped for sandboxes with no stored events since ")
 	stopServer(t, r)
 }
 

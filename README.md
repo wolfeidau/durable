@@ -233,11 +233,12 @@ headers_file = "/home/<you>/.durable/otlp-headers"
   (resource, attributes, body and timestamps), including gaps, other OCSF classes and records with
   no sandbox, for the same retention. The body can include command lines and process ancestry. The
   gateway keeps no copy, so the archive is the record that new or corrected summaries are rebuilt
-  from. `sandbox-audit --raw` prints a sandbox's archived records as JSON Lines.
+  from. `sandbox-audit --raw` prints a sandbox's archived records as JSON Lines. Records without
+  an event id (other than gaps) can appear more than once in the archive if the gateway retries a batch.
 - Events are matched to a session by its sandbox name. Decisions that carry no sandbox or event id
   are not stored as decisions; the server logs a warning and counts them per day.
 - `sandbox-audit` says when data is missing: events the exporter dropped (for the sandbox, and
-  gateway-wide or for sandboxes with no stored decisions), decisions with no sandbox or event id,
+  gateway-wide or for sandboxes with no stored events), decisions with no sandbox or event id,
   history that starts after the requested period, and raw events pruned past `telemetry.retention`.
 
 #### Git host tokens
