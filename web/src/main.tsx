@@ -37,7 +37,7 @@ function Crumb({ sessionId }: { sessionId: string }): ReactElement {
 }
 
 function App(): ReactElement {
-  const [route, select, openServer, selectTab] = useRoute();
+  const [route, select, openServer, selectTab, selectFocus] = useRoute();
   const sessionId = route.view === "session" ? route.id : "";
   const onServer = route.view === "server";
   const [authNeeded, setAuthNeeded] = useState(false);
@@ -121,6 +121,8 @@ function App(): ReactElement {
             onWatch={setWatch}
             tab={route.view === "session" ? route.tab : undefined}
             onTab={(tab) => selectTab(sessionId, tab)}
+            focus={route.view === "session" ? route.focus : undefined}
+            onFocus={(target) => selectFocus(sessionId, target)}
           />
         ) : onServer ? (
           <ServerPage />
