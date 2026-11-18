@@ -322,7 +322,8 @@ func printDrops(ctx context.Context, store *telemetry.Store, name string, start 
 		return err
 	}
 	if unattributed > 0 {
-		fmt.Printf("warning: %d network decisions since %s could not be matched to any sandbox\n", unattributed, localTime(start))
+		// Unattributed decisions are counted per UTC day, so the count covers the whole first day.
+		fmt.Printf("warning: %d network decisions on or after %s (UTC) could not be matched to any sandbox\n", unattributed, start.UTC().Format(time.DateOnly))
 	}
 	return nil
 }
@@ -362,7 +363,7 @@ func (c *sandboxAuditCmd) printDaily(ctx context.Context, store *telemetry.Store
 		return err
 	}
 	if start.Before(now.Add(-retention)) {
-		fmt.Printf("note: drop records older than %s are pruned, so the drop warnings above may be incomplete for this range\n", retention)
+		fmt.Printf("note: records of dropped events older than %s are pruned, so the warnings above may undercount for this range\n", retention)
 	}
 	return nil
 }

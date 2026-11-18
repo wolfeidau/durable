@@ -300,7 +300,7 @@ func TestAuditReportsDropsAndCoverage(t *testing.T) {
 	require.Contains(t, out, "warning: 3 events from this sandbox were dropped before export since ")
 	require.Contains(t, out, "warning: 3 events were dropped gateway-wide since ")
 	require.Contains(t, out, "; some may belong to this sandbox")
-	require.Contains(t, out, "warning: 1 network decisions since ")
+	require.Contains(t, out, "warning: 1 network decisions on or after ")
 	require.Contains(t, out, " could not be matched to any sandbox")
 	require.Contains(t, out, "note: telemetry history for this sandbox starts at ")
 	require.Contains(t, out, "; earlier decisions were not recorded")
@@ -311,6 +311,6 @@ func TestAuditReportsDropsAndCoverage(t *testing.T) {
 	require.Contains(t, out, "note: telemetry history for this sandbox starts on ")
 	require.Contains(t, out, "warning: 3 events from this sandbox were dropped before export since ")
 	require.Contains(t, out, "warning: 3 events were dropped gateway-wide since ")
-	require.Contains(t, out, "warning: 1 network decisions since ")
+	require.Contains(t, out, "warning: 1 network decisions on or after ")
 	stopServer(t, r)
 }
