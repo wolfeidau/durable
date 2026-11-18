@@ -672,7 +672,6 @@ function ModelPanel({ report, stats }: { report: Report; stats: Summary }): Reac
               <span
                 key={p.key}
                 className="seg"
-                tabIndex={0}
                 style={{ flexGrow: p.tokens, background: `var(${splitColor[p.key]})` }}
                 {...tipProps(tip, <TipRow color={splitColor[p.key]} label={p.label} value={`${p.tokens.toLocaleString()} · ${percent(share(p.tokens))}`} />)}
               />

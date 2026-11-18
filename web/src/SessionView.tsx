@@ -271,7 +271,9 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
   const turns = useMemo(() => builder.current.update(w.events), [w.events]);
   const stats = useMemo(() => summarize(w.events), [w.events]);
   const report = useMemo(() => buildReport(w.events), [w.events]);
-  const overview = useMemo(() => buildOverview(w.events, turns, report), [w.events, turns, report]);
+  const onReport = tab === "report" && !focus;
+  // Only the Report reads it, and it parses every call's input, so it isn't rebuilt per event behind the Transcript.
+  const overview = useMemo(() => (onReport ? buildOverview(w.events, turns, report) : undefined), [onReport, w.events, turns, report]);
   const footers = useMemo(() => new Map(report.turns.map((t) => [t.seq, turnFooter(t)])), [report]);
   const [calls, setCalls] = useState({ open: false, version: 0 });
   const [text, setText] = useState("");
@@ -336,7 +338,6 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
   const unseen = [...mine].filter(([id]) => !seen.has(id));
   const loading = w.events.length === 0 && (status === "connecting" || status === "reconnecting");
   const latest = activeTurn(turns);
-  const onReport = tab === "report" && !focus;
 
   const toBottom = () => window.scrollTo({ top: document.documentElement.scrollHeight });
 
@@ -434,7 +435,7 @@ export function SessionView({ sessionId, onWatch, tab, onTab, focus, onFocus }: 
           </div>
         )}
       </div>
-      {onReport && <ReportPanel report={report} overview={overview} stats={stats} onJump={jump} />}
+      {overview && <ReportPanel report={report} overview={overview} stats={stats} onJump={jump} />}
       <FocusTarget.Provider value={focus}>
       <OpenCalls.Provider value={calls}>
         <div className="transcript" ref={transcript} hidden={onReport}>
