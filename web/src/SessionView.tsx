@@ -249,8 +249,8 @@ function Activity({ turn }: { turn: Turn }): ReactElement {
 interface Props {
   sessionId: string;
   onWatch: (w: WatchSummary | undefined) => void;
-  tab?: "report";
-  onTab: (tab: "report" | undefined) => void;
+  tab?: "report" | "network";
+  onTab: (tab: "report" | "network" | undefined) => void;
   focus?: string;
   onFocus: (target: string | undefined) => void;
 }
