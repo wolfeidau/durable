@@ -2,27 +2,34 @@ import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
 import { NetworkEventSchema, type NetworkEvent } from "./gen/durable/v1/durable_pb";
-import { hostSummary, matches, stableDenied, topDenied } from "./networkView";
+import { hostName, hostSummary, matches, stableDenied, topDenied } from "./networkView";
 
 const ev = (id: string, t: number, o: Partial<Pick<NetworkEvent, "allowed" | "host" | "path" | "pattern" | "binary">> = {}): NetworkEvent =>
   create(NetworkEventSchema, { id, time: timestampFromMs(t), allowed: false, host: "a.com", ...o });
 
 describe("topDenied", () => {
-  test("groups by host and pattern or binary, skips allowed, orders by count", () => {
+  test("groups by host name and pattern, skips allowed, orders by count", () => {
     const events = [
       ev("1", 1, { host: "a.com", pattern: "/v*/x" }),
       ev("2", 2, { host: "a.com", pattern: "/v*/x" }),
-      ev("3", 3, { host: "b.com", binary: "/bin/curl" }),
-      ev("4", 4, { host: "b.com", binary: "/bin/curl" }),
-      ev("5", 5, { host: "b.com", binary: "/bin/curl" }),
+      ev("3", 3, { host: "b.com" }),
+      ev("4", 4, { host: "b.com:443", binary: "/bin/curl" }),
+      ev("5", 5, { host: "b.com:443", binary: "/bin/wget" }),
       ev("6", 6, { host: "c.com", allowed: true }),
       ev("7", 7, { host: "a.com", pattern: "/other" }),
     ];
     expect(topDenied(events)).toEqual([
-      { host: "b.com", what: "/bin/curl", count: 3 },
+      { host: "b.com", what: "", count: 3 },
       { host: "a.com", what: "/v*/x", count: 2 },
       { host: "a.com", what: "/other", count: 1 },
     ]);
+  });
+
+  test("hostName strips only a trailing port", () => {
+    expect(hostName("a.com:443")).toBe("a.com");
+    expect(hostName("a.com")).toBe("a.com");
+    expect(hostName("[::1]:443")).toBe("[::1]");
+    expect(hostName("::1")).toBe("::1");
   });
 
   test("keeps only the top rows", () => {

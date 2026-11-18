@@ -1,20 +1,15 @@
 import { memo, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { NetworkEvent } from "./gen/durable/v1/durable_pb";
+import { summary } from "./calls";
 import { coverageNotes, sourceLabel, type NetworkState } from "./network";
+import type { CallEntry } from "./transcript";
 import { eventMs, matches, rowCap, topDenied, type Verdict } from "./networkView";
 import { useNow } from "./useNow";
 
-export interface NetworkCall {
-  id: string;
-  name: string;
-  startedAt?: number;
-  doneAt?: number;
-}
-
 interface Props {
   state: NetworkState | undefined;
-  calls: NetworkCall[];
+  calls: CallEntry[];
   denied: Map<string, NetworkEvent[]>;
   call?: string;
   onCall: (id: string | undefined) => void;
@@ -102,7 +97,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
         <Tile label="Hosts">{stats.hosts}</Tile>
         <Tile label="Source">
           {state.coverage ? sourceLabel[state.coverage.source] : "—"}
-          {state.coverage?.since && <span className="tile-sub"> since {fmtTime(timestampDate(state.coverage.since))}</span>}
+          {state.coverage?.since && <span className="tile-sub">since {fmtTime(timestampDate(state.coverage.since))}</span>}
         </Tile>
       </div>
       {top.length > 0 && (
@@ -132,7 +127,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
         <input type="search" value={text} placeholder="Filter by host or path" aria-label="Filter by host or path" onChange={(e) => setText(e.target.value)} />
         {call && (
           <button className="secondary call-filter" title="Show all calls" onClick={() => onCall(undefined)}>
-            Call: {selected?.name ?? call} ×
+            Call: {selected ? [selected.name, summary(selected)].filter(Boolean).join(" · ") : call} ×
           </button>
         )}
       </div>
@@ -145,12 +140,8 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
               <tr>
                 <th>Time</th>
                 <th>Verdict</th>
-                <th>Kind</th>
-                <th>Method / binary</th>
-                <th>Host</th>
-                <th>Path</th>
+                <th>Request</th>
                 <th>Policy</th>
-                <th>Reason</th>
               </tr>
             </thead>
             <tbody>
@@ -170,15 +161,27 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
                         </button>
                       )}
                     </td>
-                    <td>{e.kind}</td>
-                    <td className="mono">{e.method || e.binary}</td>
-                    <td className="mono">{e.host}</td>
-                    <td className="mono" title={e.path}>
-                      {e.pattern || e.path}
+                    <td className="request wrap">
+                      <span className="mono">
+                        {e.host}
+                        {e.path && (
+                          <span className="muted" title={e.path}>
+                            {e.pattern || e.path}
+                          </span>
+                        )}
+                      </span>
+                      <span className="faint">
+                        {e.kind}
+                        {(e.method || e.binary) && ` · ${e.method || e.binary}`}
+                      </span>
                     </td>
-                    <td>{e.policy}</td>
-                    <td className="reason" title={e.reason}>
-                      {e.reason}
+                    <td className="policy wrap">
+                      {e.policy && <span>{e.policy}</span>}
+                      {e.reason && (
+                        <span className="faint" title={e.reason}>
+                          {e.reason}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 );

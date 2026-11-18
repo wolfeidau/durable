@@ -33,16 +33,20 @@ export interface TopDenied {
   count: number;
 }
 
-// Grouped by host and pattern (or binary for NET), so repeated requests collapse into one row.
+// A DNS refusal names the host without a port and the connection after it with one, so both group under the host name.
+export const hostName = (host: string): string => host.match(/^(\[[^\]]*\]|[^:]*):\d+$/)?.[1] ?? host;
+
+// Grouped by host name and HTTP path pattern, so repeated requests collapse into one row.
 export function topDenied(events: NetworkEvent[], limit = topLimit): TopDenied[] {
   const groups = new Map<string, TopDenied>();
   for (const e of events) {
     if (e.allowed) continue;
-    const what = e.pattern || e.binary;
-    const key = `${e.host}\0${what}`;
+    const host = hostName(e.host);
+    const what = e.pattern;
+    const key = `${host}\0${what}`;
     const g = groups.get(key);
     if (g) g.count++;
-    else groups.set(key, { host: e.host, what, count: 1 });
+    else groups.set(key, { host, what, count: 1 });
   }
   return [...groups.values()].sort((a, b) => b.count - a.count || a.host.localeCompare(b.host) || a.what.localeCompare(b.what)).slice(0, limit);
 }
