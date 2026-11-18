@@ -63,8 +63,9 @@ type rotateTokenCmd struct{}
 const tokenFile = "server-token"
 
 type serverInfo struct {
-	Addr  string `json:"addr"`
-	Token string `json:"token"`
+	Addr     string `json:"addr"`
+	Token    string `json:"token"`
+	OTLPAddr string `json:"otlp_addr,omitempty"`
 }
 
 func (c *serveCmd) overrides() config.Overrides {
@@ -149,6 +150,22 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
+	// Requests drain within the grace period, and streams end when the base context is cancelled.
+	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelBase()
+
+	rcv, rcvWarnings, err := startReceiver(ctx, logger, home, settings, func(net.Listener) context.Context { return baseCtx })
+	if err != nil {
+		return err
+	}
+	// The deferred close covers early returns; the normal path closes it after the API drains.
+	defer func() {
+		cctx, ccancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer ccancel()
+		_ = rcv.close(cctx)
+	}()
+	warnings = append(warnings, rcvWarnings...)
+
 	ln, err := new(net.ListenConfig).Listen(ctx, "tcp", settings.Addr)
 	if err != nil {
 		return fmt.Errorf("failed to listen on %s: %w", settings.Addr, err)
@@ -160,15 +177,12 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		warnings = append(warnings, msg+" ("+addr+")")
 	}
 	infoPath := filepath.Join(home, ".durable", "server.json")
-	if err := writeServerInfo(infoPath, serverInfo{Addr: addr, Token: token}); err != nil {
+	if err := writeServerInfo(infoPath, serverInfo{Addr: addr, Token: token, OTLPAddr: rcv.address()}); err != nil {
 		_ = ln.Close()
 		return err
 	}
 	defer os.Remove(infoPath)
 
-	// Requests drain within the grace period, and streams end when the base context is cancelled.
-	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
-	defer cancelBase()
 	// Closed after the registry, whose sessions stop their sandboxes through it.
 	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources)}
 	defer backend.Close()
@@ -211,21 +225,36 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	select {
 	case err := <-errc:
 		return fmt.Errorf("failed to serve: %w", err)
+	case err := <-rcv.failed():
+		return fmt.Errorf("failed to serve telemetry: %w", err)
 	case <-ctx.Done():
 	}
 
+	return shutdownServe(ctx, srv, cancelBase, rcv, registry)
+}
+
+// shutdownServe drains the API, then the receiver, and reports both errors.
+func shutdownServe(ctx context.Context, srv *http.Server, cancelBase context.CancelFunc, rcv *receiver, registry *server.Registry) error {
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	err = srv.Shutdown(shutdownCtx)
+	err := srv.Shutdown(shutdownCtx)
 	cancelBase()
-	// Interrupted runs resume on the next open.
-	registry.Close()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		// Open streams may outlast the grace period.
 		_ = srv.Close()
-		return fmt.Errorf("failed to shut down: %w", err)
+		err = fmt.Errorf("failed to shut down: %w", err)
+	} else {
+		err = nil
 	}
-	return nil
+	// The receiver gets its own deadline, because a slow API drain leaves shutdownCtx expired.
+	rctx, rcancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer rcancel()
+	if rerr := rcv.close(rctx); rerr != nil {
+		err = errors.Join(err, fmt.Errorf("failed to shut down telemetry: %w", rerr))
+	}
+	// Interrupted runs resume on the next open.
+	registry.Close()
+	return err
 }
 
 // writeServerInfo replaces path atomically, so a reader never sees a partial token.
@@ -301,16 +330,9 @@ func loadOrCreateToken(path string) (string, error) {
 	if !errors.Is(err, os.ErrExist) {
 		return "", err
 	}
-	st, err := os.Stat(path)
+	data, err := readPrivateFile(path)
 	if err != nil {
-		return "", fmt.Errorf("failed to stat %s: %w", path, err)
-	}
-	if st.Mode().Perm()&0o077 != 0 {
-		return "", fmt.Errorf("%s is accessible by other users (mode %04o); run chmod 600 %s", path, st.Mode().Perm(), path)
-	}
-	data, err := os.ReadFile(path) //nolint:gosec // fixed name inside the durable directory
-	if err != nil {
-		return "", fmt.Errorf("failed to read %s: %w", path, err)
+		return "", err
 	}
 	token = strings.TrimSpace(string(data))
 	if token == "" {

@@ -36,6 +36,12 @@ type ocsfEvent struct {
 	FirewallRule struct {
 		Name string `json:"name"`
 	} `json:"firewall_rule"`
+	Device struct {
+		Container struct {
+			Name string `json:"name"`
+			UID  string `json:"uid"`
+		} `json:"container"`
+	} `json:"device"`
 	HTTPRequest struct {
 		Method string `json:"http_method"`
 		URL    struct {
@@ -45,10 +51,28 @@ type ocsfEvent struct {
 	} `json:"http_request"`
 }
 
+// ParseOCSF maps an OCSF event body to its Decision plus the sandbox name and ID from device.container; ok is false for
+// anything that isn't a network decision, but the name and ID are still returned so other events can be attributed.
+func ParseOCSF(body []byte) (d Decision, sandboxName, sandboxID string, ok bool) {
+	var e ocsfEvent
+	if json.Unmarshal(body, &e) != nil {
+		return Decision{}, "", "", false
+	}
+	d, ok = decisionFromEvent(e)
+	if !ok {
+		d = Decision{}
+	}
+	return d, e.Device.Container.Name, e.Device.Container.UID, ok
+}
+
 // decisionFromOCSF maps an OCSF event body to the Decision parseDecision yields for the same event; it reports false for anything that isn't a network decision.
 func decisionFromOCSF(body []byte) (Decision, bool) {
-	var e ocsfEvent
-	if json.Unmarshal(body, &e) != nil || e.ActionID != ocsfActionAllowed && e.ActionID != ocsfActionDenied {
+	d, _, _, ok := ParseOCSF(body)
+	return d, ok
+}
+
+func decisionFromEvent(e ocsfEvent) (Decision, bool) {
+	if e.ActionID != ocsfActionAllowed && e.ActionID != ocsfActionDenied {
 		return Decision{}, false
 	}
 	d := Decision{Time: time.UnixMilli(e.Time).UTC(), Allowed: e.ActionID == ocsfActionAllowed, Policy: e.FirewallRule.Name}

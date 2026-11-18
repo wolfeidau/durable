@@ -1,11 +1,13 @@
 package otlp
 
 import (
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -15,6 +17,8 @@ import (
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
+	logspb "go.opentelemetry.io/proto/otlp/logs/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -33,6 +37,8 @@ type Record struct {
 	Severity  string
 	Body      json.RawMessage // the OCSF event; nil for gap records and non-JSON bodies
 	Gap       *Gap
+	// Raw is the whole record as protojson of a ResourceLogs holding only this record, so DecodeRaw can re-derive it.
+	Raw []byte
 }
 
 // Gap says the exporter dropped records, so the stream is incomplete.
@@ -138,11 +144,37 @@ func records(req *collogspb.ExportLogsServiceRequest) []Record {
 					since, _ := strconv.ParseInt(attr(attrs, "openshell.ocsf.gap.since_unix_ms"), 10, 64)
 					rec.Gap = &Gap{Dropped: dropped, Since: time.UnixMilli(since).UTC()}
 				}
+				rec.Raw = rawRecord(rl, sl, lr)
 				out = append(out, rec)
 			}
 		}
 	}
 	return out
+}
+
+// rawRecord keeps the record's resource and scope with it, because the sandbox id can live on the resource.
+func rawRecord(rl *logspb.ResourceLogs, sl *logspb.ScopeLogs, lr *logspb.LogRecord) []byte {
+	one := &logspb.ResourceLogs{
+		Resource:  rl.GetResource(),
+		SchemaUrl: rl.GetSchemaUrl(),
+		ScopeLogs: []*logspb.ScopeLogs{{Scope: sl.GetScope(), SchemaUrl: sl.GetSchemaUrl(), LogRecords: []*logspb.LogRecord{lr}}},
+	}
+	// Marshaling a decoded message cannot fail.
+	b, _ := protojson.Marshal(one)
+	var buf bytes.Buffer
+	if json.Compact(&buf, b) != nil {
+		return b
+	}
+	return buf.Bytes()
+}
+
+// DecodeRaw re-derives the records from an archived Record.Raw.
+func DecodeRaw(raw []byte) ([]Record, error) {
+	var rl logspb.ResourceLogs
+	if err := protojson.Unmarshal(raw, &rl); err != nil {
+		return nil, fmt.Errorf("failed to decode raw record: %w", err)
+	}
+	return records(&collogspb.ExportLogsServiceRequest{ResourceLogs: []*logspb.ResourceLogs{&rl}}), nil
 }
 
 func nanoTime(ns uint64) time.Time {

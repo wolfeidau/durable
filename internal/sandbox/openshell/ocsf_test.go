@@ -85,6 +85,27 @@ func TestDecisionFromOCSF(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestParseOCSFDevice(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("testdata", "ocsf", "net-denied-curl.json"))
+	require.NoError(t, err)
+	_, name, id, ok := ParseOCSF(body)
+	require.True(t, ok)
+	require.Equal(t, "dt-63539bd5bc24", name)
+	require.Equal(t, "126316d7-ba94-4724-b97b-50ba61698af0", id)
+
+	_, name, id, ok = ParseOCSF([]byte(`{"class_uid":4001,"activity_id":1,"action_id":2,"dst_endpoint":{"domain":"a.com"}}`))
+	require.True(t, ok)
+	require.Empty(t, name)
+	require.Empty(t, id)
+
+	body, err = os.ReadFile(filepath.Join("testdata", "ocsf", "net-session-established.json"))
+	require.NoError(t, err)
+	_, name, id, ok = ParseOCSF(body)
+	require.False(t, ok)
+	require.Equal(t, "dt-63539bd5bc24", name)
+	require.Equal(t, "126316d7-ba94-4724-b97b-50ba61698af0", id)
+}
+
 func TestDecisionFromOCSFFixtures(t *testing.T) {
 	tests := []struct {
 		file string

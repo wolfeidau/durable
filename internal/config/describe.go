@@ -46,6 +46,8 @@ func (s *Settings) Entries() []Entry {
 	line("listen.idle_timeout", s.IdleTimeout.String())
 	line("listen.open_timeout", s.OpenTimeout.String())
 	line("listen.heartbeat", s.Heartbeat.String())
+	line("telemetry.otlp_addr", orDefault(s.TelemetryAddr, "off"))
+	line("telemetry.retention", s.TelemetryRetention.String())
 	line("provider.name", orDefault(s.Provider, "anthropic"))
 	line("provider.protocol", orDefault(s.Protocol, "provider default"))
 	line("provider.model", orDefault(s.Model, "built-in default"))
