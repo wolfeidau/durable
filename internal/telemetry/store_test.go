@@ -26,16 +26,17 @@ func openStore(t *testing.T) (*Store, string) {
 
 func ev(uid, name, id string, at time.Time, allowed bool, host string) Event {
 	return Event{
-		UID: uid, SandboxName: name, SandboxID: id, Observed: at,
-		Decision: openshell.Decision{Time: at, Allowed: allowed, Kind: "HTTP", Method: "GET", Host: host, Path: "/a/v1.2.3/b", Policy: "p"},
+		UID: uid, SandboxName: name, SandboxID: id, Time: at, Observed: at,
+		Decision: &openshell.Decision{Time: at, Allowed: allowed, Kind: "HTTP", Method: "GET", Host: host, Path: "/a/v1.2.3/b", Policy: "p"},
 	}
 }
 
 func mustAdd(t *testing.T, s *Store, evs []Event) int {
 	t.Helper()
-	skipped, err := s.Add(context.Background(), evs)
+	unattributed, tooOld, err := s.Add(context.Background(), evs, time.Time{})
 	require.NoError(t, err)
-	return skipped
+	require.Zero(t, tooOld)
+	return unattributed
 }
 
 func TestAddAndDecisions(t *testing.T) {
@@ -44,7 +45,7 @@ func TestAddAndDecisions(t *testing.T) {
 	t0 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	full := Event{
 		UID: "u2", SandboxName: "a", SandboxID: "id1", Observed: t0.Add(time.Minute),
-		Decision: openshell.Decision{Time: t0.Add(time.Second), Kind: "NET", Activity: "REFUSE", Binary: "/bin/curl", Host: "h:443", Reason: "nope"},
+		Decision: &openshell.Decision{Time: t0.Add(time.Second), Kind: "NET", Activity: "REFUSE", Binary: "/bin/curl", Host: "h:443", Reason: "nope"},
 	}
 	mustAdd(t, s, []Event{
 		full,
@@ -57,7 +58,7 @@ func TestAddAndDecisions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []openshell.Decision{
 		{Time: t0, Allowed: true, Kind: "HTTP", Method: "GET", Host: "github.com", Path: "/a/v1.2.3/b", Policy: "p"},
-		full.Decision,
+		*full.Decision,
 	}, got)
 	require.Equal(t, time.UTC, got[0].Time.Location())
 
@@ -136,7 +137,7 @@ func TestPruneKeepsDaily(t *testing.T) {
 
 	n, err := s.Prune(ctx, cut)
 	require.NoError(t, err)
-	require.EqualValues(t, 2, n)
+	require.EqualValues(t, 4, n, "the decision, gap and their archived records")
 
 	ds, err := s.Decisions(ctx, "a", time.Time{})
 	require.NoError(t, err)
@@ -158,19 +159,59 @@ func TestGaps(t *testing.T) {
 		{SandboxID: "", Observed: t0.Add(time.Minute), Gap: &otlp.Gap{Dropped: 7, Since: t0}},
 		{SandboxID: "other", Observed: t0, Gap: &otlp.Gap{Dropped: 9, Since: t0}},
 		{SandboxID: "i1", Observed: t0.Add(-time.Hour), Gap: &otlp.Gap{Dropped: 1, Since: t0.Add(-2 * time.Hour)}},
+		ev("1", "a", "i1", t0, true, "x"),
+		ev("2", "b", "known-other", t0, true, "x"),
+		{SandboxID: "known-other", Observed: t0, Gap: &otlp.Gap{Dropped: 2, Since: t0}},
 	})
 
 	got, err := s.Gaps(ctx, []string{"i1"}, t0)
 	require.NoError(t, err)
 	require.Equal(t, []GapInfo{
 		{SandboxID: "i1", Observed: t0, Since: t0.Add(-time.Minute), Dropped: 5},
+		{SandboxID: "other", Observed: t0, Since: t0, Dropped: 9, Unknown: true},
 		{SandboxID: "", Observed: t0.Add(time.Minute), Since: t0, Dropped: 7},
-	}, got)
+	}, got, "another sandbox's gap is left out, one for an id with no decisions is flagged unknown")
 
 	got, err = s.Gaps(ctx, nil, t0.Add(-2*time.Hour))
 	require.NoError(t, err)
+	require.Len(t, got, 2)
+	require.True(t, got[0].Unknown)
+	require.Empty(t, got[1].SandboxID)
+}
+
+func TestGapRetryStoresOnce(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	t0 := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
+	g := Event{SandboxID: "i1", Observed: t0, Gap: &otlp.Gap{Dropped: 5, Since: t0.Add(-time.Minute)}}
+	retry := g
+	retry.Observed = t0.Add(time.Second)
+	mustAdd(t, s, []Event{g})
+	mustAdd(t, s, []Event{retry})
+
+	got, err := s.Gaps(ctx, []string{"i1"}, time.Time{})
+	require.NoError(t, err)
 	require.Len(t, got, 1)
-	require.Empty(t, got[0].SandboxID)
+}
+
+func TestAddSkipsEventsBeforeCutoff(t *testing.T) {
+	ctx := context.Background()
+	s, _ := openStore(t)
+	t0 := time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)
+	_, tooOld, err := s.Add(ctx, []Event{ev("old", "a", "i", t0.Add(-time.Hour), true, "x"), ev("new", "a", "i", t0, true, "x")}, t0)
+	require.NoError(t, err)
+	require.Equal(t, 1, tooOld)
+
+	ds, err := s.Decisions(ctx, "a", time.Time{})
+	require.NoError(t, err)
+	require.Len(t, ds, 1)
+	days, err := s.Daily(ctx, "a", t0.Add(-24*time.Hour))
+	require.NoError(t, err)
+	require.Len(t, days, 1)
+	require.Equal(t, 1, days[0].Allowed)
+	raw, err := s.RawEvents(ctx, "a", nil, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, raw, 1)
 }
 
 func TestSandboxIDs(t *testing.T) {
@@ -250,50 +291,67 @@ func TestRawEventRoundTrip(t *testing.T) {
 	s, _ := openStore(t)
 	t0 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	e := ev("u1", "a", "i", t0, true, "x")
-	e.Body = []byte(`{"cmd":"curl x"}`)
+	e.Raw = []byte(`{"cmd":"curl x"}`)
 	old := ev("u0", "a", "i", t0.Add(-time.Hour), true, "x")
-	old.Body = []byte(`{"old":1}`)
-	other := ev("u2", "b", "i", t0, true, "x")
-	other.Body = []byte(`{"b":1}`)
+	old.Raw = []byte(`{"old":1}`)
+	other := ev("u2", "b", "j", t0, true, "x")
+	other.Raw = []byte(`{"b":1}`)
 	mustAdd(t, s, []Event{e, old, other})
 
-	got, err := s.RawEvents(ctx, "a", t0)
+	got, err := s.RawEvents(ctx, "a", nil, t0)
 	require.NoError(t, err)
-	require.Equal(t, []RawEvent{{UID: "u1", Time: t0, Body: json.RawMessage(`{"cmd":"curl x"}`)}}, got)
-	got, err = s.RawEvents(ctx, "a", time.Time{})
+	require.Equal(t, []RawEvent{{UID: "u1", Time: t0, Record: json.RawMessage(`{"cmd":"curl x"}`)}}, got)
+	got, err = s.RawEvents(ctx, "a", nil, time.Time{})
 	require.NoError(t, err)
 	require.Len(t, got, 2)
 	require.Equal(t, "u0", got[0].UID)
 }
 
-func TestRawEventDuplicateStoresOnce(t *testing.T) {
+func TestRawEventDuplicateSkipsDerivedRows(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openStore(t)
 	e := ev("u1", "a", "i", time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), true, "x")
-	e.Body = []byte(`{"n":1}`)
+	e.Raw = []byte(`{"n":1}`)
 	dup := e
-	dup.Body = []byte(`{"n":2}`)
+	dup.Raw = []byte(`{"n":2}`)
 	mustAdd(t, s, []Event{e, dup})
 	mustAdd(t, s, []Event{dup})
 
-	got, err := s.RawEvents(ctx, "a", time.Time{})
+	got, err := s.RawEvents(ctx, "a", nil, time.Time{})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
-	require.JSONEq(t, `{"n":1}`, string(got[0].Body))
+	require.JSONEq(t, `{"n":1}`, string(got[0].Record))
+	days, err := s.Daily(ctx, "a", time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, 1, days[0].Allowed)
 }
 
-func TestRawEventSkippedWithoutBodyOrSandbox(t *testing.T) {
+func TestRawEventsArchiveEveryRecord(t *testing.T) {
 	ctx := context.Background()
 	s, _ := openStore(t)
 	t0 := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	noBody := ev("1", "a", "i", t0, true, "x")
-	noSandbox := ev("2", "", "i", t0, true, "x")
-	noSandbox.Body = []byte(`{"n":1}`)
-	mustAdd(t, s, []Event{noBody, noSandbox})
+	dec := ev("u1", "a", "i", t0, true, "x")
+	dec.Raw = []byte(`{"n":"decision"}`)
+	noUID := ev("", "a", "i", t0.Add(time.Second), true, "x")
+	noUID.Raw = []byte(`{"n":"no uid"}`)
+	noSandbox := ev("u3", "", "", t0.Add(2*time.Second), true, "x")
+	noSandbox.Raw = []byte(`{"n":"no sandbox"}`)
+	other := Event{UID: "u4", SandboxName: "", SandboxID: "i", Time: t0.Add(3 * time.Second), Observed: t0, Raw: []byte(`{"n":"other class"}`)}
+	gap := Event{SandboxID: "i", Observed: t0.Add(4 * time.Second), Gap: &otlp.Gap{Dropped: 2, Since: t0}, Raw: []byte(`{"n":"gap"}`)}
+	elsewhere := Event{UID: "u5", SandboxID: "z", Observed: t0, Raw: []byte(`{"n":"other sandbox"}`)}
+	require.Equal(t, 2, mustAdd(t, s, []Event{dec, noUID, noSandbox, other, gap, elsewhere}))
 
-	var n int
-	require.NoError(t, s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM raw_events`).Scan(&n))
-	require.Zero(t, n)
+	got, err := s.RawEvents(ctx, "a", []string{"i", ""}, time.Time{})
+	require.NoError(t, err)
+	var records []string
+	for _, e := range got {
+		records = append(records, string(e.Record))
+	}
+	require.Equal(t, []string{`{"n":"decision"}`, `{"n":"no uid"}`, `{"n":"other class"}`, `{"n":"gap"}`}, records)
+	require.Empty(t, got[1].UID)
+	ds, err := s.Decisions(ctx, "a", time.Time{})
+	require.NoError(t, err)
+	require.Len(t, ds, 1, "records with no uid or sandbox are archived, not stored as decisions")
 }
 
 func TestPruneRemovesRawEvents(t *testing.T) {
@@ -302,13 +360,13 @@ func TestPruneRemovesRawEvents(t *testing.T) {
 	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	cut := old.Add(24 * time.Hour)
 	a, b := ev("1", "a", "i", old, true, "x"), ev("2", "a", "i", cut, true, "x")
-	a.Body, b.Body = []byte(`{"n":1}`), []byte(`{"n":2}`)
+	a.Raw, b.Raw = []byte(`{"n":1}`), []byte(`{"n":2}`)
 	mustAdd(t, s, []Event{a, b})
 
 	n, err := s.Prune(ctx, cut)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, n)
-	got, err := s.RawEvents(ctx, "a", time.Time{})
+	got, err := s.RawEvents(ctx, "a", nil, time.Time{})
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "2", got[0].UID)
@@ -339,7 +397,7 @@ func TestOpenReadOnly(t *testing.T) {
 	ds, err := ro.Decisions(ctx, "a", time.Time{})
 	require.NoError(t, err)
 	require.Len(t, ds, 1)
-	_, err = ro.Add(ctx, []Event{ev("2", "a", "i", t0, true, "x")})
+	_, _, err = ro.Add(ctx, []Event{ev("2", "a", "i", t0, true, "x")}, time.Time{})
 	require.Error(t, err)
 
 	missing := filepath.Join(t.TempDir(), "missing.db")
@@ -364,7 +422,7 @@ func TestFixtures(t *testing.T) {
 		if !ok {
 			continue
 		}
-		evs = append(evs, Event{Decision: d, UID: filepath.Base(f), SandboxName: name, SandboxID: id, Observed: observed})
+		evs = append(evs, Event{Decision: &d, UID: filepath.Base(f), SandboxName: name, SandboxID: id, Observed: observed})
 	}
 	require.NotEmpty(t, evs)
 	mustAdd(t, s, evs)

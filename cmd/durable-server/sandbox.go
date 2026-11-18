@@ -145,18 +145,32 @@ func (c *sandboxDeleteCmd) Run(ctx context.Context) error {
 
 type sandboxAuditCmd struct {
 	Session string `arg:"" help:"Session id, as shown in the session directory name."`
-	// Zero means the 24h default, so --daily can tell an explicit --since.
+	// Zero means the default, so the command can tell an explicit --since or --days.
 	Since  time.Duration `help:"How far back to read the network decisions (default 24h). Not allowed with --daily."`
-	Denied bool          `help:"List only denied requests."`
+	Denied bool          `help:"List only denied requests. Not allowed with --daily or --raw."`
 	Daily  bool          `help:"Print per-day totals from the telemetry store instead of the requests. Use --days, not --since."`
-	Days   int           `default:"30" help:"How many days --daily covers."`
-	Raw    bool          `help:"Print the stored raw OCSF events as JSON Lines, with notes on stderr. Needs the telemetry store; not allowed with --daily or --denied."`
+	Days   int           `help:"How many days --daily covers (default 30). Only allowed with --daily."`
+	Raw    bool          `help:"Print the archived OTLP log records as JSON Lines, with notes on stderr. Needs the telemetry store; not allowed with --daily or --denied."`
 }
 
-const defaultAuditSince = 24 * time.Hour
+const (
+	defaultAuditSince = 24 * time.Hour
+	defaultAuditDays  = 30
+)
 
-// Run takes no lock, because it only reads the telemetry store and the sandbox log.
-func (c *sandboxAuditCmd) Run(ctx context.Context) error {
+func (c *sandboxAuditCmd) validate() error {
+	if c.Since < 0 {
+		return errors.New("--since must be positive")
+	}
+	if c.Days < 0 {
+		return errors.New("--days must be at least 1")
+	}
+	if c.Days != 0 && !c.Daily {
+		return errors.New("--days applies only to --daily")
+	}
+	if c.Denied && c.Daily {
+		return errors.New("--denied does not apply to --daily")
+	}
 	if c.Raw && c.Daily {
 		return errors.New("--raw does not apply to --daily")
 	}
@@ -165,6 +179,14 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 	}
 	if c.Daily && c.Since != 0 {
 		return errors.New("--since does not apply to --daily; use --days")
+	}
+	return nil
+}
+
+// Run takes no lock, because it only reads the telemetry store and the sandbox log.
+func (c *sandboxAuditCmd) Run(ctx context.Context) error {
+	if err := c.validate(); err != nil {
+		return err
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -217,14 +239,23 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 		return printRaw(ctx, store, pin.Name, start, now, retention)
 	}
 	ds, fromStore, err := readDecisions(ctx, store, pin.Name, start)
+	// With a store, an unreadable gateway only means the log adds nothing, so report it and still print the store notes.
+	var gatewayErr error
 	if err != nil {
-		return err
+		if store == nil || fromStore {
+			return err
+		}
+		gatewayErr = err
 	}
-	return c.printDecisions(ctx, store, pin.Name, ds, fromStore, start, now, retention)
+	return c.printDecisions(ctx, store, pin.Name, ds, fromStore, gatewayErr, start, now, retention)
 }
 
-func (c *sandboxAuditCmd) printDecisions(ctx context.Context, store *telemetry.Store, name string, ds []openshell.Decision, fromStore bool, start, now time.Time, retention time.Duration) error {
+func (c *sandboxAuditCmd) printDecisions(ctx context.Context, store *telemetry.Store, name string, ds []openshell.Decision, fromStore bool, gatewayErr error, start, now time.Time, retention time.Duration) error {
 	if len(ds) == 0 {
+		if gatewayErr != nil {
+			fmt.Printf("No network decisions in the telemetry store for that period; the gateway log could not be read: %v\n", gatewayErr)
+			return printStoreNotes(ctx, os.Stdout, store, name, start, now, retention)
+		}
 		if store != nil {
 			fmt.Println("No network decisions for that period; checked the telemetry store and the gateway log.")
 			return printStoreNotes(ctx, os.Stdout, store, name, start, now, retention)
@@ -265,17 +296,21 @@ func (c *sandboxAuditCmd) printDecisions(ctx context.Context, store *telemetry.S
 	return printStoreNotes(ctx, os.Stdout, store, name, start, now, retention)
 }
 
-// printRaw writes the stored bodies to stdout and every note to stderr, so stdout stays valid JSON Lines.
+// printRaw writes the archived records to stdout and every note to stderr, so stdout stays valid JSON Lines.
 func printRaw(ctx context.Context, store *telemetry.Store, name string, start, now time.Time, retention time.Duration) error {
-	events, err := store.RawEvents(ctx, name, start)
+	ids, err := store.SandboxIDs(ctx, name)
+	if err != nil {
+		return err
+	}
+	events, err := store.RawEvents(ctx, name, ids, start)
 	if err != nil {
 		return err
 	}
 	var buf bytes.Buffer
 	for _, e := range events {
 		buf.Reset()
-		if err := json.Compact(&buf, e.Body); err != nil {
-			return fmt.Errorf("failed to compact raw event %s: %w", e.UID, err)
+		if err := json.Compact(&buf, e.Record); err != nil {
+			return fmt.Errorf("failed to compact raw event at %s: %w", e.Time.Format(time.RFC3339), err)
 		}
 		buf.WriteByte('\n')
 		if _, err := buf.WriteTo(os.Stdout); err != nil {
@@ -337,12 +372,15 @@ func printDrops(ctx context.Context, w io.Writer, store *telemetry.Store, name s
 	if err != nil {
 		return err
 	}
-	var own, wide int64
-	var ownSince, wideSince time.Time
+	var own, wide, unknown int64
+	var ownSince, wideSince, unknownSince time.Time
 	for _, g := range gaps {
 		n, since := &own, &ownSince
-		if g.SandboxID == "" {
+		switch {
+		case g.SandboxID == "":
 			n, since = &wide, &wideSince
+		case g.Unknown:
+			n, since = &unknown, &unknownSince
 		}
 		*n += g.Dropped
 		if since.IsZero() || g.Since.Before(*since) {
@@ -355,29 +393,36 @@ func printDrops(ctx context.Context, w io.Writer, store *telemetry.Store, name s
 	if wide > 0 {
 		fmt.Fprintf(w, "warning: %d events were dropped gateway-wide since %s; some may belong to this sandbox\n", wide, localTime(wideSince))
 	}
+	if unknown > 0 {
+		fmt.Fprintf(w, "warning: %d events were dropped for sandboxes with no stored decisions since %s; some may belong to this sandbox\n", unknown, localTime(unknownSince))
+	}
 	unattributed, err := store.Unattributed(ctx, start)
 	if err != nil {
 		return err
 	}
 	if unattributed > 0 {
 		// Unattributed decisions are counted per UTC day, so the count covers the whole first day.
-		fmt.Fprintf(w, "warning: %d network decisions on or after %s (UTC) could not be matched to any sandbox\n", unattributed, start.UTC().Format(time.DateOnly))
+		fmt.Fprintf(w, "warning: %d network decisions on or after %s (UTC) had no sandbox or event id, so they are not attributed to any sandbox\n", unattributed, start.UTC().Format(time.DateOnly))
 	}
 	return nil
 }
 
 func (c *sandboxAuditCmd) printDaily(ctx context.Context, store *telemetry.Store, name string, now time.Time, retention time.Duration) error {
-	start := now.Add(-time.Duration(c.Days) * 24 * time.Hour)
-	days, err := store.Daily(ctx, name, start)
+	days := c.Days
+	if days == 0 {
+		days = defaultAuditDays
+	}
+	start := now.Add(-time.Duration(days) * 24 * time.Hour)
+	totals, err := store.Daily(ctx, name, start)
 	if err != nil {
 		return err
 	}
-	if len(days) == 0 {
+	if len(totals) == 0 {
 		fmt.Println("No network decisions in the telemetry store for that period.")
 	} else {
 		tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
 		fmt.Fprintln(tw, "DAY\tALLOWED\tDENIED\tTOP DENIED")
-		for _, d := range days {
+		for _, d := range totals {
 			hosts := make([]string, len(d.TopDenied))
 			for i, h := range d.TopDenied {
 				hosts[i] = fmt.Sprintf("%s (%d)", h.Host, h.Count)

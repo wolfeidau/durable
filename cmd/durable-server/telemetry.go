@@ -83,9 +83,13 @@ func startReceiver(ctx context.Context, logger *slog.Logger, home string, settin
 		return nil, nil, fmt.Errorf("failed to open telemetry store: %w", err)
 	}
 	handler, err := otlp.Handler(token, func(ctx context.Context, recs []otlp.Record) error {
-		skipped, err := store.Add(ctx, events(recs, time.Now()))
-		if skipped > 0 {
-			logger.WarnContext(ctx, "telemetry dropped network decisions it could not match to a sandbox", slog.Int("count", skipped))
+		now := time.Now()
+		unattributed, tooOld, err := store.Add(ctx, events(recs, now), now.Add(-settings.TelemetryRetention))
+		if unattributed > 0 {
+			logger.WarnContext(ctx, "telemetry could not match network decisions to a sandbox; counted them as unattributed", slog.Int("count", unattributed))
+		}
+		if tooOld > 0 {
+			logger.WarnContext(ctx, "telemetry ignored events older than the retention period", slog.Int("count", tooOld))
 		}
 		return err
 	})
@@ -123,26 +127,28 @@ func startReceiver(ctx context.Context, logger *slog.Logger, home string, settin
 	return r, warnings, nil
 }
 
-// events converts records to store events; records that aren't network decisions are dropped.
+// events converts every record to a store event, so the store archives all of them; only decisions and gaps are also summarized.
 func events(recs []otlp.Record, now time.Time) []telemetry.Event {
-	var out []telemetry.Event
+	out := make([]telemetry.Event, 0, len(recs))
 	for _, rec := range recs {
 		observed := rec.Observed
 		if observed.IsZero() {
 			observed = now
 		}
-		if rec.Gap != nil {
-			out = append(out, telemetry.Event{SandboxID: rec.SandboxID, Observed: observed, Gap: rec.Gap})
-			continue
+		ev := telemetry.Event{UID: rec.UID, SandboxID: rec.SandboxID, Time: rec.Time, Observed: observed, Received: now, Raw: rec.Raw, Gap: rec.Gap}
+		if rec.Gap == nil {
+			if d, name, id, ok := openshell.ParseOCSF(rec.Body); ok {
+				ev.Decision, ev.SandboxName = &d, name
+				if id != "" {
+					ev.SandboxID = id
+				}
+				// The decision's own time is what the decisions table and prune use, so the archive row agrees.
+				if !d.Time.IsZero() {
+					ev.Time = d.Time
+				}
+			}
 		}
-		d, name, id, ok := openshell.ParseOCSF(rec.Body)
-		if !ok {
-			continue
-		}
-		if id == "" {
-			id = rec.SandboxID
-		}
-		out = append(out, telemetry.Event{Decision: d, UID: rec.UID, SandboxName: name, SandboxID: id, Observed: observed, Body: rec.Body})
+		out = append(out, ev)
 	}
 	return out
 }

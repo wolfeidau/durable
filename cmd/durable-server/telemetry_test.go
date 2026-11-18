@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/wolfeidau/durable/internal/config"
+	"github.com/wolfeidau/durable/internal/otlp"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/telemetry"
 )
@@ -131,9 +132,14 @@ func readOTLPAddr(t *testing.T, home string) string {
 
 func writeAuditPin(t *testing.T, home, id string) {
 	t.Helper()
+	writeAuditPinNamed(t, home, id, fixtureSandbox)
+}
+
+func writeAuditPinNamed(t *testing.T, home, id, name string) {
+	t.Helper()
 	dir := filepath.Join(home, ".durable", "sessions", id)
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	data, err := json.Marshal(sandbox.Pin{Name: fixtureSandbox, Image: "worker:test", Token: "unused"})
+	data, err := json.Marshal(sandbox.Pin{Name: name, Image: "worker:test", Token: "unused"})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, sandbox.PinFile), data, 0o600))
 }
@@ -198,28 +204,33 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 	stdout, stderr, err := sandboxAuditSplit(t, home, session, "--raw", "--since", auditSince)
 	require.NoError(t, err, stderr)
 	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
-	require.Len(t, lines, 4, stdout)
+	require.Len(t, lines, 6, "four decisions, the session event and the gap")
 	uids := map[string]bool{}
+	var gaps int
 	for _, line := range lines {
-		var ev struct {
-			Metadata struct {
-				UID string `json:"uid"`
-			} `json:"metadata"`
+		recs, err := otlp.DecodeRaw([]byte(line))
+		require.NoError(t, err, line)
+		require.Len(t, recs, 1, line)
+		require.Equal(t, fixtureSandboxID, recs[0].SandboxID)
+		if recs[0].Gap != nil {
+			gaps++
+			continue
 		}
-		require.NoError(t, json.Unmarshal([]byte(line), &ev), line)
-		require.NotEmpty(t, ev.Metadata.UID, line)
-		require.False(t, uids[ev.Metadata.UID], "duplicate uid %s", ev.Metadata.UID)
-		uids[ev.Metadata.UID] = true
+		require.NotEmpty(t, recs[0].UID, line)
+		require.False(t, uids[recs[0].UID], "duplicate uid %s", recs[0].UID)
+		uids[recs[0].UID] = true
 	}
+	require.Equal(t, 1, gaps)
+	require.Len(t, uids, 5)
 	require.Contains(t, stderr, "warning: 3 events from this sandbox were dropped before export since ")
 
 	store, err := telemetry.OpenReadOnly(t.Context(), filepath.Join(home, ".durable", "telemetry.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
-	raw, err := store.RawEvents(t.Context(), fixtureSandbox, time.Time{})
+	raw, err := store.RawEvents(t.Context(), fixtureSandbox, []string{fixtureSandboxID}, time.Time{})
 	require.NoError(t, err)
-	require.Len(t, raw, 4, "one raw event per distinct decision")
-	require.True(t, json.Valid(raw[0].Body))
+	require.Len(t, raw, 6)
+	require.True(t, json.Valid(raw[0].Record))
 	stopServer(t, r)
 }
 
@@ -342,6 +353,7 @@ func TestAuditReportsDropsAndCoverage(t *testing.T) {
 	require.Equal(t, http.StatusOK, exportLogs(t, addr, token, gapRecord()))
 	require.Equal(t, http.StatusOK, exportLogsFrom(t, addr, token, "", gapRecord()))
 	require.Equal(t, http.StatusOK, exportLogs(t, addr, token, ocsfWithoutDevice(t)))
+	require.Equal(t, http.StatusOK, exportLogsFrom(t, addr, token, "never-seen", gapRecord()))
 	const session = "dddddddddddddddd"
 	writeAuditPin(t, home, session)
 
@@ -350,8 +362,9 @@ func TestAuditReportsDropsAndCoverage(t *testing.T) {
 	require.Contains(t, out, "warning: 3 events from this sandbox were dropped before export since ")
 	require.Contains(t, out, "warning: 3 events were dropped gateway-wide since ")
 	require.Contains(t, out, "; some may belong to this sandbox")
+	require.Contains(t, out, "warning: 3 events were dropped for sandboxes with no stored decisions since ")
 	require.Contains(t, out, "warning: 1 network decisions on or after ")
-	require.Contains(t, out, " could not be matched to any sandbox")
+	require.Contains(t, out, " (UTC) had no sandbox or event id, so they are not attributed to any sandbox")
 	require.Contains(t, out, "note: telemetry history for this sandbox starts at ")
 	require.Contains(t, out, "; earlier decisions were not recorded")
 	require.Contains(t, out, "note: raw events older than 720h0m0s are pruned; use --daily for older totals")
@@ -363,4 +376,57 @@ func TestAuditReportsDropsAndCoverage(t *testing.T) {
 	require.Contains(t, out, "warning: 3 events were dropped gateway-wide since ")
 	require.Contains(t, out, "warning: 1 network decisions on or after ")
 	stopServer(t, r)
+}
+
+func TestAuditWithStoreSurvivesGatewayError(t *testing.T) {
+	home := t.TempDir()
+	writeConfig(t, home, telemetryConfig)
+	r := startIn(t, home)
+	addr := readOTLPAddr(t, home)
+	token := readHeadersToken(t, home)
+	require.Equal(t, http.StatusOK, exportLogs(t, addr, token, fixtureRecords(t)...))
+	require.Equal(t, http.StatusOK, exportLogsFrom(t, addr, token, "never-seen", gapRecord()))
+	const session = "1111111111111111"
+	writeAuditPinNamed(t, home, session, "dt-without-decisions")
+
+	stdout, stderr, err := sandboxAuditSplit(t, home, session, "--since", auditSince)
+
+	require.NoError(t, err, stderr)
+	require.Contains(t, stdout, "No network decisions in the telemetry store for that period; the gateway log could not be read: ")
+	require.Contains(t, stdout, "warning: 3 events were dropped for sandboxes with no stored decisions since ")
+	stopServer(t, r)
+}
+
+func TestAuditWithoutStoreReportsGatewayError(t *testing.T) {
+	home := t.TempDir()
+	writeAuditPin(t, home, "2222222222222222")
+
+	out, err := sandboxAudit(t, home, "2222222222222222")
+
+	require.Error(t, err, out)
+	require.Contains(t, out, "failed to connect to the gateway")
+}
+
+func TestAuditRejectsBadFlags(t *testing.T) {
+	home := t.TempDir()
+	const session = "3333333333333333"
+	writeAuditPin(t, home, session)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"days without daily", []string{"--days", "7"}, "--days applies only to --daily"},
+		{"denied with daily", []string{"--daily", "--denied"}, "--denied does not apply to --daily"},
+		{"negative days", []string{"--daily", "--days=-1"}, "--days must be at least 1"},
+		{"negative since", []string{"--since=-1h"}, "--since must be positive"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := sandboxAudit(t, home, session, tc.args...)
+			require.Error(t, err, out)
+			require.Contains(t, out, tc.want)
+		})
+	}
 }

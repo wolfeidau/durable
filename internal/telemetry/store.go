@@ -37,13 +37,18 @@ CREATE TABLE IF NOT EXISTS decisions (
 );
 CREATE INDEX IF NOT EXISTS decisions_sandbox_time ON decisions (sandbox_name, time_ms);
 CREATE INDEX IF NOT EXISTS decisions_time ON decisions (time_ms);
+CREATE INDEX IF NOT EXISTS decisions_sandbox_id ON decisions (sandbox_id);
 CREATE TABLE IF NOT EXISTS raw_events (
-	uid TEXT PRIMARY KEY,
+	id INTEGER PRIMARY KEY,
+	uid TEXT UNIQUE,
 	sandbox_name TEXT NOT NULL,
+	sandbox_id TEXT NOT NULL,
 	time_ms INTEGER NOT NULL,
-	body TEXT NOT NULL
+	received_ms INTEGER NOT NULL,
+	record TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS raw_events_time ON raw_events (time_ms);
+CREATE INDEX IF NOT EXISTS raw_events_sandbox_time ON raw_events (sandbox_name, time_ms);
 CREATE TABLE IF NOT EXISTS daily (
 	day TEXT NOT NULL,
 	sandbox_name TEXT NOT NULL,
@@ -66,6 +71,7 @@ CREATE TABLE IF NOT EXISTS gaps (
 	dropped INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS gaps_observed ON gaps (observed_ms);
+CREATE UNIQUE INDEX IF NOT EXISTS gaps_unique ON gaps (sandbox_id, since_ms, dropped);
 CREATE TABLE IF NOT EXISTS unattributed (
 	day TEXT PRIMARY KEY,
 	count INTEGER NOT NULL
@@ -74,22 +80,24 @@ CREATE TABLE IF NOT EXISTS unattributed (
 
 const topDenied = 3
 
-// Event is one received record: a decision, or a gap when Gap is set.
+// Event is one received record. It is a gap when Gap is set, a decision when Decision is set, and only archived otherwise.
 type Event struct {
-	Decision    openshell.Decision
+	Decision    *openshell.Decision
 	UID         string
-	SandboxName string
+	SandboxName string // empty when unknown
 	SandboxID   string
+	Time        time.Time // the event's own time; zero falls back to Observed
 	Observed    time.Time
-	Body        []byte    // raw OCSF JSON, kept as received so the parsed fields can be re-derived; the gateway keeps no copy
-	Gap         *otlp.Gap // when set, only SandboxID and Observed are used
+	Received    time.Time // when the receiver got it; zero falls back to Observed
+	Raw         []byte    // the full OTLP record, kept as received so it can be re-derived; the gateway keeps no copy
+	Gap         *otlp.Gap // when set, only SandboxID and Observed are used for the derived row
 }
 
-// RawEvent is the stored OCSF body of one decision.
+// RawEvent is one archived OTLP record.
 type RawEvent struct {
-	UID  string
-	Time time.Time
-	Body json.RawMessage
+	UID    string // empty when the record had none
+	Time   time.Time
+	Record json.RawMessage
 }
 
 // Day is the decision counts for one UTC day.
@@ -111,6 +119,8 @@ type GapInfo struct {
 	Observed  time.Time
 	Since     time.Time
 	Dropped   int64
+	// Unknown is set when SandboxID matches no stored decision, so the gap may belong to any sandbox.
+	Unknown bool
 }
 
 // Store holds sandbox network decisions received over OTLP.
@@ -161,74 +171,99 @@ func open(dsn string) (*sql.DB, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
-// Add stores evs in one transaction and returns how many decisions it could not attribute, which it counts in the
-// unattributed table instead of storing. Duplicate UIDs count once.
-func (s *Store) Add(ctx context.Context, evs []Event) (skipped int, err error) {
+func (e Event) at() time.Time {
+	if e.Time.IsZero() {
+		return e.Observed
+	}
+	return e.Time
+}
+
+// Add stores evs in one transaction. Events before notBefore are skipped, because their rows may already have been
+// pruned and a replay would count them again; tooOld is how many. unattributed is how many decisions it counted in the
+// unattributed table instead of storing. A repeated UID is skipped, so it counts once.
+func (s *Store) Add(ctx context.Context, evs []Event, notBefore time.Time) (unattributed, tooOld int, err error) {
 	if len(evs) == 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return 0, fmt.Errorf("failed to begin telemetry transaction: %w", err)
+		return 0, 0, fmt.Errorf("failed to begin telemetry transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	for _, ev := range evs {
-		if ev.Gap != nil {
-			_, err = tx.ExecContext(ctx, `INSERT INTO gaps (sandbox_id, observed_ms, since_ms, dropped) VALUES (?, ?, ?, ?)`,
+		if ev.at().Before(notBefore) {
+			tooOld++
+			continue
+		}
+		fresh, err := addRaw(ctx, tx, ev)
+		if err != nil {
+			return 0, 0, err
+		}
+		if !fresh {
+			continue
+		}
+		switch {
+		case ev.Gap != nil:
+			_, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO gaps (sandbox_id, observed_ms, since_ms, dropped) VALUES (?, ?, ?, ?)`,
 				ev.SandboxID, ev.Observed.UnixMilli(), ev.Gap.Since.UnixMilli(), ev.Gap.Dropped)
 			if err != nil {
-				return 0, fmt.Errorf("failed to insert gap: %w", err)
+				return 0, 0, fmt.Errorf("failed to insert gap: %w", err)
 			}
-			continue
-		}
-		if ev.UID == "" || ev.SandboxName == "" {
-			skipped++
-			t := ev.Decision.Time
-			if t.IsZero() {
-				t = ev.Observed
-			}
+		case ev.Decision == nil:
+		case ev.UID == "" || ev.SandboxName == "":
+			unattributed++
 			_, err = tx.ExecContext(ctx, `INSERT INTO unattributed (day, count) VALUES (?, 1)
-				ON CONFLICT DO UPDATE SET count = count + 1`, day(t))
+				ON CONFLICT DO UPDATE SET count = count + 1`, day(ev.at()))
 			if err != nil {
-				return 0, fmt.Errorf("failed to count unattributed decision: %w", err)
+				return 0, 0, fmt.Errorf("failed to count unattributed decision: %w", err)
 			}
-			continue
-		}
-		if err := addDecision(ctx, tx, ev); err != nil {
-			return 0, err
+		default:
+			if err := addDecision(ctx, tx, ev); err != nil {
+				return 0, 0, err
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
-		return 0, fmt.Errorf("failed to commit telemetry transaction: %w", err)
+		return 0, 0, fmt.Errorf("failed to commit telemetry transaction: %w", err)
 	}
-	return skipped, nil
+	return unattributed, tooOld, nil
+}
+
+// addRaw archives the record and reports false when its UID was already archived, which makes raw_events the dedup gate.
+func addRaw(ctx context.Context, tx *sql.Tx, ev Event) (bool, error) {
+	var uid any
+	if ev.UID != "" {
+		uid = ev.UID
+	}
+	received := ev.Received
+	if received.IsZero() {
+		received = ev.Observed
+	}
+	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO raw_events (uid, sandbox_name, sandbox_id, time_ms, received_ms, record)
+		VALUES (?, ?, ?, ?, ?, ?)`, uid, ev.SandboxName, ev.SandboxID, ev.at().UnixMilli(), received.UnixMilli(), string(ev.Raw))
+	if err != nil {
+		return false, fmt.Errorf("failed to insert raw event: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to count inserted raw events: %w", err)
+	}
+	return n == 1, nil
 }
 
 func addDecision(ctx context.Context, tx *sql.Tx, ev Event) error {
-	d := ev.Decision
+	d := *ev.Decision
 	if d.Time.IsZero() {
 		d.Time = ev.Observed
 	}
 	pattern := d.Pattern()
-	res, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO decisions
+	_, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO decisions
 		(uid, sandbox_name, sandbox_id, time_ms, observed_ms, allowed, kind, activity, binary, method, host, path, pattern, policy, reason)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		ev.UID, ev.SandboxName, ev.SandboxID, d.Time.UnixMilli(), ev.Observed.UnixMilli(), d.Allowed, d.Kind, d.Activity, d.Binary,
 		d.Method, d.Host, d.Path, pattern, d.Policy, d.Reason)
 	if err != nil {
 		return fmt.Errorf("failed to insert decision: %w", err)
-	}
-	if n, err := res.RowsAffected(); err != nil {
-		return fmt.Errorf("failed to count inserted decisions: %w", err)
-	} else if n != 1 {
-		return nil
-	}
-	if len(ev.Body) > 0 {
-		_, err = tx.ExecContext(ctx, `INSERT INTO raw_events (uid, sandbox_name, time_ms, body) VALUES (?, ?, ?, ?)`,
-			ev.UID, ev.SandboxName, d.Time.UnixMilli(), string(ev.Body))
-		if err != nil {
-			return fmt.Errorf("failed to insert raw event: %w", err)
-		}
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO daily (day, sandbox_name, allowed, kind, activity, binary, method, host, pattern, policy, count)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
@@ -291,10 +326,23 @@ func (s *Store) Decisions(ctx context.Context, sandboxName string, since time.Ti
 	return out, nil
 }
 
-// RawEvents returns the sandbox's stored OCSF bodies at or after since, oldest first.
-func (s *Store) RawEvents(ctx context.Context, sandboxName string, since time.Time) ([]RawEvent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT uid, time_ms, body FROM raw_events
-		WHERE sandbox_name = ? AND time_ms >= ? ORDER BY time_ms, uid`, sandboxName, since.UnixMilli())
+// RawEvents returns the archived records at or after since for the sandbox, oldest first. It includes records with no
+// sandbox name whose sandbox ID is in sandboxIDs, such as the sandbox's gap records.
+func (s *Store) RawEvents(ctx context.Context, sandboxName string, sandboxIDs []string, since time.Time) ([]RawEvent, error) {
+	args := []any{since.UnixMilli(), sandboxName}
+	where := `sandbox_name = ?`
+	var marks []string
+	for _, id := range sandboxIDs {
+		if id != "" {
+			marks = append(marks, "?")
+			args = append(args, id)
+		}
+	}
+	if len(marks) > 0 {
+		where += ` OR (sandbox_name = '' AND sandbox_id IN (` + strings.Join(marks, ", ") + `))`
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT uid, time_ms, record FROM raw_events
+		WHERE time_ms >= ? AND (`+where+`) ORDER BY time_ms, id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query raw events: %w", err)
 	}
@@ -302,12 +350,13 @@ func (s *Store) RawEvents(ctx context.Context, sandboxName string, since time.Ti
 	var out []RawEvent
 	for rows.Next() {
 		var e RawEvent
+		var uid sql.NullString
 		var ms int64
-		var body string
-		if err := rows.Scan(&e.UID, &ms, &body); err != nil {
+		var record string
+		if err := rows.Scan(&uid, &ms, &record); err != nil {
 			return nil, fmt.Errorf("failed to scan raw event: %w", err)
 		}
-		e.Time, e.Body = time.UnixMilli(ms).UTC(), json.RawMessage(body)
+		e.UID, e.Time, e.Record = uid.String, time.UnixMilli(ms).UTC(), json.RawMessage(record)
 		out = append(out, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -424,7 +473,8 @@ func (s *Store) SandboxIDs(ctx context.Context, sandboxName string) ([]string, e
 	return ids, nil
 }
 
-// Gaps returns gaps observed at or after since for sandboxIDs and gateway-wide gaps, oldest first.
+// Gaps returns gaps observed at or after since for sandboxIDs, gateway-wide gaps, and gaps for sandbox IDs that no stored
+// decision mentions (flagged Unknown), oldest first.
 func (s *Store) Gaps(ctx context.Context, sandboxIDs []string, since time.Time) ([]GapInfo, error) {
 	args := []any{since.UnixMilli()}
 	var marks strings.Builder
@@ -433,8 +483,9 @@ func (s *Store) Gaps(ctx context.Context, sandboxIDs []string, since time.Time) 
 		marks.WriteString(", ?")
 		args = append(args, id)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT sandbox_id, observed_ms, since_ms, dropped FROM gaps
-		WHERE observed_ms >= ? AND sandbox_id IN (`+marks.String()+`) ORDER BY observed_ms, id`, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT sandbox_id, observed_ms, since_ms, dropped, unknown FROM (
+			SELECT g.*, g.sandbox_id != '' AND NOT EXISTS (SELECT 1 FROM decisions d WHERE d.sandbox_id = g.sandbox_id) AS unknown FROM gaps g)
+		WHERE observed_ms >= ? AND (sandbox_id IN (`+marks.String()+`) OR unknown) ORDER BY observed_ms, id`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query gaps: %w", err)
 	}
@@ -443,7 +494,7 @@ func (s *Store) Gaps(ctx context.Context, sandboxIDs []string, since time.Time) 
 	for rows.Next() {
 		var g GapInfo
 		var obs, since int64
-		if err := rows.Scan(&g.SandboxID, &obs, &since, &g.Dropped); err != nil {
+		if err := rows.Scan(&g.SandboxID, &obs, &since, &g.Dropped, &g.Unknown); err != nil {
 			return nil, fmt.Errorf("failed to scan gap: %w", err)
 		}
 		g.Observed, g.Since = time.UnixMilli(obs).UTC(), time.UnixMilli(since).UTC()

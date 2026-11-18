@@ -252,3 +252,27 @@ func TestRoutingAndMethods(t *testing.T) {
 	s.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/logs", nil))
 	require.Equal(t, http.StatusMethodNotAllowed, w.Code)
 }
+
+func TestRawRoundTrip(t *testing.T) {
+	gap := &logspb.LogRecord{
+		EventName:  gapEvent,
+		Body:       &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: "dropped"}},
+		Attributes: []*commonpb.KeyValue{num("openshell.ocsf.gap.dropped", 7), num("openshell.ocsf.gap.since_unix_ms", 1700000000000)},
+	}
+	res := []*commonpb.KeyValue{str("openshell.sandbox.id", "sb-res")}
+	got := records(request(res, event("", "u1"), gap))
+	require.Len(t, got, 2)
+
+	for _, rec := range got {
+		require.NotEmpty(t, rec.Raw)
+		require.NotContains(t, string(rec.Raw), "\n")
+		again, err := DecodeRaw(rec.Raw)
+		require.NoError(t, err)
+		require.Equal(t, []Record{rec}, again)
+	}
+	require.Equal(t, "sb-res", got[0].SandboxID)
+	require.NotNil(t, got[1].Gap)
+
+	_, err := DecodeRaw([]byte("not json"))
+	require.Error(t, err)
+}

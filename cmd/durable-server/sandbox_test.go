@@ -47,7 +47,8 @@ func TestSandboxDeleteRejectsBadSessions(t *testing.T) {
 func sandboxAudit(t *testing.T, home, id string, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), binPath, append([]string{"sandbox-audit", id}, args...)...)
-	cmd.Env = append(os.Environ(), "HOME="+home)
+	// An empty gateway config dir makes the gateway fallback fail whatever the developer's machine has.
+	cmd.Env = append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+t.TempDir())
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -56,7 +57,8 @@ func sandboxAudit(t *testing.T, home, id string, args ...string) (string, error)
 func sandboxAuditSplit(t *testing.T, home, id string, args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), binPath, append([]string{"sandbox-audit", id}, args...)...)
-	cmd.Env = append(os.Environ(), "HOME="+home)
+	// An empty gateway config dir makes the gateway fallback fail whatever the developer's machine has.
+	cmd.Env = append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+t.TempDir())
 	var so, se bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &so, &se
 	err = cmd.Run()

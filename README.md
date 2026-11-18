@@ -229,14 +229,16 @@ headers_file = "/home/<you>/.durable/otlp-headers"
 - Restart the gateway, which reads the headers file at startup. Sandboxes pick up the setting when
   they restart.
 - The endpoint must be reachable from the sandbox supervisors, not just from the host.
-- Delivery is best-effort. The store also keeps each decision's raw OCSF event, which can include
-  command lines and process ancestry, for the same retention. The gateway keeps no copy, so the raw
-  events are the record that new or corrected summaries are rebuilt from.
-- Events are matched to a session by its sandbox name. Decisions that carry no sandbox are not
-  stored; the server logs a warning and counts them per day.
+- Delivery is best-effort. The store also archives every received OTLP log record as protojson
+  (resource, attributes, body and timestamps), including gaps, other OCSF classes and records with
+  no sandbox, for the same retention. The body can include command lines and process ancestry. The
+  gateway keeps no copy, so the archive is the record that new or corrected summaries are rebuilt
+  from. `sandbox-audit --raw` prints a sandbox's archived records as JSON Lines.
+- Events are matched to a session by its sandbox name. Decisions that carry no sandbox or event id
+  are not stored as decisions; the server logs a warning and counts them per day.
 - `sandbox-audit` says when data is missing: events the exporter dropped (for the sandbox, and
-  gateway-wide where the sandbox is unknown), decisions that matched no sandbox, history that
-  starts after the requested period, and raw events pruned past `telemetry.retention`.
+  gateway-wide or for sandboxes with no stored decisions), decisions with no sandbox or event id,
+  history that starts after the requested period, and raw events pruned past `telemetry.retention`.
 
 #### Git host tokens
 
