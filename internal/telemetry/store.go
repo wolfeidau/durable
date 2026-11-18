@@ -81,7 +81,7 @@ type Event struct {
 	SandboxName string
 	SandboxID   string
 	Observed    time.Time
-	Body        []byte    // raw OCSF JSON, stored apart from the parsed fields
+	Body        []byte    // raw OCSF JSON, kept as received so the parsed fields can be re-derived; the gateway keeps no copy
 	Gap         *otlp.Gap // when set, only SandboxID and Observed are used
 }
 

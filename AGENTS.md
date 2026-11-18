@@ -45,6 +45,7 @@ mise run test:e2e
 ## Durability invariants
 
 - A state change and its events commit in the same transaction.
+- `raw_events` in `telemetry.db` is the system of record for sandbox network events, because the OpenShell gateway keeps none. Store each body exactly as received, so a missed field or an extended event can be re-mapped into the app's representation later. Parsed tables like `decisions` and `daily` are derived from it.
 - `migrate` only runs `CREATE TABLE IF NOT EXISTS`, so a new table reaches existing sessions but a new or changed column doesn't.
 - The database pool has one connection, so close a cursor before running another query or calling a callback.
 - Wrappers around a tool must forward the optional interfaces `Recoverer` and `ReadOnlyTool`, because embedding `Tool` doesn't promote them.
