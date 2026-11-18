@@ -207,8 +207,13 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	})
 	defer registry.Close()
 	draining := make(chan struct{})
+	api := server.New(server.Config{
+		Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: settings.Heartbeat, Draining: draining,
+		Settings: shown, Warnings: warnings,
+		Telemetry: rcv.telemetryStore(), TelemetryRetention: settings.TelemetryRetention, Gateway: gatewayDecisions,
+	})
 	srv := &http.Server{
-		Handler:           server.New(server.Config{Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: settings.Heartbeat, Draining: draining, Settings: shown, Warnings: warnings}).Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}

@@ -9,6 +9,7 @@ package durablev1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	durationpb "google.golang.org/protobuf/types/known/durationpb"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
@@ -364,6 +365,57 @@ func (x Role) Number() protoreflect.EnumNumber {
 // Deprecated: Use Role.Descriptor instead.
 func (Role) EnumDescriptor() ([]byte, []int) {
 	return file_durable_v1_durable_proto_rawDescGZIP(), []int{5}
+}
+
+type NetworkSource int32
+
+const (
+	NetworkSource_NETWORK_SOURCE_UNSPECIFIED NetworkSource = 0
+	// STORE is the server's telemetry store, fed by the sandbox gateway over OTLP.
+	NetworkSource_NETWORK_SOURCE_STORE NetworkSource = 1
+	// GATEWAY_LOG is the gateway's own log, which keeps only its most recent lines.
+	NetworkSource_NETWORK_SOURCE_GATEWAY_LOG NetworkSource = 2
+)
+
+// Enum value maps for NetworkSource.
+var (
+	NetworkSource_name = map[int32]string{
+		0: "NETWORK_SOURCE_UNSPECIFIED",
+		1: "NETWORK_SOURCE_STORE",
+		2: "NETWORK_SOURCE_GATEWAY_LOG",
+	}
+	NetworkSource_value = map[string]int32{
+		"NETWORK_SOURCE_UNSPECIFIED": 0,
+		"NETWORK_SOURCE_STORE":       1,
+		"NETWORK_SOURCE_GATEWAY_LOG": 2,
+	}
+)
+
+func (x NetworkSource) Enum() *NetworkSource {
+	p := new(NetworkSource)
+	*p = x
+	return p
+}
+
+func (x NetworkSource) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (NetworkSource) Descriptor() protoreflect.EnumDescriptor {
+	return file_durable_v1_durable_proto_enumTypes[6].Descriptor()
+}
+
+func (NetworkSource) Type() protoreflect.EnumType {
+	return &file_durable_v1_durable_proto_enumTypes[6]
+}
+
+func (x NetworkSource) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use NetworkSource.Descriptor instead.
+func (NetworkSource) EnumDescriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{6}
 }
 
 type GetServerInfoRequest struct {
@@ -2322,12 +2374,580 @@ func (x *EpochMismatch) GetLastSeq() int64 {
 	return 0
 }
 
+type ListNetworkEventsRequest struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	SessionId string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// since is the start of the window: a duration back from now, or an absolute time. Default 24h.
+	// The response coverage.since reports the window actually used.
+	//
+	// Types that are valid to be assigned to Since:
+	//
+	//	*ListNetworkEventsRequest_SinceAgo
+	//	*ListNetworkEventsRequest_SinceTime
+	Since isListNetworkEventsRequest_Since `protobuf_oneof:"since"`
+	// after is the next_cursor of an earlier response. Empty returns the newest limit events in the window.
+	// The server keeps no state for a cursor: it names a position in the (time, id) order of one source.
+	After string `protobuf:"bytes,4,opt,name=after,proto3" json:"after,omitempty"`
+	// limit is the most events to return. Default and maximum 1000; 0 means the default.
+	Limit         int32 `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNetworkEventsRequest) Reset() {
+	*x = ListNetworkEventsRequest{}
+	mi := &file_durable_v1_durable_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNetworkEventsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNetworkEventsRequest) ProtoMessage() {}
+
+func (x *ListNetworkEventsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNetworkEventsRequest.ProtoReflect.Descriptor instead.
+func (*ListNetworkEventsRequest) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *ListNetworkEventsRequest) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *ListNetworkEventsRequest) GetSince() isListNetworkEventsRequest_Since {
+	if x != nil {
+		return x.Since
+	}
+	return nil
+}
+
+func (x *ListNetworkEventsRequest) GetSinceAgo() *durationpb.Duration {
+	if x != nil {
+		if x, ok := x.Since.(*ListNetworkEventsRequest_SinceAgo); ok {
+			return x.SinceAgo
+		}
+	}
+	return nil
+}
+
+func (x *ListNetworkEventsRequest) GetSinceTime() *timestamppb.Timestamp {
+	if x != nil {
+		if x, ok := x.Since.(*ListNetworkEventsRequest_SinceTime); ok {
+			return x.SinceTime
+		}
+	}
+	return nil
+}
+
+func (x *ListNetworkEventsRequest) GetAfter() string {
+	if x != nil {
+		return x.After
+	}
+	return ""
+}
+
+func (x *ListNetworkEventsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+type isListNetworkEventsRequest_Since interface {
+	isListNetworkEventsRequest_Since()
+}
+
+type ListNetworkEventsRequest_SinceAgo struct {
+	SinceAgo *durationpb.Duration `protobuf:"bytes,2,opt,name=since_ago,json=sinceAgo,proto3,oneof"`
+}
+
+type ListNetworkEventsRequest_SinceTime struct {
+	SinceTime *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=since_time,json=sinceTime,proto3,oneof"`
+}
+
+func (*ListNetworkEventsRequest_SinceAgo) isListNetworkEventsRequest_Since() {}
+
+func (*ListNetworkEventsRequest_SinceTime) isListNetworkEventsRequest_Since() {}
+
+type ListNetworkEventsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// events are ordered oldest first by (time, id).
+	Events   []*NetworkEvent  `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
+	Coverage *NetworkCoverage `protobuf:"bytes,2,opt,name=coverage,proto3" json:"coverage,omitempty"`
+	// next_cursor resumes after the last event. With no events it repeats the request's after, which may be empty.
+	// Events that arrive late with a time before the cursor are not returned when resuming; load without a cursor to see them.
+	NextCursor string `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
+	// truncated means limit left events out. Without after, older events in the window were left out; with after,
+	// newer events remain and the next request should follow immediately.
+	Truncated     bool `protobuf:"varint,4,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListNetworkEventsResponse) Reset() {
+	*x = ListNetworkEventsResponse{}
+	mi := &file_durable_v1_durable_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListNetworkEventsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListNetworkEventsResponse) ProtoMessage() {}
+
+func (x *ListNetworkEventsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListNetworkEventsResponse.ProtoReflect.Descriptor instead.
+func (*ListNetworkEventsResponse) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *ListNetworkEventsResponse) GetEvents() []*NetworkEvent {
+	if x != nil {
+		return x.Events
+	}
+	return nil
+}
+
+func (x *ListNetworkEventsResponse) GetCoverage() *NetworkCoverage {
+	if x != nil {
+		return x.Coverage
+	}
+	return nil
+}
+
+func (x *ListNetworkEventsResponse) GetNextCursor() string {
+	if x != nil {
+		return x.NextCursor
+	}
+	return ""
+}
+
+func (x *ListNetworkEventsResponse) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+// NetworkEvent is one network request the sandbox proxy allowed or denied.
+type NetworkEvent struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Time  *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=time,proto3" json:"time,omitempty"`
+	// id is unique per event and orders events with the same time. It is the telemetry uid for the store source, and a
+	// hash of the decision's content for the gateway log source, which has no uid.
+	Id      string `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
+	Allowed bool   `protobuf:"varint,3,opt,name=allowed,proto3" json:"allowed,omitempty"`
+	// kind is "NET" or "HTTP".
+	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	// activity is "OPEN" or "REFUSE" for NET; empty for HTTP.
+	Activity string `protobuf:"bytes,5,opt,name=activity,proto3" json:"activity,omitempty"`
+	// binary is the NET process path; empty when no process is known.
+	Binary string `protobuf:"bytes,6,opt,name=binary,proto3" json:"binary,omitempty"`
+	// method is the HTTP method; empty for NET.
+	Method string `protobuf:"bytes,7,opt,name=method,proto3" json:"method,omitempty"`
+	// host is host:port for NET (no port for DNS refusals), host for HTTP.
+	Host string `protobuf:"bytes,8,opt,name=host,proto3" json:"host,omitempty"`
+	// path is the HTTP path without the query.
+	Path string `protobuf:"bytes,9,opt,name=path,proto3" json:"path,omitempty"`
+	// pattern is the path with versioned, numeric and hash-like segments shown as "*", so repeated requests group.
+	Pattern string `protobuf:"bytes,10,opt,name=pattern,proto3" json:"pattern,omitempty"`
+	// policy is the policy that decided; empty when none.
+	Policy        string `protobuf:"bytes,11,opt,name=policy,proto3" json:"policy,omitempty"`
+	Reason        string `protobuf:"bytes,12,opt,name=reason,proto3" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NetworkEvent) Reset() {
+	*x = NetworkEvent{}
+	mi := &file_durable_v1_durable_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NetworkEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NetworkEvent) ProtoMessage() {}
+
+func (x *NetworkEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NetworkEvent.ProtoReflect.Descriptor instead.
+func (*NetworkEvent) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *NetworkEvent) GetTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Time
+	}
+	return nil
+}
+
+func (x *NetworkEvent) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetAllowed() bool {
+	if x != nil {
+		return x.Allowed
+	}
+	return false
+}
+
+func (x *NetworkEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetActivity() string {
+	if x != nil {
+		return x.Activity
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetBinary() string {
+	if x != nil {
+		return x.Binary
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetMethod() string {
+	if x != nil {
+		return x.Method
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetPattern() string {
+	if x != nil {
+		return x.Pattern
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetPolicy() string {
+	if x != nil {
+		return x.Policy
+	}
+	return ""
+}
+
+func (x *NetworkEvent) GetReason() string {
+	if x != nil {
+		return x.Reason
+	}
+	return ""
+}
+
+// NetworkDrop is a count of events lost before or during receipt.
+type NetworkDrop struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Dropped int64                  `protobuf:"varint,1,opt,name=dropped,proto3" json:"dropped,omitempty"`
+	// since is the start of the earliest gap that contributed to dropped.
+	Since         *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=since,proto3" json:"since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NetworkDrop) Reset() {
+	*x = NetworkDrop{}
+	mi := &file_durable_v1_durable_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NetworkDrop) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NetworkDrop) ProtoMessage() {}
+
+func (x *NetworkDrop) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NetworkDrop.ProtoReflect.Descriptor instead.
+func (*NetworkDrop) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *NetworkDrop) GetDropped() int64 {
+	if x != nil {
+		return x.Dropped
+	}
+	return 0
+}
+
+func (x *NetworkDrop) GetSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Since
+	}
+	return nil
+}
+
+// NetworkCoverage says what the events cannot show. An absent or zero field means the server found nothing to report,
+// except where noted.
+type NetworkCoverage struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Source NetworkSource          `protobuf:"varint,1,opt,name=source,proto3,enum=durable.v1.NetworkSource" json:"source,omitempty"`
+	// source_bounded is set for GATEWAY_LOG: the source holds only recent lines, so events older than its start are
+	// missing whatever the window asked for.
+	SourceBounded bool `protobuf:"varint,2,opt,name=source_bounded,json=sourceBounded,proto3" json:"source_bounded,omitempty"`
+	// resumable is false when a cursor cannot be relied on: with GATEWAY_LOG, events may repeat or be missed between
+	// polls because ids come from content and lines age out.
+	Resumable bool `protobuf:"varint,3,opt,name=resumable,proto3" json:"resumable,omitempty"`
+	// store_available is false when the server has no telemetry store, so the fields below that come from the store are
+	// empty because they are unknown, not because nothing was lost.
+	StoreAvailable bool `protobuf:"varint,4,opt,name=store_available,json=storeAvailable,proto3" json:"store_available,omitempty"`
+	// store_empty means the store had no decisions for this sandbox in the window, so the gateway log was read instead.
+	StoreEmpty bool `protobuf:"varint,5,opt,name=store_empty,json=storeEmpty,proto3" json:"store_empty,omitempty"`
+	// gateway_error is set when the gateway log was needed and could not be read. The detail is in the server log.
+	GatewayError string `protobuf:"bytes,6,opt,name=gateway_error,json=gatewayError,proto3" json:"gateway_error,omitempty"`
+	// gateway_log_start is the time of the log's oldest decision, set when it is after since: earlier events are missing.
+	GatewayLogStart *timestamppb.Timestamp `protobuf:"bytes,7,opt,name=gateway_log_start,json=gatewayLogStart,proto3" json:"gateway_log_start,omitempty"`
+	// history_start is the sandbox's earliest stored decision, set when it is after since: the store did not record
+	// anything earlier.
+	HistoryStart *timestamppb.Timestamp `protobuf:"bytes,8,opt,name=history_start,json=historyStart,proto3" json:"history_start,omitempty"`
+	// dropped_own counts events the gateway's exporter dropped for this sandbox before they were sent.
+	DroppedOwn *NetworkDrop `protobuf:"bytes,9,opt,name=dropped_own,json=droppedOwn,proto3" json:"dropped_own,omitempty"`
+	// dropped_gateway_wide counts events dropped for the whole gateway, so some may belong to this sandbox.
+	DroppedGatewayWide *NetworkDrop `protobuf:"bytes,10,opt,name=dropped_gateway_wide,json=droppedGatewayWide,proto3" json:"dropped_gateway_wide,omitempty"`
+	// dropped_unknown counts events dropped for sandboxes the store has no named event for, so some may belong to this sandbox.
+	DroppedUnknown *NetworkDrop `protobuf:"bytes,11,opt,name=dropped_unknown,json=droppedUnknown,proto3" json:"dropped_unknown,omitempty"`
+	// unattributed counts decisions that had no sandbox or event id, so they cannot be shown for any sandbox. It is
+	// counted per UTC day, so it covers all of unattributed_from_day.
+	Unattributed int64 `protobuf:"varint,12,opt,name=unattributed,proto3" json:"unattributed,omitempty"`
+	// unattributed_from_day is the UTC day (YYYY-MM-DD) the unattributed count starts from; empty without a store.
+	UnattributedFromDay string `protobuf:"bytes,13,opt,name=unattributed_from_day,json=unattributedFromDay,proto3" json:"unattributed_from_day,omitempty"`
+	// retention is how long the store keeps raw events; zero without a store.
+	Retention *durationpb.Duration `protobuf:"bytes,14,opt,name=retention,proto3" json:"retention,omitempty"`
+	// pruned is set when the window starts before the retention cutoff, so older events were deleted.
+	Pruned bool `protobuf:"varint,15,opt,name=pruned,proto3" json:"pruned,omitempty"`
+	// since is the window start the server used, which is the default when the request gave none.
+	Since         *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=since,proto3" json:"since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NetworkCoverage) Reset() {
+	*x = NetworkCoverage{}
+	mi := &file_durable_v1_durable_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NetworkCoverage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NetworkCoverage) ProtoMessage() {}
+
+func (x *NetworkCoverage) ProtoReflect() protoreflect.Message {
+	mi := &file_durable_v1_durable_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NetworkCoverage.ProtoReflect.Descriptor instead.
+func (*NetworkCoverage) Descriptor() ([]byte, []int) {
+	return file_durable_v1_durable_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *NetworkCoverage) GetSource() NetworkSource {
+	if x != nil {
+		return x.Source
+	}
+	return NetworkSource_NETWORK_SOURCE_UNSPECIFIED
+}
+
+func (x *NetworkCoverage) GetSourceBounded() bool {
+	if x != nil {
+		return x.SourceBounded
+	}
+	return false
+}
+
+func (x *NetworkCoverage) GetResumable() bool {
+	if x != nil {
+		return x.Resumable
+	}
+	return false
+}
+
+func (x *NetworkCoverage) GetStoreAvailable() bool {
+	if x != nil {
+		return x.StoreAvailable
+	}
+	return false
+}
+
+func (x *NetworkCoverage) GetStoreEmpty() bool {
+	if x != nil {
+		return x.StoreEmpty
+	}
+	return false
+}
+
+func (x *NetworkCoverage) GetGatewayError() string {
+	if x != nil {
+		return x.GatewayError
+	}
+	return ""
+}
+
+func (x *NetworkCoverage) GetGatewayLogStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.GatewayLogStart
+	}
+	return nil
+}
+
+func (x *NetworkCoverage) GetHistoryStart() *timestamppb.Timestamp {
+	if x != nil {
+		return x.HistoryStart
+	}
+	return nil
+}
+
+func (x *NetworkCoverage) GetDroppedOwn() *NetworkDrop {
+	if x != nil {
+		return x.DroppedOwn
+	}
+	return nil
+}
+
+func (x *NetworkCoverage) GetDroppedGatewayWide() *NetworkDrop {
+	if x != nil {
+		return x.DroppedGatewayWide
+	}
+	return nil
+}
+
+func (x *NetworkCoverage) GetDroppedUnknown() *NetworkDrop {
+	if x != nil {
+		return x.DroppedUnknown
+	}
+	return nil
+}
+
+func (x *NetworkCoverage) GetUnattributed() int64 {
+	if x != nil {
+		return x.Unattributed
+	}
+	return 0
+}
+
+func (x *NetworkCoverage) GetUnattributedFromDay() string {
+	if x != nil {
+		return x.UnattributedFromDay
+	}
+	return ""
+}
+
+func (x *NetworkCoverage) GetRetention() *durationpb.Duration {
+	if x != nil {
+		return x.Retention
+	}
+	return nil
+}
+
+func (x *NetworkCoverage) GetPruned() bool {
+	if x != nil {
+		return x.Pruned
+	}
+	return false
+}
+
+func (x *NetworkCoverage) GetSince() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Since
+	}
+	return nil
+}
+
 var File_durable_v1_durable_proto protoreflect.FileDescriptor
 
 const file_durable_v1_durable_proto_rawDesc = "" +
 	"\n" +
 	"\x18durable/v1/durable.proto\x12\n" +
-	"durable.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x16\n" +
+	"durable.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x16\n" +
 	"\x14GetServerInfoRequest\"\x8b\x02\n" +
 	"\x15GetServerInfoResponse\x125\n" +
 	"\n" +
@@ -2498,7 +3118,59 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\x02at\x18\x0f \x01(\v2\x1a.google.protobuf.TimestampR\x02at\"@\n" +
 	"\rEpochMismatch\x12\x14\n" +
 	"\x05epoch\x18\x01 \x01(\tR\x05epoch\x12\x19\n" +
-	"\blast_seq\x18\x02 \x01(\x03R\alastSeq*h\n" +
+	"\blast_seq\x18\x02 \x01(\x03R\alastSeq\"\xe5\x01\n" +
+	"\x18ListNetworkEventsRequest\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x128\n" +
+	"\tsince_ago\x18\x02 \x01(\v2\x19.google.protobuf.DurationH\x00R\bsinceAgo\x12;\n" +
+	"\n" +
+	"since_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\tsinceTime\x12\x14\n" +
+	"\x05after\x18\x04 \x01(\tR\x05after\x12\x14\n" +
+	"\x05limit\x18\x05 \x01(\x05R\x05limitB\a\n" +
+	"\x05since\"\xc5\x01\n" +
+	"\x19ListNetworkEventsResponse\x120\n" +
+	"\x06events\x18\x01 \x03(\v2\x18.durable.v1.NetworkEventR\x06events\x127\n" +
+	"\bcoverage\x18\x02 \x01(\v2\x1b.durable.v1.NetworkCoverageR\bcoverage\x12\x1f\n" +
+	"\vnext_cursor\x18\x03 \x01(\tR\n" +
+	"nextCursor\x12\x1c\n" +
+	"\ttruncated\x18\x04 \x01(\bR\ttruncated\"\xba\x02\n" +
+	"\fNetworkEvent\x12.\n" +
+	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x0e\n" +
+	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
+	"\aallowed\x18\x03 \x01(\bR\aallowed\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x1a\n" +
+	"\bactivity\x18\x05 \x01(\tR\bactivity\x12\x16\n" +
+	"\x06binary\x18\x06 \x01(\tR\x06binary\x12\x16\n" +
+	"\x06method\x18\a \x01(\tR\x06method\x12\x12\n" +
+	"\x04host\x18\b \x01(\tR\x04host\x12\x12\n" +
+	"\x04path\x18\t \x01(\tR\x04path\x12\x18\n" +
+	"\apattern\x18\n" +
+	" \x01(\tR\apattern\x12\x16\n" +
+	"\x06policy\x18\v \x01(\tR\x06policy\x12\x16\n" +
+	"\x06reason\x18\f \x01(\tR\x06reason\"Y\n" +
+	"\vNetworkDrop\x12\x18\n" +
+	"\adropped\x18\x01 \x01(\x03R\adropped\x120\n" +
+	"\x05since\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\x05since\"\xa3\x06\n" +
+	"\x0fNetworkCoverage\x121\n" +
+	"\x06source\x18\x01 \x01(\x0e2\x19.durable.v1.NetworkSourceR\x06source\x12%\n" +
+	"\x0esource_bounded\x18\x02 \x01(\bR\rsourceBounded\x12\x1c\n" +
+	"\tresumable\x18\x03 \x01(\bR\tresumable\x12'\n" +
+	"\x0fstore_available\x18\x04 \x01(\bR\x0estoreAvailable\x12\x1f\n" +
+	"\vstore_empty\x18\x05 \x01(\bR\n" +
+	"storeEmpty\x12#\n" +
+	"\rgateway_error\x18\x06 \x01(\tR\fgatewayError\x12F\n" +
+	"\x11gateway_log_start\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\x0fgatewayLogStart\x12?\n" +
+	"\rhistory_start\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\fhistoryStart\x128\n" +
+	"\vdropped_own\x18\t \x01(\v2\x17.durable.v1.NetworkDropR\n" +
+	"droppedOwn\x12I\n" +
+	"\x14dropped_gateway_wide\x18\n" +
+	" \x01(\v2\x17.durable.v1.NetworkDropR\x12droppedGatewayWide\x12@\n" +
+	"\x0fdropped_unknown\x18\v \x01(\v2\x17.durable.v1.NetworkDropR\x0edroppedUnknown\x12\"\n" +
+	"\funattributed\x18\f \x01(\x03R\funattributed\x122\n" +
+	"\x15unattributed_from_day\x18\r \x01(\tR\x13unattributedFromDay\x127\n" +
+	"\tretention\x18\x0e \x01(\v2\x19.google.protobuf.DurationR\tretention\x12\x16\n" +
+	"\x06pruned\x18\x0f \x01(\bR\x06pruned\x120\n" +
+	"\x05since\x18\x10 \x01(\v2\x1a.google.protobuf.TimestampR\x05since*h\n" +
 	"\tWorkspace\x12\x19\n" +
 	"\x15WORKSPACE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13WORKSPACE_DIRECTORY\x10\x01\x12\x13\n" +
@@ -2537,7 +3209,11 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\x10ROLE_UNSPECIFIED\x10\x00\x12\r\n" +
 	"\tROLE_USER\x10\x01\x12\x12\n" +
 	"\x0eROLE_ASSISTANT\x10\x02\x12\r\n" +
-	"\tROLE_TOOL\x10\x032\xbc\x04\n" +
+	"\tROLE_TOOL\x10\x03*i\n" +
+	"\rNetworkSource\x12\x1e\n" +
+	"\x1aNETWORK_SOURCE_UNSPECIFIED\x10\x00\x12\x18\n" +
+	"\x14NETWORK_SOURCE_STORE\x10\x01\x12\x1e\n" +
+	"\x1aNETWORK_SOURCE_GATEWAY_LOG\x10\x022\x9e\x05\n" +
 	"\x0eSessionService\x12?\n" +
 	"\x06Submit\x12\x19.durable.v1.SubmitRequest\x1a\x1a.durable.v1.SubmitResponse\x12?\n" +
 	"\x06Cancel\x12\x19.durable.v1.CancelRequest\x1a\x1a.durable.v1.CancelResponse\x12W\n" +
@@ -2545,7 +3221,8 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"\vWatchEvents\x12\x1e.durable.v1.WatchEventsRequest\x1a\x1f.durable.v1.WatchEventsResponse0\x01\x12Q\n" +
 	"\fListSessions\x12\x1f.durable.v1.ListSessionsRequest\x1a .durable.v1.ListSessionsResponse\x12T\n" +
 	"\rCreateSession\x12 .durable.v1.CreateSessionRequest\x1a!.durable.v1.CreateSessionResponse\x12T\n" +
-	"\rGetServerInfo\x12 .durable.v1.GetServerInfoRequest\x1a!.durable.v1.GetServerInfoResponseB7Z5github.com/wolfeidau/durable/api/durable/v1;durablev1b\x06proto3"
+	"\rGetServerInfo\x12 .durable.v1.GetServerInfoRequest\x1a!.durable.v1.GetServerInfoResponse\x12`\n" +
+	"\x11ListNetworkEvents\x12$.durable.v1.ListNetworkEventsRequest\x1a%.durable.v1.ListNetworkEventsResponseB7Z5github.com/wolfeidau/durable/api/durable/v1;durablev1b\x06proto3"
 
 var (
 	file_durable_v1_durable_proto_rawDescOnce sync.Once
@@ -2559,92 +3236,115 @@ func file_durable_v1_durable_proto_rawDescGZIP() []byte {
 	return file_durable_v1_durable_proto_rawDescData
 }
 
-var file_durable_v1_durable_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 27)
+var file_durable_v1_durable_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
+var file_durable_v1_durable_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
 var file_durable_v1_durable_proto_goTypes = []any{
-	(Workspace)(0),                 // 0: durable.v1.Workspace
-	(DeltaKind)(0),                 // 1: durable.v1.DeltaKind
-	(SubmissionStatus)(0),          // 2: durable.v1.SubmissionStatus
-	(ApprovalStatus)(0),            // 3: durable.v1.ApprovalStatus
-	(EventKind)(0),                 // 4: durable.v1.EventKind
-	(Role)(0),                      // 5: durable.v1.Role
-	(*GetServerInfoRequest)(nil),   // 6: durable.v1.GetServerInfoRequest
-	(*GetServerInfoResponse)(nil),  // 7: durable.v1.GetServerInfoResponse
-	(*Setting)(nil),                // 8: durable.v1.Setting
-	(*GrantInfo)(nil),              // 9: durable.v1.GrantInfo
-	(*EnvironmentInfo)(nil),        // 10: durable.v1.EnvironmentInfo
-	(*CreateSessionRequest)(nil),   // 11: durable.v1.CreateSessionRequest
-	(*CreateSessionResponse)(nil),  // 12: durable.v1.CreateSessionResponse
-	(*ListSessionsRequest)(nil),    // 13: durable.v1.ListSessionsRequest
-	(*ListSessionsResponse)(nil),   // 14: durable.v1.ListSessionsResponse
-	(*SessionInfo)(nil),            // 15: durable.v1.SessionInfo
-	(*SubmitRequest)(nil),          // 16: durable.v1.SubmitRequest
-	(*SubmitResponse)(nil),         // 17: durable.v1.SubmitResponse
-	(*CancelRequest)(nil),          // 18: durable.v1.CancelRequest
-	(*CancelResponse)(nil),         // 19: durable.v1.CancelResponse
-	(*DecideApprovalRequest)(nil),  // 20: durable.v1.DecideApprovalRequest
-	(*DecideApprovalResponse)(nil), // 21: durable.v1.DecideApprovalResponse
-	(*WatchEventsRequest)(nil),     // 22: durable.v1.WatchEventsRequest
-	(*WatchEventsResponse)(nil),    // 23: durable.v1.WatchEventsResponse
-	(*Heartbeat)(nil),              // 24: durable.v1.Heartbeat
-	(*Delta)(nil),                  // 25: durable.v1.Delta
-	(*Submission)(nil),             // 26: durable.v1.Submission
-	(*Approval)(nil),               // 27: durable.v1.Approval
-	(*ToolCall)(nil),               // 28: durable.v1.ToolCall
-	(*Message)(nil),                // 29: durable.v1.Message
-	(*Usage)(nil),                  // 30: durable.v1.Usage
-	(*Event)(nil),                  // 31: durable.v1.Event
-	(*EpochMismatch)(nil),          // 32: durable.v1.EpochMismatch
-	(*timestamppb.Timestamp)(nil),  // 33: google.protobuf.Timestamp
+	(Workspace)(0),                    // 0: durable.v1.Workspace
+	(DeltaKind)(0),                    // 1: durable.v1.DeltaKind
+	(SubmissionStatus)(0),             // 2: durable.v1.SubmissionStatus
+	(ApprovalStatus)(0),               // 3: durable.v1.ApprovalStatus
+	(EventKind)(0),                    // 4: durable.v1.EventKind
+	(Role)(0),                         // 5: durable.v1.Role
+	(NetworkSource)(0),                // 6: durable.v1.NetworkSource
+	(*GetServerInfoRequest)(nil),      // 7: durable.v1.GetServerInfoRequest
+	(*GetServerInfoResponse)(nil),     // 8: durable.v1.GetServerInfoResponse
+	(*Setting)(nil),                   // 9: durable.v1.Setting
+	(*GrantInfo)(nil),                 // 10: durable.v1.GrantInfo
+	(*EnvironmentInfo)(nil),           // 11: durable.v1.EnvironmentInfo
+	(*CreateSessionRequest)(nil),      // 12: durable.v1.CreateSessionRequest
+	(*CreateSessionResponse)(nil),     // 13: durable.v1.CreateSessionResponse
+	(*ListSessionsRequest)(nil),       // 14: durable.v1.ListSessionsRequest
+	(*ListSessionsResponse)(nil),      // 15: durable.v1.ListSessionsResponse
+	(*SessionInfo)(nil),               // 16: durable.v1.SessionInfo
+	(*SubmitRequest)(nil),             // 17: durable.v1.SubmitRequest
+	(*SubmitResponse)(nil),            // 18: durable.v1.SubmitResponse
+	(*CancelRequest)(nil),             // 19: durable.v1.CancelRequest
+	(*CancelResponse)(nil),            // 20: durable.v1.CancelResponse
+	(*DecideApprovalRequest)(nil),     // 21: durable.v1.DecideApprovalRequest
+	(*DecideApprovalResponse)(nil),    // 22: durable.v1.DecideApprovalResponse
+	(*WatchEventsRequest)(nil),        // 23: durable.v1.WatchEventsRequest
+	(*WatchEventsResponse)(nil),       // 24: durable.v1.WatchEventsResponse
+	(*Heartbeat)(nil),                 // 25: durable.v1.Heartbeat
+	(*Delta)(nil),                     // 26: durable.v1.Delta
+	(*Submission)(nil),                // 27: durable.v1.Submission
+	(*Approval)(nil),                  // 28: durable.v1.Approval
+	(*ToolCall)(nil),                  // 29: durable.v1.ToolCall
+	(*Message)(nil),                   // 30: durable.v1.Message
+	(*Usage)(nil),                     // 31: durable.v1.Usage
+	(*Event)(nil),                     // 32: durable.v1.Event
+	(*EpochMismatch)(nil),             // 33: durable.v1.EpochMismatch
+	(*ListNetworkEventsRequest)(nil),  // 34: durable.v1.ListNetworkEventsRequest
+	(*ListNetworkEventsResponse)(nil), // 35: durable.v1.ListNetworkEventsResponse
+	(*NetworkEvent)(nil),              // 36: durable.v1.NetworkEvent
+	(*NetworkDrop)(nil),               // 37: durable.v1.NetworkDrop
+	(*NetworkCoverage)(nil),           // 38: durable.v1.NetworkCoverage
+	(*timestamppb.Timestamp)(nil),     // 39: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),       // 40: google.protobuf.Duration
 }
 var file_durable_v1_durable_proto_depIdxs = []int32{
 	0,  // 0: durable.v1.GetServerInfoResponse.workspaces:type_name -> durable.v1.Workspace
-	10, // 1: durable.v1.GetServerInfoResponse.environments:type_name -> durable.v1.EnvironmentInfo
-	8,  // 2: durable.v1.GetServerInfoResponse.settings:type_name -> durable.v1.Setting
-	9,  // 3: durable.v1.GetServerInfoResponse.grants:type_name -> durable.v1.GrantInfo
+	11, // 1: durable.v1.GetServerInfoResponse.environments:type_name -> durable.v1.EnvironmentInfo
+	9,  // 2: durable.v1.GetServerInfoResponse.settings:type_name -> durable.v1.Setting
+	10, // 3: durable.v1.GetServerInfoResponse.grants:type_name -> durable.v1.GrantInfo
 	0,  // 4: durable.v1.CreateSessionRequest.workspace:type_name -> durable.v1.Workspace
-	15, // 5: durable.v1.CreateSessionResponse.session:type_name -> durable.v1.SessionInfo
-	15, // 6: durable.v1.ListSessionsResponse.sessions:type_name -> durable.v1.SessionInfo
-	33, // 7: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
+	16, // 5: durable.v1.CreateSessionResponse.session:type_name -> durable.v1.SessionInfo
+	16, // 6: durable.v1.ListSessionsResponse.sessions:type_name -> durable.v1.SessionInfo
+	39, // 7: durable.v1.SessionInfo.created_at:type_name -> google.protobuf.Timestamp
 	0,  // 8: durable.v1.SessionInfo.workspace:type_name -> durable.v1.Workspace
-	26, // 9: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
-	26, // 10: durable.v1.CancelResponse.submission:type_name -> durable.v1.Submission
-	27, // 11: durable.v1.DecideApprovalResponse.approval:type_name -> durable.v1.Approval
-	31, // 12: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
-	24, // 13: durable.v1.WatchEventsResponse.heartbeat:type_name -> durable.v1.Heartbeat
-	25, // 14: durable.v1.WatchEventsResponse.delta:type_name -> durable.v1.Delta
+	27, // 9: durable.v1.SubmitResponse.submission:type_name -> durable.v1.Submission
+	27, // 10: durable.v1.CancelResponse.submission:type_name -> durable.v1.Submission
+	28, // 11: durable.v1.DecideApprovalResponse.approval:type_name -> durable.v1.Approval
+	32, // 12: durable.v1.WatchEventsResponse.event:type_name -> durable.v1.Event
+	25, // 13: durable.v1.WatchEventsResponse.heartbeat:type_name -> durable.v1.Heartbeat
+	26, // 14: durable.v1.WatchEventsResponse.delta:type_name -> durable.v1.Delta
 	1,  // 15: durable.v1.Delta.kind:type_name -> durable.v1.DeltaKind
 	2,  // 16: durable.v1.Submission.status:type_name -> durable.v1.SubmissionStatus
-	28, // 17: durable.v1.Approval.call:type_name -> durable.v1.ToolCall
+	29, // 17: durable.v1.Approval.call:type_name -> durable.v1.ToolCall
 	3,  // 18: durable.v1.Approval.status:type_name -> durable.v1.ApprovalStatus
 	5,  // 19: durable.v1.Message.role:type_name -> durable.v1.Role
-	28, // 20: durable.v1.Message.tool_calls:type_name -> durable.v1.ToolCall
-	30, // 21: durable.v1.Message.usage:type_name -> durable.v1.Usage
+	29, // 20: durable.v1.Message.tool_calls:type_name -> durable.v1.ToolCall
+	31, // 21: durable.v1.Message.usage:type_name -> durable.v1.Usage
 	4,  // 22: durable.v1.Event.kind:type_name -> durable.v1.EventKind
 	2,  // 23: durable.v1.Event.status:type_name -> durable.v1.SubmissionStatus
-	29, // 24: durable.v1.Event.message:type_name -> durable.v1.Message
-	28, // 25: durable.v1.Event.call:type_name -> durable.v1.ToolCall
+	30, // 24: durable.v1.Event.message:type_name -> durable.v1.Message
+	29, // 25: durable.v1.Event.call:type_name -> durable.v1.ToolCall
 	3,  // 26: durable.v1.Event.approval:type_name -> durable.v1.ApprovalStatus
-	33, // 27: durable.v1.Event.at:type_name -> google.protobuf.Timestamp
-	16, // 28: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
-	18, // 29: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
-	20, // 30: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
-	22, // 31: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
-	13, // 32: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
-	11, // 33: durable.v1.SessionService.CreateSession:input_type -> durable.v1.CreateSessionRequest
-	6,  // 34: durable.v1.SessionService.GetServerInfo:input_type -> durable.v1.GetServerInfoRequest
-	17, // 35: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
-	19, // 36: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
-	21, // 37: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
-	23, // 38: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
-	14, // 39: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
-	12, // 40: durable.v1.SessionService.CreateSession:output_type -> durable.v1.CreateSessionResponse
-	7,  // 41: durable.v1.SessionService.GetServerInfo:output_type -> durable.v1.GetServerInfoResponse
-	35, // [35:42] is the sub-list for method output_type
-	28, // [28:35] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	39, // 27: durable.v1.Event.at:type_name -> google.protobuf.Timestamp
+	40, // 28: durable.v1.ListNetworkEventsRequest.since_ago:type_name -> google.protobuf.Duration
+	39, // 29: durable.v1.ListNetworkEventsRequest.since_time:type_name -> google.protobuf.Timestamp
+	36, // 30: durable.v1.ListNetworkEventsResponse.events:type_name -> durable.v1.NetworkEvent
+	38, // 31: durable.v1.ListNetworkEventsResponse.coverage:type_name -> durable.v1.NetworkCoverage
+	39, // 32: durable.v1.NetworkEvent.time:type_name -> google.protobuf.Timestamp
+	39, // 33: durable.v1.NetworkDrop.since:type_name -> google.protobuf.Timestamp
+	6,  // 34: durable.v1.NetworkCoverage.source:type_name -> durable.v1.NetworkSource
+	39, // 35: durable.v1.NetworkCoverage.gateway_log_start:type_name -> google.protobuf.Timestamp
+	39, // 36: durable.v1.NetworkCoverage.history_start:type_name -> google.protobuf.Timestamp
+	37, // 37: durable.v1.NetworkCoverage.dropped_own:type_name -> durable.v1.NetworkDrop
+	37, // 38: durable.v1.NetworkCoverage.dropped_gateway_wide:type_name -> durable.v1.NetworkDrop
+	37, // 39: durable.v1.NetworkCoverage.dropped_unknown:type_name -> durable.v1.NetworkDrop
+	40, // 40: durable.v1.NetworkCoverage.retention:type_name -> google.protobuf.Duration
+	39, // 41: durable.v1.NetworkCoverage.since:type_name -> google.protobuf.Timestamp
+	17, // 42: durable.v1.SessionService.Submit:input_type -> durable.v1.SubmitRequest
+	19, // 43: durable.v1.SessionService.Cancel:input_type -> durable.v1.CancelRequest
+	21, // 44: durable.v1.SessionService.DecideApproval:input_type -> durable.v1.DecideApprovalRequest
+	23, // 45: durable.v1.SessionService.WatchEvents:input_type -> durable.v1.WatchEventsRequest
+	14, // 46: durable.v1.SessionService.ListSessions:input_type -> durable.v1.ListSessionsRequest
+	12, // 47: durable.v1.SessionService.CreateSession:input_type -> durable.v1.CreateSessionRequest
+	7,  // 48: durable.v1.SessionService.GetServerInfo:input_type -> durable.v1.GetServerInfoRequest
+	34, // 49: durable.v1.SessionService.ListNetworkEvents:input_type -> durable.v1.ListNetworkEventsRequest
+	18, // 50: durable.v1.SessionService.Submit:output_type -> durable.v1.SubmitResponse
+	20, // 51: durable.v1.SessionService.Cancel:output_type -> durable.v1.CancelResponse
+	22, // 52: durable.v1.SessionService.DecideApproval:output_type -> durable.v1.DecideApprovalResponse
+	24, // 53: durable.v1.SessionService.WatchEvents:output_type -> durable.v1.WatchEventsResponse
+	15, // 54: durable.v1.SessionService.ListSessions:output_type -> durable.v1.ListSessionsResponse
+	13, // 55: durable.v1.SessionService.CreateSession:output_type -> durable.v1.CreateSessionResponse
+	8,  // 56: durable.v1.SessionService.GetServerInfo:output_type -> durable.v1.GetServerInfoResponse
+	35, // 57: durable.v1.SessionService.ListNetworkEvents:output_type -> durable.v1.ListNetworkEventsResponse
+	50, // [50:58] is the sub-list for method output_type
+	42, // [42:50] is the sub-list for method input_type
+	42, // [42:42] is the sub-list for extension type_name
+	42, // [42:42] is the sub-list for extension extendee
+	0,  // [0:42] is the sub-list for field type_name
 }
 
 func init() { file_durable_v1_durable_proto_init() }
@@ -2657,13 +3357,17 @@ func file_durable_v1_durable_proto_init() {
 		(*WatchEventsResponse_Heartbeat)(nil),
 		(*WatchEventsResponse_Delta)(nil),
 	}
+	file_durable_v1_durable_proto_msgTypes[27].OneofWrappers = []any{
+		(*ListNetworkEventsRequest_SinceAgo)(nil),
+		(*ListNetworkEventsRequest_SinceTime)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_durable_v1_durable_proto_rawDesc), len(file_durable_v1_durable_proto_rawDesc)),
-			NumEnums:      6,
-			NumMessages:   27,
+			NumEnums:      7,
+			NumMessages:   32,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

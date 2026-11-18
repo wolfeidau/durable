@@ -178,6 +178,14 @@ func (r *receiver) address() string {
 	return r.addr
 }
 
+// telemetryStore is nil when telemetry is off. The API reads it until shutdown closes the API before the receiver.
+func (r *receiver) telemetryStore() *telemetry.Store {
+	if r == nil {
+		return nil
+	}
+	return r.store
+}
+
 // failed never fires when r is nil, because a nil channel blocks.
 func (r *receiver) failed() <-chan error {
 	if r == nil {
