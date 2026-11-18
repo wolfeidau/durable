@@ -335,3 +335,15 @@ test("sourceLabel", () => {
   expect(sourceLabel[NetworkSource.GATEWAY_LOG]).toBe("gateway log");
   expect(timestampDate(timestampFromMs(5)).getTime()).toBe(5);
 });
+
+describe("merge keeps identity", () => {
+  test("an empty poll returns the same events array", () => {
+    const first = merge(
+      { status: "loading", events: [], olderTruncated: false, capped: false, since: new Date(0) },
+      create(ListNetworkEventsResponseSchema, { events: [create(NetworkEventSchema, { id: "a" })] }),
+      true,
+    );
+    const next = merge(first, create(ListNetworkEventsResponseSchema, {}), false);
+    expect(next.events).toBe(first.events);
+  });
+});

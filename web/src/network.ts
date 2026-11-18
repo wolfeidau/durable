@@ -44,7 +44,10 @@ export function merge(prev: NetworkState, res: ListNetworkEventsResponse, isFirs
   const replace =
     isFirst || res.cursorReset || (prev.coverage !== undefined && res.coverage !== undefined && prev.coverage.source !== res.coverage.source);
   let events: NetworkEvent[];
-  if (replace) {
+  // An empty poll keeps the same array, so views keyed on it don't re-render every interval.
+  if (!replace && res.events.length === 0) {
+    events = prev.events;
+  } else if (replace) {
     events = [...res.events];
   } else {
     const byId = new Map<string, NetworkEvent>();
@@ -52,7 +55,7 @@ export function merge(prev: NetworkState, res: ListNetworkEventsResponse, isFirs
     for (const e of res.events) byId.set(e.id, e);
     events = [...byId.values()];
   }
-  events.sort(compare);
+  if (events !== prev.events) events.sort(compare);
   let capped = prev.capped;
   if (events.length > maxEvents) {
     events = events.slice(events.length - maxEvents);
