@@ -170,7 +170,7 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 	require.Contains(t, out, "DAY")
 	require.Contains(t, out, "TOP DENIED")
 	require.Contains(t, out, "mise-versions.jdx.dev (1)")
-	require.Contains(t, out, "github.com:443 (1)")
+	require.Contains(t, out, "github.com (1)")
 	var rows int
 	for line := range strings.SplitSeq(out, "\n") {
 		if f := strings.Fields(line); len(f) > 3 && regexp.MustCompile(`^\d{4}-\d\d-\d\d$`).MatchString(f[0]) {

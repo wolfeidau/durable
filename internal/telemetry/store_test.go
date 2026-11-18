@@ -88,12 +88,12 @@ func TestDailyAcrossDayBoundary(t *testing.T) {
 		ev("4", "a", "i", d2, true, "ok.com"),
 		ev("5", "b", "i", d2, false, "elsewhere.com"),
 	}
-	// d2 denied: z x3, b x2, a x2, c x1, so the top three are z, a, b.
+	// d2 denied: z x3 (a DNS refusal has no port), b x2, a x2, c x1, so the top three are z, a, b.
 	n := 10
 	for _, h := range []struct {
 		host string
 		cnt  int
-	}{{"z.com", 3}, {"b.com", 2}, {"a.com", 2}, {"c.com", 1}} {
+	}{{"z.com:443", 2}, {"z.com", 1}, {"b.com", 2}, {"a.com", 2}, {"c.com", 1}} {
 		for range h.cnt {
 			n++
 			evs = append(evs, ev(fmt.Sprint(n), "a", "i", d2, false, h.host))

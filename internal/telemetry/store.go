@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -324,7 +325,16 @@ func (s *Store) deniedHosts(ctx context.Context, sandboxName string, from time.T
 		if err := rows.Scan(&dy, &hc.Host, &hc.Count); err != nil {
 			return fmt.Errorf("failed to scan denied host: %w", err)
 		}
-		days[idx[dy]].TopDenied = append(days[idx[dy]].TopDenied, hc)
+		// A DNS refusal has no port and the connect that follows it does, so both count against the hostname.
+		if h, _, err := net.SplitHostPort(hc.Host); err == nil {
+			hc.Host = h
+		}
+		top := &days[idx[dy]].TopDenied
+		if i := slices.IndexFunc(*top, func(e HostCount) bool { return e.Host == hc.Host }); i >= 0 {
+			(*top)[i].Count += hc.Count
+		} else {
+			*top = append(*top, hc)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("failed to read denied hosts: %w", err)
