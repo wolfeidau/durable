@@ -1,15 +1,34 @@
 import { ApprovalStatus } from "./gen/durable/v1/durable_pb";
 import type { CallEntry } from "./transcript";
 
-export function chip(call: CallEntry, output: string | undefined): { text: string; tone: string } {
+// "33ms" under a second, "2.1s" under ten seconds, "42s" under a minute, then "1m 05s".
+export function duration(ms: number): string {
+  const rounded = Math.max(0, Math.round(ms));
+  if (rounded < 1000) return `${rounded}ms`;
+  const secs = rounded / 1000;
+  if (secs < 10) return `${secs.toFixed(1)}s`;
+  const whole = Math.round(secs);
+  return whole < 60 ? `${whole}s` : `${Math.floor(whole / 60)}m ${String(whole % 60).padStart(2, "0")}s`;
+}
+
+export function isRunning(call: CallEntry): boolean {
+  const s = call.approval?.status;
+  return call.result === undefined && s !== ApprovalStatus.PENDING && s !== ApprovalStatus.DECLINED && s !== ApprovalStatus.CANCELLED;
+}
+
+const timed = (label: string, ms: number | undefined) => (ms === undefined ? label : `${label} ${duration(ms)}`);
+
+export function chip(call: CallEntry, output: string | undefined, now: number = Date.now()): { text: string; tone: string } {
   const a = call.approval;
   if (a?.status === ApprovalStatus.PENDING) return { text: "waiting", tone: "tone-warn" };
   if (a?.status === ApprovalStatus.DECLINED) return { text: "denied", tone: "tone-error" };
   if (a?.status === ApprovalStatus.CANCELLED) return { text: "cancelled", tone: "tone-cancelled" };
   if (call.result !== undefined) {
-    return call.isError ? { text: "error", tone: "tone-error" } : { text: "done", tone: "tone-ok" };
+    const ms = call.startedAt !== undefined && call.doneAt !== undefined ? call.doneAt - call.startedAt : undefined;
+    return call.isError ? { text: timed("error", ms), tone: "tone-error" } : { text: timed("done", ms), tone: "tone-ok" };
   }
-  return { text: "running", tone: output ? "tone-link pulse" : "tone-link" };
+  const ms = call.startedAt === undefined ? undefined : now - call.startedAt;
+  return { text: timed("running", ms), tone: output ? "tone-link pulse" : "tone-link" };
 }
 
 const previewKeys = ["command", "path", "pattern", "file_path", "url", "query"];

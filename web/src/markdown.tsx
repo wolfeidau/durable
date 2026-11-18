@@ -66,16 +66,18 @@ function render(t: Token, key: number): ReactNode {
       const cell = (c: Tokens.TableCell, i: number) =>
         createElement(c.header ? "th" : "td", { key: i, style: { textAlign: c.align ?? undefined } }, inline(c.tokens));
       return (
-        <table key={key}>
-          <thead>
-            <tr>{tb.header.map(cell)}</tr>
-          </thead>
-          <tbody>
-            {tb.rows.map((r, i) => (
-              <tr key={i}>{r.map(cell)}</tr>
-            ))}
-          </tbody>
-        </table>
+        <div key={key} className="table-scroll">
+          <table>
+            <thead>
+              <tr>{tb.header.map(cell)}</tr>
+            </thead>
+            <tbody>
+              {tb.rows.map((r, i) => (
+                <tr key={i}>{r.map(cell)}</tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       );
     }
     case "hr":
