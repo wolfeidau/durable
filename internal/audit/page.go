@@ -11,65 +11,35 @@ import (
 	"strings"
 
 	"github.com/wolfeidau/durable/internal/sandbox/openshell"
-	"github.com/wolfeidau/durable/internal/telemetry"
 )
 
-// cursor is a position in one source's (time, id) order. The source is part of it, because ids from the two do not mix.
-type cursor struct {
-	source Source
-	pos    telemetry.Position
+// cursorTag marks a telemetry store cursor, so a cursor from any other source is rejected.
+const cursorTag = "s:"
+
+func encodeCursor(rowID int64) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(cursorTag + strconv.FormatInt(rowID, 10)))
 }
 
-func (c cursor) String() string {
-	tag := "s"
-	if c.source == SourceGateway {
-		tag = "g"
-	}
-	return base64.RawURLEncoding.EncodeToString([]byte(tag + ":" + strconv.FormatInt(c.pos.TimeMS, 10) + ":" + c.pos.UID))
-}
-
-// parseCursor returns nil for an empty cursor.
-func parseCursor(s string) (*cursor, error) {
+// parseCursor returns zero for an empty cursor.
+func parseCursor(s string) (int64, error) {
 	if s == "" {
-		return nil, nil
+		return 0, nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(s)
-	if err != nil {
-		return nil, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
+	rest, ok := strings.CutPrefix(string(raw), cursorTag)
+	if err != nil || !ok {
+		return 0, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
 	}
-	// The id may contain colons, so only the first two separate fields.
-	parts := strings.SplitN(string(raw), ":", 3)
-	if len(parts) != 3 {
-		return nil, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
+	id, err := strconv.ParseInt(rest, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
 	}
-	ms, err := strconv.ParseInt(parts[1], 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
-	}
-	c := &cursor{pos: telemetry.Position{TimeMS: ms, UID: parts[2]}}
-	switch parts[0] {
-	case "s":
-		c.source = SourceStore
-	case "g":
-		c.source = SourceGateway
-	default:
-		return nil, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
-	}
-	return c, nil
+	return id, nil
 }
 
-// setNext points the cursor after the last event, and leaves an earlier cursor in place when there are none.
-func (r *Result) setNext(src Source) {
-	if len(r.Events) == 0 {
-		return
-	}
-	last := r.Events[len(r.Events)-1]
-	r.NextCursor = cursor{source: src, pos: telemetry.Position{TimeMS: last.Time.UnixMilli(), UID: last.ID}}.String()
-}
-
-// gatewayEvents gives each log decision an id derived from its content, ordered like the store by (time, id).
-// Identical decisions in the same millisecond get a counter, in log order. The id is stable only while the log keeps
-// the same lines, which is why gateway cursors cannot resume reliably.
+// gatewayEvents gives each log decision an id derived from its content, ordered by (time, id).
+// Identical decisions in the same millisecond get a counter, in log order. The ids let a client dedupe repeated reads;
+// they are not stable once the log drops lines, which is why the log source issues no cursor.
 func gatewayEvents(ds []openshell.Decision) []Event {
 	seen := map[string]int{}
 	out := make([]Event, len(ds))
@@ -88,21 +58,4 @@ func gatewayEvents(ds []openshell.Decision) []Event {
 		return strings.Compare(a.ID, b.ID)
 	})
 	return out
-}
-
-// pageEvents applies the same cursor and limit semantics as the store to events already sorted by (time, id).
-func pageEvents(events []Event, after *cursor, limit int) (page []Event, truncated bool) {
-	if after != nil {
-		events = slices.DeleteFunc(slices.Clone(events), func(e Event) bool {
-			ms := e.Time.UnixMilli()
-			return ms < after.pos.TimeMS || (ms == after.pos.TimeMS && e.ID <= after.pos.UID)
-		})
-	}
-	if limit <= 0 || len(events) <= limit {
-		return events, false
-	}
-	if after == nil {
-		return events[len(events)-limit:], true
-	}
-	return events[:limit], true
 }

@@ -2386,7 +2386,8 @@ type ListNetworkEventsRequest struct {
 	//	*ListNetworkEventsRequest_SinceTime
 	Since isListNetworkEventsRequest_Since `protobuf_oneof:"since"`
 	// after is the next_cursor of an earlier response. Empty returns the newest limit events in the window.
-	// The server keeps no state for a cursor: it names a position in the (time, id) order of one source.
+	// The server keeps no state for a cursor: it names a position in the telemetry store's insertion order.
+	// With GATEWAY_LOG there is no cursor: poll without after.
 	After string `protobuf:"bytes,4,opt,name=after,proto3" json:"after,omitempty"`
 	// limit is the most events to return. Default and maximum 1000; 0 means the default.
 	Limit         int32 `protobuf:"varint,5,opt,name=limit,proto3" json:"limit,omitempty"`
@@ -2488,15 +2489,21 @@ func (*ListNetworkEventsRequest_SinceTime) isListNetworkEventsRequest_Since() {}
 
 type ListNetworkEventsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// events are ordered oldest first by (time, id).
+	// events are oldest first by (time, id) when after is empty or cursor_reset is set, and for GATEWAY_LOG. With after they are
+	// in storage order, which can include times earlier than events already returned, because the gateway's exporter
+	// retries failed batches. The client should merge them into its list and sort by (time, id).
 	Events   []*NetworkEvent  `protobuf:"bytes,1,rep,name=events,proto3" json:"events,omitempty"`
 	Coverage *NetworkCoverage `protobuf:"bytes,2,opt,name=coverage,proto3" json:"coverage,omitempty"`
-	// next_cursor resumes after the last event. With no events it repeats the request's after, which may be empty.
-	// Events that arrive late with a time before the cursor are not returned when resuming; load without a cursor to see them.
+	// next_cursor resumes after everything stored so far: for a first load, the newest event the store held when it was
+	// read; when resuming, the last event returned. With no events it repeats the request's after. It is empty for
+	// GATEWAY_LOG, so each poll re-reads the log and moves to the store once the store has decisions.
 	NextCursor string `protobuf:"bytes,3,opt,name=next_cursor,json=nextCursor,proto3" json:"next_cursor,omitempty"`
 	// truncated means limit left events out. Without after, older events in the window were left out; with after,
 	// newer events remain and the next request should follow immediately.
-	Truncated     bool `protobuf:"varint,4,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	Truncated bool `protobuf:"varint,4,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	// cursor_reset means after no longer matches the store, because the rows it named were deleted and their ids reused.
+	// The events are a first load: replace the list, do not append.
+	CursorReset   bool `protobuf:"varint,5,opt,name=cursor_reset,json=cursorReset,proto3" json:"cursor_reset,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2555,6 +2562,13 @@ func (x *ListNetworkEventsResponse) GetNextCursor() string {
 func (x *ListNetworkEventsResponse) GetTruncated() bool {
 	if x != nil {
 		return x.Truncated
+	}
+	return false
+}
+
+func (x *ListNetworkEventsResponse) GetCursorReset() bool {
+	if x != nil {
+		return x.CursorReset
 	}
 	return false
 }
@@ -2764,8 +2778,8 @@ type NetworkCoverage struct {
 	// source_bounded is set for GATEWAY_LOG: the source holds only recent lines, so events older than its start are
 	// missing whatever the window asked for.
 	SourceBounded bool `protobuf:"varint,2,opt,name=source_bounded,json=sourceBounded,proto3" json:"source_bounded,omitempty"`
-	// resumable is false when a cursor cannot be relied on: with GATEWAY_LOG, events may repeat or be missed between
-	// polls because ids come from content and lines age out.
+	// resumable is false for GATEWAY_LOG, which issues no cursor: each poll re-reads the log from the window start, and
+	// ids come from content, so use them to dedupe.
 	Resumable bool `protobuf:"varint,3,opt,name=resumable,proto3" json:"resumable,omitempty"`
 	// store_available is false when the server has no telemetry store, so the fields below that come from the store are
 	// empty because they are unknown, not because nothing was lost.
@@ -3127,13 +3141,14 @@ const file_durable_v1_durable_proto_rawDesc = "" +
 	"since_time\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampH\x00R\tsinceTime\x12\x14\n" +
 	"\x05after\x18\x04 \x01(\tR\x05after\x12\x14\n" +
 	"\x05limit\x18\x05 \x01(\x05R\x05limitB\a\n" +
-	"\x05since\"\xc5\x01\n" +
+	"\x05since\"\xe8\x01\n" +
 	"\x19ListNetworkEventsResponse\x120\n" +
 	"\x06events\x18\x01 \x03(\v2\x18.durable.v1.NetworkEventR\x06events\x127\n" +
 	"\bcoverage\x18\x02 \x01(\v2\x1b.durable.v1.NetworkCoverageR\bcoverage\x12\x1f\n" +
 	"\vnext_cursor\x18\x03 \x01(\tR\n" +
 	"nextCursor\x12\x1c\n" +
-	"\ttruncated\x18\x04 \x01(\bR\ttruncated\"\xba\x02\n" +
+	"\ttruncated\x18\x04 \x01(\bR\ttruncated\x12!\n" +
+	"\fcursor_reset\x18\x05 \x01(\bR\vcursorReset\"\xba\x02\n" +
 	"\fNetworkEvent\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +

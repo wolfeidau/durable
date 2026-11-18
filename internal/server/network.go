@@ -64,10 +64,11 @@ func (s sessionService) ListNetworkEvents(ctx context.Context, req *connect.Requ
 		return nil, s.internal(ctx, "read network events", err)
 	}
 	return connect.NewResponse(&v1.ListNetworkEventsResponse{
-		Events:     networkEvents(res.Events),
-		Coverage:   s.networkCoverage(ctx, res.Coverage, since),
-		NextCursor: res.NextCursor,
-		Truncated:  res.Truncated,
+		Events:      networkEvents(res.Events),
+		Coverage:    s.networkCoverage(ctx, res.Coverage, since),
+		NextCursor:  res.NextCursor,
+		Truncated:   res.Truncated,
+		CursorReset: res.Reset,
 	}), nil
 }
 

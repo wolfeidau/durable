@@ -55,6 +55,16 @@ func TestListNetworkEventsServedFromTelemetryStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, rest.Msg.Events)
 	require.Equal(t, one.Msg.NextCursor, rest.Msg.NextCursor)
+	require.False(t, rest.Msg.CursorReset)
+
+	// A later insert is returned on resume even though its event time (the fixture's) is older than rows the client has.
+	late := fixtureRecords(t)[1]
+	late.Attributes[0] = strAttr("ocsf.metadata.uid", "late-arrival")
+	require.Equal(t, http.StatusOK, exportLogs(t, addr, token, late))
+	resumed, err := c.ListNetworkEvents(t.Context(), authed(c, &v1.ListNetworkEventsRequest{SessionId: session, Since: wideSince(), After: one.Msg.NextCursor}))
+	require.NoError(t, err)
+	require.Len(t, resumed.Msg.Events, 1)
+	require.Equal(t, "late-arrival", resumed.Msg.Events[0].Id)
 
 	_, err = c.ListNetworkEvents(t.Context(), authed(c, &v1.ListNetworkEventsRequest{SessionId: "5555555555555555"}))
 	require.Equal(t, connect.CodeNotFound, connect.CodeOf(err))
@@ -79,6 +89,7 @@ func TestListNetworkEventsWithoutTelemetryReportsGatewayLog(t *testing.T) {
 	require.NotEmpty(t, cov.GatewayError)
 	require.True(t, cov.SourceBounded)
 	require.False(t, cov.Resumable)
+	require.Empty(t, resp.Msg.NextCursor, "the gateway log issues no cursor")
 }
 
 func TestListNetworkEventsNeedsASandbox(t *testing.T) {

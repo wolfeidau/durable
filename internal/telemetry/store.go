@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS decisions (
 CREATE INDEX IF NOT EXISTS decisions_sandbox_time ON decisions (sandbox_name, time_ms);
 CREATE INDEX IF NOT EXISTS decisions_time ON decisions (time_ms);
 CREATE INDEX IF NOT EXISTS decisions_sandbox_time_uid ON decisions (sandbox_name, time_ms, uid);
+CREATE INDEX IF NOT EXISTS decisions_sandbox ON decisions (sandbox_name);
 CREATE TABLE IF NOT EXISTS raw_events (
 	id INTEGER PRIMARY KEY,
 	uid TEXT UNIQUE,
@@ -322,78 +323,117 @@ func (s *Store) Prune(ctx context.Context, before time.Time) (int64, error) {
 	return total, nil
 }
 
+// StoredDecision is a decision with the uid that identifies it and the row id that records its insertion order.
+type StoredDecision struct {
+	UID   string
+	RowID int64
+	openshell.Decision
+}
+
+// Page is one DecisionsPage result.
+type Page struct {
+	// Rows are oldest first by (time, uid) for a first load, and in insertion order when resuming.
+	Rows []StoredDecision
+	// Next is the row id to resume after; zero when the sandbox has no rows yet.
+	Next int64
+	// More means the limit left rows out: older ones in the window for a first load, newer ones when resuming.
+	More bool
+	// Reset means the cursor was ahead of every row in the store, which happens only if the rows it named were deleted
+	// and their ids reused, so the page is a first load and replaces what the caller holds.
+	Reset bool
+}
+
 // Decisions returns the sandbox's decisions at or after since, oldest first.
 func (s *Store) Decisions(ctx context.Context, sandboxName string, since time.Time) ([]openshell.Decision, error) {
-	rows, _, err := s.DecisionsPage(ctx, sandboxName, since, nil, 0)
+	p, err := s.DecisionsPage(ctx, sandboxName, since, 0, 0)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]openshell.Decision, len(rows))
-	for i, r := range rows {
+	out := make([]openshell.Decision, len(p.Rows))
+	for i, r := range p.Rows {
 		out[i] = r.Decision
 	}
 	return out, nil
 }
 
-// StoredDecision is a decision with the uid that identifies it in the store.
-type StoredDecision struct {
-	UID string
-	openshell.Decision
-}
-
-// Position is a point in the (time, uid) order that DecisionsPage pages by. TimeMS is the store's precision.
-type Position struct {
-	TimeMS int64
-	UID    string
-}
-
-// DecisionsPage returns the sandbox's decisions at or after since, oldest first, ordered by (time, uid).
-// With after set, it returns the first limit decisions strictly after that position, and more reports that newer ones remain.
-// Without it, it returns the newest limit decisions, and more reports that older ones in the window were left out.
+// DecisionsPage returns the sandbox's decisions at or after since.
+// With after zero it is a first load: the newest limit decisions by (time, uid), oldest first, and Next is the sandbox's
+// highest row id when the page was read, so a resume returns everything stored after it, including late arrivals whose
+// event time is older than rows already returned.
+// With after set it returns the first limit decisions inserted after that row id, in insertion order.
 // A limit of zero or less returns everything.
-func (s *Store) DecisionsPage(ctx context.Context, sandboxName string, since time.Time, after *Position, limit int) (out []StoredDecision, more bool, err error) {
-	query := `SELECT uid, time_ms, allowed, kind, activity, binary, method, host, path, policy, reason
+func (s *Store) DecisionsPage(ctx context.Context, sandboxName string, since time.Time, after int64, limit int) (Page, error) {
+	// One transaction, so the cursor covers exactly the rows the page was read from.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return Page{}, fmt.Errorf("failed to begin decisions read: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var page Page
+	if after > 0 {
+		var maxID int64
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(rowid), 0) FROM decisions`).Scan(&maxID); err != nil {
+			return Page{}, fmt.Errorf("failed to query newest decision id: %w", err)
+		}
+		if after > maxID {
+			page.Reset, after = true, 0
+		}
+	}
+	query := `SELECT rowid, uid, time_ms, allowed, kind, activity, binary, method, host, path, policy, reason
 		FROM decisions WHERE sandbox_name = ? AND time_ms >= ?`
 	args := []any{sandboxName, since.UnixMilli()}
-	if after != nil {
-		query += ` AND (time_ms > ? OR (time_ms = ? AND uid > ?))`
-		args = append(args, after.TimeMS, after.TimeMS, after.UID)
-	}
-	newest := after == nil && limit > 0
-	if newest {
+	newest := after == 0 && limit > 0
+	switch {
+	case after > 0:
+		query += ` AND rowid > ? ORDER BY rowid`
+		args = append(args, after)
+	case newest:
 		query += ` ORDER BY time_ms DESC, uid DESC`
-	} else {
+	default:
 		query += ` ORDER BY time_ms, uid`
 	}
 	if limit > 0 {
 		query += ` LIMIT ?`
 		args = append(args, limit+1)
 	}
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to query decisions: %w", err)
+		return Page{}, fmt.Errorf("failed to query decisions: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var d StoredDecision
 		var ms int64
-		if err := rows.Scan(&d.UID, &ms, &d.Allowed, &d.Kind, &d.Activity, &d.Binary, &d.Method, &d.Host, &d.Path, &d.Policy, &d.Reason); err != nil {
-			return nil, false, fmt.Errorf("failed to scan decision: %w", err)
+		if err := rows.Scan(&d.RowID, &d.UID, &ms, &d.Allowed, &d.Kind, &d.Activity, &d.Binary, &d.Method, &d.Host, &d.Path, &d.Policy, &d.Reason); err != nil {
+			return Page{}, fmt.Errorf("failed to scan decision: %w", err)
 		}
 		d.Time = time.UnixMilli(ms).UTC()
-		out = append(out, d)
+		page.Rows = append(page.Rows, d)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, false, fmt.Errorf("failed to read decisions: %w", err)
+		return Page{}, fmt.Errorf("failed to read decisions: %w", err)
 	}
-	if limit > 0 && len(out) > limit {
-		more = true
-		out = out[:limit]
+	if err := rows.Close(); err != nil {
+		return Page{}, fmt.Errorf("failed to close decisions: %w", err)
+	}
+	if limit > 0 && len(page.Rows) > limit {
+		page.More = true
+		page.Rows = page.Rows[:limit]
+	}
+	if after > 0 {
+		page.Next = after
+		if n := len(page.Rows); n > 0 {
+			page.Next = page.Rows[n-1].RowID
+		}
+		return page, nil
 	}
 	if newest {
-		slices.Reverse(out)
+		slices.Reverse(page.Rows)
 	}
-	return out, more, nil
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(MAX(rowid), 0) FROM decisions WHERE sandbox_name = ?`, sandboxName).Scan(&page.Next); err != nil {
+		return Page{}, fmt.Errorf("failed to query newest decision id: %w", err)
+	}
+	return page, nil
 }
 
 // RawEvents returns the archived records at or after since for the sandbox, oldest first. It includes records with no

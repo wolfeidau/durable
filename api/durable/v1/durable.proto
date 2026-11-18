@@ -348,22 +348,29 @@ message ListNetworkEventsRequest {
     google.protobuf.Timestamp since_time = 3;
   }
   // after is the next_cursor of an earlier response. Empty returns the newest limit events in the window.
-  // The server keeps no state for a cursor: it names a position in the (time, id) order of one source.
+  // The server keeps no state for a cursor: it names a position in the telemetry store's insertion order.
+  // With GATEWAY_LOG there is no cursor: poll without after.
   string after = 4;
   // limit is the most events to return. Default and maximum 1000; 0 means the default.
   int32 limit = 5;
 }
 
 message ListNetworkEventsResponse {
-  // events are ordered oldest first by (time, id).
+  // events are oldest first by (time, id) when after is empty or cursor_reset is set, and for GATEWAY_LOG. With after they are
+  // in storage order, which can include times earlier than events already returned, because the gateway's exporter
+  // retries failed batches. The client should merge them into its list and sort by (time, id).
   repeated NetworkEvent events = 1;
   NetworkCoverage coverage = 2;
-  // next_cursor resumes after the last event. With no events it repeats the request's after, which may be empty.
-  // Events that arrive late with a time before the cursor are not returned when resuming; load without a cursor to see them.
+  // next_cursor resumes after everything stored so far: for a first load, the newest event the store held when it was
+  // read; when resuming, the last event returned. With no events it repeats the request's after. It is empty for
+  // GATEWAY_LOG, so each poll re-reads the log and moves to the store once the store has decisions.
   string next_cursor = 3;
   // truncated means limit left events out. Without after, older events in the window were left out; with after,
   // newer events remain and the next request should follow immediately.
   bool truncated = 4;
+  // cursor_reset means after no longer matches the store, because the rows it named were deleted and their ids reused.
+  // The events are a first load: replace the list, do not append.
+  bool cursor_reset = 5;
 }
 
 // NetworkEvent is one network request the sandbox proxy allowed or denied.
@@ -414,8 +421,8 @@ message NetworkCoverage {
   // source_bounded is set for GATEWAY_LOG: the source holds only recent lines, so events older than its start are
   // missing whatever the window asked for.
   bool source_bounded = 2;
-  // resumable is false when a cursor cannot be relied on: with GATEWAY_LOG, events may repeat or be missed between
-  // polls because ids come from content and lines age out.
+  // resumable is false for GATEWAY_LOG, which issues no cursor: each poll re-reads the log from the window start, and
+  // ids come from content, so use them to dedupe.
   bool resumable = 3;
   // store_available is false when the server has no telemetry store, so the fields below that come from the store are
   // empty because they are unknown, not because nothing was lost.

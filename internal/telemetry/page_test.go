@@ -32,89 +32,147 @@ func seedPaging(t *testing.T) (*Store, time.Time) {
 	return s, t0
 }
 
-func TestDecisionsPageOrdersByTimeThenUID(t *testing.T) {
+func TestDecisionsPageFirstLoadOrdersByTimeThenUID(t *testing.T) {
 	s, t0 := seedPaging(t)
 
-	rows, more, err := s.DecisionsPage(t.Context(), "a", t0, nil, 0)
+	p, err := s.DecisionsPage(t.Context(), "a", t0, 0, 0)
 
 	require.NoError(t, err)
-	require.False(t, more)
-	require.Equal(t, []string{"a", "b", "c", "d", "e"}, uids(rows))
-	require.Equal(t, "2.com", rows[0].Host)
+	require.False(t, p.More)
+	require.False(t, p.Reset)
+	require.Equal(t, []string{"a", "b", "c", "d", "e"}, uids(p.Rows))
+	require.Equal(t, "2.com", p.Rows[0].Host)
 }
 
-func TestDecisionsPageAfterIsStrictlyAfter(t *testing.T) {
+func TestDecisionsPageFirstLoadIsNewestN(t *testing.T) {
 	s, t0 := seedPaging(t)
 
-	rows, more, err := s.DecisionsPage(t.Context(), "a", t0, &Position{TimeMS: t0.UnixMilli(), UID: "a"}, 0)
+	p, err := s.DecisionsPage(t.Context(), "a", t0, 0, 3)
 	require.NoError(t, err)
-	require.False(t, more)
-	require.Equal(t, []string{"b", "c", "d", "e"}, uids(rows))
+	require.True(t, p.More, "older rows in the window were left out")
+	require.Equal(t, []string{"c", "d", "e"}, uids(p.Rows), "oldest first")
 
-	rows, _, err = s.DecisionsPage(t.Context(), "a", t0, &Position{TimeMS: t0.UnixMilli(), UID: "c"}, 0)
+	p, err = s.DecisionsPage(t.Context(), "a", t0, 0, 5)
 	require.NoError(t, err)
-	require.Equal(t, []string{"d", "e"}, uids(rows))
+	require.False(t, p.More, "limit equal to the row count leaves nothing out")
+	require.Len(t, p.Rows, 5)
 
-	rows, _, err = s.DecisionsPage(t.Context(), "a", t0, &Position{TimeMS: t0.Add(2 * time.Second).UnixMilli(), UID: "e"}, 0)
+	p, err = s.DecisionsPage(t.Context(), "a", t0.Add(time.Second), 0, 1)
 	require.NoError(t, err)
-	require.Empty(t, rows)
+	require.True(t, p.More)
+	require.Equal(t, []string{"e"}, uids(p.Rows))
 }
 
-func TestDecisionsPageWalksEveryRowOnce(t *testing.T) {
+func TestDecisionsPageFirstLoadCursorIsTheNewestInsertion(t *testing.T) {
 	s, t0 := seedPaging(t)
+
+	// The newest-by-time rows are not the newest insertions, so the cursor must not follow the page's last row.
+	mustAdd(t, s, []Event{ev("late", "a", "id1", t0.Add(-time.Hour), true, "late.com")})
+	first, err := s.DecisionsPage(t.Context(), "a", t0.Add(-2*time.Hour), 0, 2)
+	require.NoError(t, err)
+	require.Equal(t, []string{"d", "e"}, uids(first.Rows))
+	require.True(t, first.More)
+
+	next, err := s.DecisionsPage(t.Context(), "a", t0.Add(-2*time.Hour), first.Next, 10)
+	require.NoError(t, err)
+	require.Empty(t, next.Rows, "nothing is repeated or missed after the first load")
+	require.Equal(t, first.Next, next.Next)
+	require.False(t, next.More)
+}
+
+func TestDecisionsPageResumeReturnsLateArrivals(t *testing.T) {
+	s, t0 := seedPaging(t)
+	first, err := s.DecisionsPage(t.Context(), "a", t0, 0, 10)
+	require.NoError(t, err)
+
+	// A retried export lands rows older than the newest row already returned.
+	mustAdd(t, s, []Event{
+		ev("late1", "a", "id1", t0.Add(-time.Minute), true, "l1.com"),
+		ev("new", "a", "id1", t0.Add(time.Hour), true, "n.com"),
+		ev("elsewhere", "b", "id2", t0.Add(time.Hour), true, "x.com"),
+	})
+	second, err := s.DecisionsPage(t.Context(), "a", t0.Add(-time.Hour), first.Next, 10)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"late1", "new"}, uids(second.Rows), "insertion order, including the older time")
+	require.Greater(t, second.Next, first.Next)
+	require.False(t, second.More)
+	require.False(t, second.Reset)
+}
+
+func TestDecisionsPageResumeRespectsSinceAndLimit(t *testing.T) {
+	s, t0 := seedPaging(t)
+	first, err := s.DecisionsPage(t.Context(), "a", t0, 0, 10)
+	require.NoError(t, err)
+	mustAdd(t, s, []Event{
+		ev("x1", "a", "id1", t0.Add(time.Minute), true, "1.com"),
+		ev("old", "a", "id1", t0.Add(-time.Hour), true, "2.com"),
+		ev("x2", "a", "id1", t0.Add(2*time.Minute), true, "3.com"),
+		ev("x3", "a", "id1", t0.Add(3*time.Minute), true, "4.com"),
+	})
 
 	var seen []string
-	// Without a cursor the first page is the newest rows, so start from before the oldest.
-	after := &Position{TimeMS: t0.UnixMilli() - 1}
-	for range 10 {
-		rows, more, err := s.DecisionsPage(t.Context(), "a", t0, after, 2)
+	after := first.Next
+	for range 5 {
+		p, err := s.DecisionsPage(t.Context(), "a", t0, after, 2)
 		require.NoError(t, err)
-		seen = append(seen, uids(rows)...)
-		if !more {
+		seen = append(seen, uids(p.Rows)...)
+		after = p.Next
+		if !p.More {
 			break
 		}
-		last := rows[len(rows)-1]
-		after = &Position{TimeMS: last.Time.UnixMilli(), UID: last.UID}
 	}
 
-	require.Equal(t, []string{"a", "b", "c", "d", "e"}, seen)
+	require.Equal(t, []string{"x1", "x2", "x3"}, seen, "the row before since is skipped; paging walks each row once")
 }
 
-func TestDecisionsPageInitialLoadIsNewestN(t *testing.T) {
+func TestDecisionsPageCursorBeyondTheStoreResets(t *testing.T) {
 	s, t0 := seedPaging(t)
-
-	rows, more, err := s.DecisionsPage(t.Context(), "a", t0, nil, 3)
+	first, err := s.DecisionsPage(t.Context(), "a", t0, 0, 10)
 	require.NoError(t, err)
-	require.True(t, more, "older rows in the window were left out")
-	require.Equal(t, []string{"c", "d", "e"}, uids(rows), "oldest first")
 
-	rows, more, err = s.DecisionsPage(t.Context(), "a", t0, nil, 5)
+	// Pruning every row lets SQLite hand out the same row ids again.
+	_, err = s.Prune(t.Context(), t0.Add(24*time.Hour))
 	require.NoError(t, err)
-	require.False(t, more, "limit equal to the row count leaves nothing out")
-	require.Len(t, rows, 5)
+	mustAdd(t, s, []Event{ev("fresh", "a", "id1", t0.Add(25*time.Hour), true, "f.com")})
+	p, err := s.DecisionsPage(t.Context(), "a", t0, first.Next+100, 10)
 
-	rows, more, err = s.DecisionsPage(t.Context(), "a", t0.Add(time.Second), nil, 1)
 	require.NoError(t, err)
-	require.True(t, more)
-	require.Equal(t, []string{"e"}, uids(rows))
+	require.True(t, p.Reset)
+	require.Equal(t, []string{"fresh"}, uids(p.Rows), "a reset is a first load")
+	require.Positive(t, p.Next)
 }
 
 func TestDecisionsPageLimitBounds(t *testing.T) {
 	s, t0 := seedPaging(t)
 
 	for _, limit := range []int{0, -1} {
-		rows, more, err := s.DecisionsPage(t.Context(), "a", t0, nil, limit)
+		p, err := s.DecisionsPage(t.Context(), "a", t0, 0, limit)
 		require.NoError(t, err)
-		require.False(t, more, fmt.Sprint(limit))
-		require.Len(t, rows, 5)
+		require.False(t, p.More, fmt.Sprint(limit))
+		require.Len(t, p.Rows, 5)
 	}
 
-	rows, more, err := s.DecisionsPage(t.Context(), "a", t0, nil, 1)
+	p, err := s.DecisionsPage(t.Context(), "nobody", t0, 0, 5)
 	require.NoError(t, err)
-	require.True(t, more)
-	require.Equal(t, []string{"e"}, uids(rows))
+	require.Empty(t, p.Rows)
+	require.Zero(t, p.Next)
+}
 
-	rows, _, err = s.DecisionsPage(t.Context(), "nobody", t0, nil, 5)
+func TestDecisionsPageResumeUsesTheRowidKey(t *testing.T) {
+	s, _ := openStore(t)
+
+	rows, err := s.db.QueryContext(t.Context(), `EXPLAIN QUERY PLAN SELECT rowid FROM decisions WHERE sandbox_name = ? AND time_ms >= ? AND rowid > ? ORDER BY rowid LIMIT 3`, "a", 0, 1)
 	require.NoError(t, err)
-	require.Empty(t, rows)
+	defer rows.Close()
+	var plan string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+		plan += detail + "\n"
+	}
+	require.NoError(t, rows.Err())
+	require.NotContains(t, plan, "USE TEMP B-TREE", plan)
+	t.Log(plan)
 }
