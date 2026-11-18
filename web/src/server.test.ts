@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { create } from "@bufbuild/protobuf";
 import { SettingSchema } from "./gen/durable/v1/durable_pb";
-import { groupOf, groupSettings, shortField, sourceLabel, sourceTone } from "./server";
+import { groupOf, groupSettings, shortField, settingSourceLabel, sourceTone } from "./server";
 
 const setting = (field: string, value = "v", source = "default") => create(SettingSchema, { field, value, source });
 
@@ -33,8 +33,8 @@ describe("server settings", () => {
   });
 
   test("source labels and tones", () => {
-    expect(sourceLabel("flag")).toBe("flag");
-    expect(sourceLabel("")).toBe("unknown");
+    expect(settingSourceLabel("flag")).toBe("flag");
+    expect(settingSourceLabel("")).toBe("unknown");
     expect(sourceTone("flag")).toBe("tone-link");
     expect(sourceTone("config.json")).toBe("tone-ok");
     expect(sourceTone("config.yaml")).toBe("tone-ok");

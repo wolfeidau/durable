@@ -1,10 +1,13 @@
-import { memo, useMemo, useState, type ReactElement, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactElement } from "react";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { NetworkEvent } from "./gen/durable/v1/durable_pb";
 import { summary } from "./calls";
-import { coverageNotes, sourceLabel, type NetworkState } from "./network";
+import { coverageNotes, networkSourceLabel, type NetworkState } from "./network";
 import type { CallEntry } from "./transcript";
 import { eventMs, matches, rowCap, topDenied, type Verdict } from "./networkView";
+import { DataTable } from "./DataTable";
+import { dash } from "./format";
+import { Tile } from "./Tile";
 import { useNow } from "./useNow";
 
 interface Props {
@@ -23,15 +26,6 @@ const clock = (d: Date) => d.toLocaleTimeString([], { hour12: false });
 
 function fmtTime(d: Date): string {
   return sameDay(d, new Date()) ? clock(d) : `${d.toLocaleDateString()} ${clock(d)}`;
-}
-
-function Tile({ label, children }: { label: string; children: ReactNode }): ReactElement {
-  return (
-    <div className="tile">
-      <span className="stat-label">{label}</span>
-      <span className="tile-value">{children}</span>
-    </div>
-  );
 }
 
 const verdicts: { value: Verdict; label: string }[] = [
@@ -96,7 +90,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
         </Tile>
         <Tile label="Hosts">{stats.hosts}</Tile>
         <Tile label="Source">
-          {state.coverage ? sourceLabel[state.coverage.source] : "—"}
+          {state.coverage ? networkSourceLabel[state.coverage.source] : dash}
           {state.coverage?.since && <span className="tile-sub">since {fmtTime(timestampDate(state.coverage.since))}</span>}
         </Tile>
       </div>
@@ -134,17 +128,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
       {rows.length === 0 ? (
         <p className="muted">{filtered ? "No decisions match the filters." : `No network decisions since ${since}.`}</p>
       ) : (
-        <div className="table-wrap report net-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Verdict</th>
-                <th>Request</th>
-                <th>Policy</th>
-              </tr>
-            </thead>
-            <tbody>
+        <DataTable head={["Time", "Verdict", "Request", "Policy"]} wrapClass="report net-table" numeric={false}>
               {shown.map((e) => {
                 const t = new Date(eventMs(e));
                 const owned = owner.get(e.id);
@@ -186,9 +170,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
                   </tr>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+        </DataTable>
       )}
       {rows.length > shown.length && (
         <button className="secondary" onClick={() => setLimit((l) => l + rowCap)}>

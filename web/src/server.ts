@@ -24,7 +24,7 @@ export const shortField = (field: string): string => {
   return dot < 0 ? field : field.slice(dot + 1);
 };
 
-export const sourceLabel = (source: string): string => source || "unknown";
+export const settingSourceLabel = (source: string): string => source || "unknown";
 
 export const sourceTone = (source: string): string => {
   switch (source) {

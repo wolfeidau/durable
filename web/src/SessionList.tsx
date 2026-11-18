@@ -1,5 +1,4 @@
 import { useMutation, useQuery } from "@connectrpc/connect-query";
-import { ConnectError } from "@connectrpc/connect";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { createSession, getServerInfo, listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
@@ -15,30 +14,17 @@ import {
   RequestIds,
   type Mode,
 } from "./newSession";
+import { QueryStatus } from "./QueryStatus";
+import { errText } from "./rpc";
+import { readStored, store } from "./storage";
 import { age, kindText, sorted, where } from "./sessions";
 
 const modeLabels: Record<Mode, string> = { directory: "Directory", empty: "Empty workspace", repo: "Repository" };
 
 const cwdKey = "durable.lastCwd";
 
-function lastCwd(): string {
-  try {
-    return localStorage.getItem(cwdKey) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function rememberCwd(cwd: string): void {
-  try {
-    localStorage.setItem(cwdKey, cwd);
-  } catch {
-    // Storage can be blocked; the form then starts empty.
-  }
-}
-
 function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): ReactElement {
-  const [cwd, setCwd] = useState(lastCwd);
+  const [cwd, setCwd] = useState(() => readStored(cwdKey));
   const [name, setName] = useState("");
   const [repo, setRepo] = useState("");
   const [branch, setBranch] = useState(defaultBranch);
@@ -62,7 +48,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
     const res = await create.mutateAsync(buildRequest(form, requestIds.current.get())).catch(() => undefined);
     if (!res?.session) return;
     requestIds.current.succeeded();
-    if (mode === "directory") rememberCwd(cwd.trim());
+    if (mode === "directory") store(cwdKey, cwd.trim());
     setName("");
     onCreated(res.session.id);
   };
@@ -160,7 +146,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
           <input value={name} onChange={(e) => setName(e.target.value)} />
         </label>
       </div>
-      {create.error && <p className="banner tone-error">{ConnectError.from(create.error).rawMessage}</p>}
+      {create.error && <p className="banner tone-error">{errText(create.error)}</p>}
       <div className="form-actions">
         <button type="submit" disabled={!canCreate({ mode, cwd, name, repo, branch, environment }) || create.isPending}>
           Create
@@ -203,13 +189,7 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
           <button onClick={newSession}>New session</button>
         </div>
       </div>
-      {isPending && !error && <p className="muted">Loading</p>}
-      {error && <p className="banner tone-error">{ConnectError.from(error).rawMessage}</p>}
-      {data?.warnings.map((w) => (
-        <p className="banner tone-warn" key={w}>
-          {w}
-        </p>
-      ))}
+      <QueryStatus isPending={isPending} error={error} warnings={data?.warnings} />
       {data && sessions.length === 0 && <p className="card empty">No sessions yet. Create one below.</p>}
       {sessions.length > 0 && (
         <div className="table-wrap">

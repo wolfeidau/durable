@@ -1,6 +1,6 @@
 import type { Transport } from "@connectrpc/connect";
-import { useEffect, useState, useSyncExternalStore } from "react";
 import { WatchEngine, type WatchState } from "./watch";
+import { useEngine } from "./useEngine";
 
 export interface WatchHandle extends WatchState {
   resumeAuth: () => void;
@@ -18,25 +18,11 @@ const idle: WatchState = {
   toolOutput: new Map(),
 };
 
-const noop = () => {};
-const noSubscribe = () => noop;
+const getIdle = () => idle;
 
 export function useWatchEvents(transport: Transport, sessionId: string, getToken: () => string): WatchHandle {
-  const [engine, setEngine] = useState<WatchEngine | undefined>();
-
-  useEffect(() => {
-    if (!sessionId) {
-      setEngine(undefined);
-      return;
-    }
-    const e = new WatchEngine({ transport, sessionId, getToken });
-    setEngine(e);
-    e.start();
-    return () => e.stop();
-    // getToken is read on each connect, so a new identity needn't restart the watch.
-  }, [transport, sessionId]);
-
-  const state = useSyncExternalStore(engine?.subscribe ?? noSubscribe, engine?.getSnapshot ?? (() => idle));
+  // getToken is read on each connect, so a new identity needn't restart the watch.
+  const { engine, state } = useEngine(() => (sessionId ? new WatchEngine({ transport, sessionId, getToken }) : undefined), [transport, sessionId], getIdle);
   return {
     ...state,
     resumeAuth: () => engine?.resumeAuth(),

@@ -8,6 +8,9 @@ import {
   type NetworkDrop,
   type NetworkEvent,
 } from "./gen/durable/v1/durable_pb";
+import { plural } from "./format";
+import { eventMs } from "./networkView";
+import { sleep } from "./sleep";
 
 export type NetworkStatus = "loading" | "live" | "no-sandbox" | "stopped";
 
@@ -26,16 +29,14 @@ export const maxEvents = 10_000;
 export const storeIntervalMs = 5000;
 export const gatewayIntervalMs = 15_000;
 
-export const sourceLabel: Record<NetworkSource, string> = {
+export const networkSourceLabel: Record<NetworkSource, string> = {
   [NetworkSource.UNSPECIFIED]: "telemetry",
   [NetworkSource.STORE]: "telemetry",
   [NetworkSource.GATEWAY_LOG]: "gateway log",
 };
 
-const ms = (e: NetworkEvent): number => (e.time ? timestampDate(e.time).getTime() : 0);
-
 function compare(a: NetworkEvent, b: NetworkEvent): number {
-  const d = ms(a) - ms(b);
+  const d = eventMs(a) - eventMs(b);
   if (d !== 0) return d;
   return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }
@@ -80,7 +81,6 @@ export interface NetworkPollerOptions {
   hidden?: () => boolean;
 }
 
-const defaultSleep = (t: number) => new Promise<void>((resolve) => setTimeout(resolve, t));
 const defaultHidden = () => typeof document !== "undefined" && document.hidden;
 
 export class NetworkPoller {
@@ -98,7 +98,7 @@ export class NetworkPoller {
 
   constructor(private readonly opts: NetworkPollerOptions) {
     this.client = createClient(SessionService, opts.transport);
-    this.sleep = opts.sleep ?? defaultSleep;
+    this.sleep = opts.sleep ?? sleep;
     this.hidden = opts.hidden ?? defaultHidden;
     this.snapshot = { status: "loading", events: [], olderTruncated: false, capped: false, since: opts.since };
     this.stopSignal = new Promise<void>((resolve) => (this.signalStop = resolve));
@@ -184,7 +184,7 @@ export function deniedByCall(
     if (start === undefined) continue;
     const end = c.doneAt ?? now;
     const hits = denied.filter((e) => {
-      const t = ms(e);
+      const t = eventMs(e);
       return start <= t && t <= end;
     });
     if (hits.length > 0) out.set(c.id, hits);
@@ -196,8 +196,6 @@ export interface Note {
   tone: "warn" | "error";
   text: string;
 }
-
-const count = (n: bigint, one: string) => `${n} ${n === 1n ? one : `${one}s`}`;
 
 export function coverageNotes(s: NetworkState, fmt: (d: Date) => string): Note[] {
   const c = s.coverage;
@@ -223,7 +221,7 @@ export function coverageNotes(s: NetworkState, fmt: (d: Date) => string): Note[]
         notes.push({ tone: "warn", text: `The telemetry store has nothing before ${at(c.historyStart)}.` });
       }
       const drop = (d: NetworkDrop | undefined, tone: Note["tone"], text: (n: string, when: string) => string) => {
-        if (d && d.dropped > 0n) notes.push({ tone, text: text(count(d.dropped, "event"), at(d.since)) });
+        if (d && d.dropped > 0n) notes.push({ tone, text: text(plural(d.dropped, "event"), at(d.since)) });
       };
       drop(c.droppedOwn, "error", (n, when) => `${n} from this sandbox were dropped since ${when} and are missing.`);
       drop(c.droppedGatewayWide, "warn", (n, when) => `${n} were dropped gateway-wide since ${when}; some may include this session.`);
@@ -231,7 +229,7 @@ export function coverageNotes(s: NetworkState, fmt: (d: Date) => string): Note[]
       if (c.unattributed > 0n) {
         notes.push({
           tone: "warn",
-          text: `${count(c.unattributed, "decision")} had no sandbox and cannot be shown${
+          text: `${plural(c.unattributed, "decision")} had no sandbox and cannot be shown${
             c.unattributedFromDay ? ` (counted from ${c.unattributedFromDay}, UTC)` : ""
           }.`,
         });

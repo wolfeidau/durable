@@ -4,10 +4,12 @@ import {
   EventKind,
   Role,
   SessionService,
-  SubmissionStatus,
   type Delta,
   type Event,
 } from "./gen/durable/v1/durable_pb";
+import { errText } from "./rpc";
+import { sleep } from "./sleep";
+import { isTerminal } from "./status";
 
 export type WatchStatus = "connecting" | "live" | "reconnecting" | "auth-needed" | "not-found" | "stopped";
 
@@ -36,10 +38,6 @@ export interface WatchOptions {
 
 export const initialBackoffMs = 1000;
 export const maxBackoffMs = 10_000;
-
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-const terminal = new Set([SubmissionStatus.DONE, SubmissionStatus.FAILED, SubmissionStatus.CANCELLED]);
 
 function without<K, V>(m: ReadonlyMap<K, V>, key: K): ReadonlyMap<K, V> {
   if (!m.has(key)) return m;
@@ -84,7 +82,7 @@ export class WatchEngine {
 
   constructor(private readonly opts: WatchOptions) {
     this.client = createClient(SessionService, opts.transport);
-    this.sleep = opts.sleep ?? defaultSleep;
+    this.sleep = opts.sleep ?? sleep;
     this.stopSignal = new Promise<void>((resolve) => (this.signalStop = resolve));
   }
 
@@ -182,10 +180,10 @@ export class WatchEngine {
         }
         // Retrying can't make a missing or malformed session appear, so stop.
         if (code === Code.NotFound || code === Code.InvalidArgument) {
-          this.update({ status: "not-found", lastError: ConnectError.from(err).rawMessage });
+          this.update({ status: "not-found", lastError: errText(err) });
           return;
         }
-        lastError = ConnectError.from(err).rawMessage;
+        lastError = errText(err);
       }
       if (this.stopped) return;
       this.update({ status: "reconnecting", reconnects: this.state.reconnects + 1, lastError });
@@ -220,7 +218,7 @@ export class WatchEngine {
     if (e.seq !== cursor + 1n) patch.gaps = this.state.gaps + 1;
 
     const assistant = e.kind === EventKind.MESSAGE && e.message?.role === Role.ASSISTANT;
-    if (assistant || terminal.has(e.status)) {
+    if (assistant || isTerminal(e.status)) {
       patch.partialText = without(this.state.partialText, e.submission);
     }
     if (e.kind === EventKind.CALL_DONE && e.call) {

@@ -1,4 +1,3 @@
-import { ConnectError } from "@connectrpc/connect";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { useMutation, useQuery, useTransport } from "@connectrpc/connect-query";
 import {
@@ -15,10 +14,13 @@ import {
   type ReactElement,
 } from "react";
 import { cancel, decideApproval, listSessions, submit } from "./gen/durable/v1/durable-SessionService_connectquery";
-import { ApprovalStatus, SubmissionStatus, type NetworkEvent } from "./gen/durable/v1/durable_pb";
-import { activeTurn, activityText, isActive } from "./activity";
+import { ApprovalStatus, type NetworkEvent } from "./gen/durable/v1/durable_pb";
+import { activate } from "./a11y";
+import { activeTurn, activityText } from "./activity";
 import { chip, defaultOpen, isRunning, summary } from "./calls";
+import { ContextMeter } from "./ContextMeter";
 import { CopyButton } from "./CopyButton";
+import { money, percent, plural } from "./format";
 import { Markdown } from "./markdown";
 import { deniedByCall } from "./network";
 import { NetworkPanel, noSandboxText } from "./NetworkPanel";
@@ -29,29 +31,13 @@ import { buildOverview } from "./report";
 import { TipHost, tipProps, useTip } from "./Tooltip";
 import { TranscriptBuilder, type CallEntry, type Turn } from "./transcript";
 import { nearBottom } from "./scroll";
+import { errText } from "./rpc";
+import { isActive, statusText, statusTone } from "./status";
 import { getToken } from "./token";
-import { buildReport, compact, money, percent, summarize, turnFooter } from "./usage";
+import { buildReport, summarize, turnFooter } from "./usage";
 import { useNetwork } from "./useNetwork";
 import { useNow } from "./useNow";
 import { useWatchEvents } from "./useWatchEvents";
-
-const errText = (err: unknown) => ConnectError.from(err).rawMessage;
-
-const statusText: Record<number, string> = {
-  [SubmissionStatus.QUEUED]: "queued",
-  [SubmissionStatus.RUNNING]: "running",
-  [SubmissionStatus.DONE]: "done",
-  [SubmissionStatus.FAILED]: "failed",
-  [SubmissionStatus.CANCELLED]: "cancelled",
-};
-
-const statusTone: Record<number, string> = {
-  [SubmissionStatus.QUEUED]: "tone-link",
-  [SubmissionStatus.RUNNING]: "tone-link pulse",
-  [SubmissionStatus.DONE]: "tone-ok",
-  [SubmissionStatus.FAILED]: "tone-error",
-  [SubmissionStatus.CANCELLED]: "tone-cancelled",
-};
 
 const decisionText: Record<number, string> = {
   [ApprovalStatus.ALLOWED]: "allowed",
@@ -105,11 +91,9 @@ function DeniedChip({ id, denied, onTab }: { id: string; denied: NetworkEvent[];
       role="button"
       tabIndex={0}
       className="badge tone-error denied-chip"
-      aria-label={`${denied.length} denied network ${denied.length === 1 ? "request" : "requests"} during this call, ${hostSummary(denied)}`}
+      aria-label={`${plural(denied.length, "denied network request")} during this call, ${hostSummary(denied)}`}
       onClick={open}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") open(e);
-      }}
+      onKeyDown={activate(open)}
       {...tipProps(
         tip,
         <>
@@ -569,30 +553,7 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
             />
             <div className="composer-foot">
               <div className="stats">
-                <div className="meter">
-                  <span className="stat-label" id="ctx-label">
-                    Context
-                  </span>
-                  {stats.contextFraction !== undefined ? (
-                    <>
-                      <meter
-                        aria-labelledby="ctx-label"
-                        min={0}
-                        max={1}
-                        low={0.7}
-                        high={0.9}
-                        optimum={0}
-                        value={Math.min(1, stats.contextFraction)}
-                        aria-valuetext={`${percent(stats.contextFraction)} of ${compact(stats.contextWindow!)}`}
-                      />
-                      <span>
-                        {percent(stats.contextFraction)} of {compact(stats.contextWindow!)}
-                      </span>
-                    </>
-                  ) : (
-                    <span>{stats.contextTokens ? `${compact(stats.contextTokens)} tokens` : "—"}</span>
-                  )}
-                </div>
+                <ContextMeter stats={stats} variant="composer" />
                 <span title={stats.unknownCost ? `${stats.unknownCost} replies have no known cost` : undefined}>
                   <span className="stat-label">Cost </span>
                   {money(stats.cost, stats.estimated)}

@@ -20,7 +20,7 @@ import {
   maxEvents,
   merge,
   NetworkPoller,
-  sourceLabel,
+  networkSourceLabel,
   storeIntervalMs,
   type NetworkState,
 } from "./network";
@@ -339,9 +339,9 @@ describe("coverageNotes", () => {
   });
 });
 
-test("sourceLabel", () => {
-  expect(sourceLabel[NetworkSource.STORE]).toBe("telemetry");
-  expect(sourceLabel[NetworkSource.GATEWAY_LOG]).toBe("gateway log");
+test("networkSourceLabel", () => {
+  expect(networkSourceLabel[NetworkSource.STORE]).toBe("telemetry");
+  expect(networkSourceLabel[NetworkSource.GATEWAY_LOG]).toBe("gateway log");
   expect(timestampDate(timestampFromMs(5)).getTime()).toBe(5);
 });
 

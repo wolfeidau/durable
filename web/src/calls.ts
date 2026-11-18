@@ -1,6 +1,6 @@
 import { ApprovalStatus } from "./gen/durable/v1/durable_pb";
 import type { CallEntry } from "./transcript";
-import { duration } from "./usage";
+import { duration } from "./format";
 
 export function isRunning(call: CallEntry): boolean {
   const s = call.approval?.status;
