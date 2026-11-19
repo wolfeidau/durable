@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import type { Event } from "../gen/durable/v1/durable_pb";
 import { nearBottom } from "../lib/scroll";
+import type { Turn } from "./transcript/transcript";
 
 interface Input {
   root: RefObject<HTMLDivElement | null>;
@@ -9,11 +11,11 @@ interface Input {
   onReport: boolean;
   focus?: string;
   onFocus: (target: string | undefined) => void;
-  turns: unknown;
-  events: unknown;
-  partialText: unknown;
-  toolOutput: unknown;
-  mine: unknown;
+  turns: readonly Turn[];
+  events: readonly Event[];
+  partialText: ReadonlyMap<bigint, string>;
+  toolOutput: ReadonlyMap<string, string>;
+  mine: ReadonlyMap<string, string>;
   loading: boolean;
 }
 
