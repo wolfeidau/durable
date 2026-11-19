@@ -1,0 +1,26 @@
+/* Network tab */
+.network-page { display: grid; gap: 1rem; min-width: 0; }
+.network-page .banner { margin: 0; }
+.network-page .notes { margin: 0; padding-left: 1.1rem; }
+.network-page h2 { margin: 0 0 0.6rem; font-size: 1rem; }
+.network-page .flag { display: inline-flex; align-items: center; gap: 0.3rem; color: var(--tone); }
+
+.top-denied { display: grid; gap: 0.15rem; margin: 0; padding: 0; list-style: none; }
+.link-btn { display: flex; align-items: center; gap: 0.6rem; width: 100%; min-height: 28px; padding: 0 0.4rem; border: none; border-radius: var(--radius); background: none; color: var(--text); text-align: left; font: inherit; }
+.link-btn:hover:not(:disabled) { background: var(--elevated); filter: none; }
+.top-host { overflow-wrap: anywhere; }
+.top-what { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-denied .badge { margin-left: auto; }
+.net-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.net-filters input { flex: 1 1 12rem; min-width: 0; }
+.net-verdicts button { min-height: 32px; }
+.call-filter { min-height: 32px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.net-table { max-width: 100%; max-height: 70vh; overflow: auto; }
+.net-table th { position: sticky; top: 0; background: var(--surface); text-align: left; z-index: 1; }
+.net-table td.time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.net-table td { vertical-align: top; }
+.net-table td.request > span, .net-table td.policy > span { display: block; }
+.net-table td.request .mono { overflow-wrap: anywhere; }
+.net-table td.policy { font-size: 0.85rem; }
+.net-table td.policy .faint { overflow-wrap: anywhere; }
+.net-table .call-link { display: inline-flex; width: auto; margin-left: 0.4rem; color: var(--link); font-size: 0.85rem; }
