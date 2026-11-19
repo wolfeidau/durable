@@ -1,0 +1,105 @@
+/* Session view */
+.toolbar {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs { display: flex; gap: 0.25rem; }
+
+.tabs button {
+  min-height: 32px;
+  padding: 0 0.9rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+}
+
+.tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--link); }
+.tool-actions { display: flex; gap: 0.25rem; }
+.tool-actions button { min-height: 28px; padding: 0 0.6rem; font-size: 0.85rem; }
+
+.stats { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 0.1rem 1rem; min-width: 0; font-size: 0.85rem; }
+.stats .meter { display: flex; align-items: center; gap: 0.5rem; }
+.stats meter { width: 5rem; height: 0.6rem; }
+.stats .stat-label { color: var(--muted); }
+.activity { color: var(--tone); }
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 50%;
+  padding: 0.1rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+
+.pill-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--tone, var(--faint));
+}
+
+.meter-tile { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.95rem; }
+.meter-tile meter { width: 100%; max-width: 8rem; height: 0.6rem; }
+
+.flash { outline: 2px solid var(--link); outline-offset: 2px; animation: flash 1.5s ease-out; }
+
+@keyframes flash {
+  from { background: color-mix(in srgb, var(--link) 25%, transparent); }
+}
+
+/* Composer */
+.composer {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 6;
+  display: grid;
+  gap: 0.5rem;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0.75rem 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.composer .banner { margin: 0; }
+.composer textarea { field-sizing: content; min-height: 3lh; max-height: 10lh; }
+
+.composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.send { display: flex; flex: none; align-items: center; gap: 0.75rem; }
+.hint { font-size: 0.8rem; }
+
+.latest {
+  position: fixed;
+  bottom: calc(var(--composer-h, 0px) + 0.75rem);
+  left: 50%;
+  z-index: 6;
+  min-height: 28px;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  transform: translateX(-50%);
+}

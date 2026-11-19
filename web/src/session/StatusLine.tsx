@@ -1,26 +1,7 @@
-import { useState, type ReactElement } from "react";
+import type { ReactElement } from "react";
 import type { WatchHandle } from "./useWatchEvents";
 
 export type WatchSummary = Pick<WatchHandle, "status" | "lastError" | "resumeAuth">;
-
-export function TokenInput({ onApply }: { onApply: (t: string) => void }): ReactElement {
-  const [value, setValue] = useState("");
-  return (
-    <form
-      className="banner tone-warn token-box"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onApply(value.trim());
-      }}
-    >
-      <label>
-        Token needed
-        <input type="password" autoComplete="off" value={value} onChange={(e) => setValue(e.target.value)} />
-      </label>
-      <button type="submit">Apply</button>
-    </form>
-  );
-}
 
 function describe(w: WatchSummary): { text: string; tone: string } {
   switch (w.status) {

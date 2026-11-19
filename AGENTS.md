@@ -103,7 +103,9 @@ Only comment the **why**, never the **what**. No docstrings for obvious function
 - `lib/` holds helpers with no components. It imports only `gen/` and `lib/`.
 - `ui/` holds shared components and hooks. It imports `lib/` and `ui/`.
 - `sessions/`, `server/` and `session/` (with `transcript/`, `report/` and `network/`) are features. A feature imports `lib/`, `ui/`, `gen/` and its own subtree, never another feature. Something two features need moves to `lib/` or `ui/`.
-- `main.tsx` wires the features together.
+- `shell/` is the app shell (client, `App`, `Topbar`, `TokenInput`). Like `main.tsx` it may import features, and only `main.tsx` imports it.
+- `main.tsx` mounts the shell.
+- CSS lives next to its feature, and only `main.tsx` imports it, in cascade order.
 
 `mise run check:web:layout` enforces this, and `check:web` runs it.
 

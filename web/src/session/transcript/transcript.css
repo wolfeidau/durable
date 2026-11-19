@@ -1,0 +1,159 @@
+.turn, .call { scroll-margin-top: calc(var(--topbar-h) + 4rem); }
+.transcript { padding-bottom: calc(var(--composer-h, 0px) + 1.5rem); }
+.turn-usage { font-size: 0.8rem; }
+.turn { margin-bottom: 1.5rem; content-visibility: auto; contain-intrinsic-size: auto 400px; }
+.msg, .notice { white-space: pre-wrap; overflow-wrap: anywhere; margin-bottom: 0.5rem; }
+
+.msg.user {
+  max-width: 80%;
+  margin-left: auto;
+  padding: 0.5rem 0.8rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.msg.assistant { position: relative; }
+.msg.live { opacity: 0.7; }
+.notice { color: var(--faint); font-size: 0.85rem; font-style: italic; }
+
+.turn-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.turn-foot button { min-height: 28px; padding: 0 0.6rem; font-size: 0.85rem; }
+
+/* Tool calls */
+.call {
+  margin-bottom: 0.6rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.call-pending { border-color: var(--warn); }
+
+.call-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--elevated);
+  cursor: pointer;
+  list-style: none;
+}
+
+.call-head::-webkit-details-marker { display: none; }
+
+.call-head::before {
+  content: "▸";
+  flex: none;
+  color: var(--faint);
+  transition: transform 0.15s;
+}
+
+details[open] > .call-head::before { transform: rotate(90deg); }
+.call-head:focus-visible { outline-offset: -2px; }
+
+.call-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.call-name { flex: none; font-family: var(--mono); font-weight: 600; }
+.call-body { padding: 0.5rem 0.75rem; border-top: 1px solid var(--border); }
+.call-body p { margin: 0.25rem 0; font-size: 0.85rem; }
+
+.console {
+  max-height: 20rem;
+  margin: 0.4rem 0 0;
+  padding: 0.5rem 0.7rem;
+  overflow: auto;
+  background: var(--bg);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.console.error {
+  background: color-mix(in srgb, var(--error) 12%, transparent);
+  border-left: 3px solid var(--error);
+}
+
+.console.live { opacity: 0.7; }
+
+.approval {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 36px;
+  margin: 0;
+  border-width: 1px 0 0;
+  border-radius: 0;
+}
+
+.approval span { flex: 1; }
+
+/* Markdown */
+.md { white-space: normal; }
+.md > :not(.table-scroll) { max-width: 75ch; }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p, .md ul, .md ol, .md blockquote, .md table, .md pre { margin: 0.5rem 0; }
+.md ul, .md ol { padding-left: 1.5rem; }
+.md li { margin: 0.2rem 0; }
+.md li > input { width: auto; margin: 0 0.4rem 0 0; }
+.md h2, .md h3, .md h4, .md h5, .md h6 { margin: 1.25rem 0 0.4rem; line-height: 1.3; }
+/* Markdown headings render one level down, so # is h2. */
+.md h2 { font-size: 1.4rem; }
+.md h3 { font-size: 1.2rem; }
+.md h4 { font-size: 1.05rem; }
+.md h5, .md h6 { font-size: 0.95rem; }
+
+.md code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  background: var(--elevated);
+  font-family: var(--mono);
+  font-size: 0.88em;
+}
+
+.md pre.console { background: var(--surface); border: 1px solid var(--border); }
+.md pre code { padding: 0; background: none; font-size: inherit; }
+.table-scroll { margin: 0.5rem 0; overflow-x: auto; }
+.md table { margin: 0; border-collapse: collapse; }
+.md th, .md td { padding: 0.4rem 0.8rem; border: 1px solid var(--border); overflow-wrap: normal; word-break: normal; }
+.md th { white-space: nowrap; }
+
+.copy-btn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-height: 24px;
+  padding: 0 0.5rem;
+  font-size: 0.75rem;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.msg.assistant:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
+@media (hover: none) { .copy-btn { opacity: 1; } }
+.md th { background: var(--elevated); }
+.md blockquote { padding-left: 0.8rem; border-left: 3px solid var(--border-strong); color: var(--muted); }
+.md hr { border: none; border-top: 1px solid var(--border); }
+
+.denied-chip { flex: none; cursor: pointer; }
+.denied-chip:hover { background: color-mix(in srgb, var(--tone) 22%, transparent); }
+.denied-chip:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }

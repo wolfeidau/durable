@@ -1,0 +1,43 @@
+/* Layout */
+@media (min-width: 640px) {
+  .fields { grid-template-columns: 1fr 1fr; }
+  .fields .wide { grid-column: 1 / -1; }
+}
+
+@media (max-width: 640px) {
+  .topbar { padding: 0 16px; }
+  .session-bar { display: none; }
+  .composer { padding: 0.75rem 16px; }
+  .hint { display: none; }
+  .page { padding: 16px; }
+  .token-box { width: calc(100% - 32px); flex-wrap: wrap; }
+  .table-wrap { border: none; background: none; }
+  .table-wrap table, .table-wrap tbody, .table-wrap tr, .table-wrap td { display: block; }
+  .table-wrap thead, .created { display: none; }
+
+  .table-wrap tr {
+    margin-bottom: 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+
+  .table-wrap td, .table-wrap tbody tr:last-child td { padding: 0.3rem 0.9rem; border: none; }
+  .workspace { width: auto; }
+  .report-page .tl-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .report-page .tl-label { grid-column: 1 / -1; }
+  .report-page .tools-row { grid-template-columns: minmax(0, 1fr) repeat(4, auto); }
+  .report-page .tools-row .tools-bar { grid-column: 1 / -1; grid-row: 2; }
+  .report-page .tools-head .tools-bar { display: none; }
+  .table-wrap.report table { display: table; }
+  .table-wrap.report thead { display: table-header-group; }
+  .table-wrap.report tbody { display: table-row-group; }
+  .table-wrap.report tr { display: table-row; margin: 0; border: none; border-radius: 0; background: none; }
+  .table-wrap.report td { display: table-cell; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+  .table-wrap.report tbody tr:last-child td { border-bottom: none; }
+  .msg.user { max-width: 92%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
