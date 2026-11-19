@@ -154,6 +154,7 @@ func startDeltaServer(t *testing.T, replies ...string) (c apiClient, r *running,
 }
 
 func TestWatchDeltasPrecedeTheMessage(t *testing.T) {
+	t.Parallel()
 	c, r, id := startDeltaServer(t, chunkedReply("hello", " wide", " world"))
 	stream := openWatch(t, r, id, true)
 	submitAs(t, c, id, "hi")
@@ -173,6 +174,7 @@ func TestWatchDeltasPrecedeTheMessage(t *testing.T) {
 }
 
 func TestWatchWithoutIncludeDeltasSendsNone(t *testing.T) {
+	t.Parallel()
 	c, r, id := startDeltaServer(t, chunkedReply("hello", " world"))
 	stream := openWatch(t, r, id, false)
 	submitAs(t, c, id, "hi")
@@ -193,6 +195,7 @@ func approveFirst(t *testing.T, c apiClient, id string) {
 const slowCommand = "echo one; sleep 0.3; echo two"
 
 func TestWatchToolOutputDeltasPrecedeCallDone(t *testing.T) {
+	t.Parallel()
 	c, r, id := startDeltaServer(t, bashReply(slowCommand))
 	stream := openWatch(t, r, id, true)
 	submitAs(t, c, id, "run it")
@@ -215,6 +218,7 @@ func TestWatchToolOutputDeltasPrecedeCallDone(t *testing.T) {
 }
 
 func TestPostToolUseHookWithholdsToolOutputDeltas(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	script := filepath.Join(t.TempDir(), "hook.sh")
 	require.NoError(t, os.WriteFile(script, []byte("#!/bin/bash\ncat >/dev/null\n"), 0o700))
@@ -240,6 +244,7 @@ func TestPostToolUseHookWithholdsToolOutputDeltas(t *testing.T) {
 }
 
 func TestStalledWatcherDoesNotBlockTheRunOrOthers(t *testing.T) {
+	t.Parallel()
 	// Several MB of deltas overflow the stalled stream's flow-control window and the per-watcher buffer.
 	chunk := strings.Repeat("x", 1500)
 	parts := make([]string, 3000)

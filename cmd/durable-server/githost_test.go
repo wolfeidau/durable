@@ -79,6 +79,7 @@ func runFailingIn(t *testing.T, home string, env []string, args ...string) strin
 }
 
 func TestGitHostTokenSourcesStartTheServer(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		args []string
@@ -106,6 +107,7 @@ func TestGitHostTokenSourcesStartTheServer(t *testing.T) {
 }
 
 func TestGitHostTokenRejectedByGitHubFailsStartup(t *testing.T) {
+	t.Parallel()
 	srv := fakeGitHub(t)
 	env := append(gitEnv(t, srv), "DURABLE_GITHUB_TOKEN=github_pat_wrong0123456789")
 
@@ -116,6 +118,7 @@ func TestGitHostTokenRejectedByGitHubFailsStartup(t *testing.T) {
 }
 
 func TestGitHostTokenConfigurationErrors(t *testing.T) {
+	t.Parallel()
 	env := gitEnv(t, fakeGitHub(t))
 	tests := []struct {
 		name string

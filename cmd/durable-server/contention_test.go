@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -256,14 +257,17 @@ func createSessionDB(t *testing.T, ws, home string) (id, dbPath string) {
 	return sessionDB(t, home)
 }
 
+// The 50-watcher case takes about 64s of CI's go test step, so it runs only on request.
+const contentionEnv = "DURABLE_TEST_CONTENTION"
+
 func TestContentionRunTimeWithWatchers(t *testing.T) {
 	baseline := contentionRun(t, 0, false)
 	t.Logf("baseline (0 watchers): %v", baseline)
 
 	for _, watchers := range []int{10, 50} {
 		t.Run(fmt.Sprintf("%d watchers plus one stalled", watchers), func(t *testing.T) {
-			if watchers >= 50 && testing.Short() {
-				t.Skip("about 24s under -race; the 10-watcher case covers the stall in short mode")
+			if watchers >= 50 && os.Getenv(contentionEnv) != "1" {
+				t.Skipf("set %s=1 to run it; the 10-watcher case covers the stall", contentionEnv)
 			}
 			wall := contentionRun(t, watchers, true)
 			t.Logf("wall: %v with a stalled watcher, %v at 0 watchers", wall, baseline)

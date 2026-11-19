@@ -229,8 +229,9 @@ var faultTransports = []struct {
 }
 
 func TestFaultLatencyDelaysButLosesNothing(t *testing.T) {
-	_, home, id, _ := seedSession(t, textReply("hi"), 100*time.Millisecond, 3)
-	r := startIn(t, home)
+	t.Parallel()
+	_, home, id, _, env := seedSession(t, textReply("hi"), 100*time.Millisecond, 3)
+	r := startEnv(t, home, env)
 	p := newFaultProxy(t, r)
 	p.latency.Store(int64(75 * time.Millisecond))
 
@@ -241,11 +242,12 @@ func TestFaultLatencyDelaysButLosesNothing(t *testing.T) {
 }
 
 func TestFaultMidStreamBreakResumesExactly(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"reset", "cut"} {
 		for _, tr := range faultTransports {
 			t.Run(mode+"/"+tr.name, func(t *testing.T) {
-				_, home, id, _ := seedSession(t, textReply("hi"), 150*time.Millisecond, 4)
-				r := startIn(t, home)
+				_, home, id, _, env := seedSession(t, textReply("hi"), 150*time.Millisecond, 4)
+				r := startEnv(t, home, env)
 				p := newFaultProxy(t, r)
 				p.faulty.Store(3)
 				if mode == "reset" {
@@ -274,10 +276,11 @@ func TestFaultMidStreamBreakResumesExactly(t *testing.T) {
 }
 
 func TestFaultIdleCutDuringHeartbeatWait(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"reset", "cut"} {
 		t.Run(mode, func(t *testing.T) {
-			_, home, id, _ := seedSession(t, textReply("hi"), 0, 1)
-			r := startIn(t, home, "--heartbeat", "200ms")
+			_, home, id, _, env := seedSession(t, textReply("hi"), 0, 1)
+			r := startEnv(t, home, env, "--heartbeat", "200ms")
 			p := newFaultProxy(t, r)
 			client := newClient(r)
 

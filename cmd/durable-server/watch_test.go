@@ -143,30 +143,31 @@ func (r *running) crash(t *testing.T) {
 }
 
 // seedSession creates a session with queued submissions and returns its ID and database path.
-func seedSession(t *testing.T, reply string, delay time.Duration, submissions int) (ws, home, id, dbPath string) {
+func seedSession(t *testing.T, reply string, delay time.Duration, submissions int) (ws, home, id, dbPath string, env []string) {
 	t.Helper()
 	ws, home = newWorkspace(t)
-	useAPI(t, newFakeAPI(t, reply, delay))
+	env = apiEnv(newFakeAPI(t, reply, delay))
 	// Empty stdin creates the session without calling the model.
-	chatOnce(t, ws, "")
+	chatOnce(t, ws, home, env, "")
 	id, dbPath = sessionDB(t, home)
 	texts := make([]string, submissions)
 	for i := range texts {
 		texts[i] = "go"
 	}
 	queue(t, dbPath, texts...)
-	return ws, home, id, dbPath
+	return ws, home, id, dbPath, env
 }
 
 func TestWatchContiguousAcrossClientsAndProtocols(t *testing.T) {
+	t.Parallel()
 	for name, opts := range map[string][]connect.ClientOption{
 		"connect":  nil,
 		"grpc":     {connect.WithGRPC()},
 		"grpc-web": {connect.WithGRPCWeb()},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, home, id, dbPath := seedSession(t, textReply("hi"), 150*time.Millisecond, 2)
-			r := startIn(t, home)
+			_, home, id, dbPath, env := seedSession(t, textReply("hi"), 150*time.Millisecond, 2)
+			r := startEnv(t, home, env)
 
 			watchers := make([]*watcher, 3)
 			errs := make([]error, len(watchers))
@@ -193,8 +194,9 @@ func TestWatchContiguousAcrossClientsAndProtocols(t *testing.T) {
 }
 
 func TestWatchResumesWithoutGapsOrDuplicates(t *testing.T) {
-	_, home, id, dbPath := seedSession(t, textReply("hi"), 150*time.Millisecond, 2)
-	r := startIn(t, home)
+	t.Parallel()
+	_, home, id, dbPath, env := seedSession(t, textReply("hi"), 150*time.Millisecond, 2)
+	r := startEnv(t, home, env)
 
 	w := newWatcher(r, id)
 	w.follow(t, func() bool { return len(w.events) >= 4 })
@@ -208,8 +210,9 @@ func TestWatchResumesWithoutGapsOrDuplicates(t *testing.T) {
 }
 
 func TestWatchResumesAfterServerCrash(t *testing.T) {
-	_, home, id, dbPath := seedSession(t, textReply("hi"), 400*time.Millisecond, 2)
-	r := startIn(t, home, "--open-timeout", "60s")
+	t.Parallel()
+	_, home, id, dbPath, env := seedSession(t, textReply("hi"), 400*time.Millisecond, 2)
+	r := startEnv(t, home, env, "--open-timeout", "60s")
 
 	w := newWatcher(r, id)
 	w.follow(t, func() bool { return len(w.events) >= 4 })
@@ -217,7 +220,7 @@ func TestWatchResumesAfterServerCrash(t *testing.T) {
 	r.crash(t)
 
 	// The restart waits for the dead server's lease to expire.
-	r = startIn(t, home, "--open-timeout", "60s")
+	r = startEnv(t, home, env, "--open-timeout", "60s")
 	w.client = newWatcher(r, id).client
 	w.token = r.token
 	w.followUntilDone(t, 2)
@@ -257,8 +260,9 @@ func watchError(t *testing.T, w *watcher, epoch string, after int64) error {
 }
 
 func TestWatchRejectsStaleEpochAndFutureSeq(t *testing.T) {
-	_, home, id, _ := seedSession(t, textReply("hi"), 0, 1)
-	r := startIn(t, home)
+	t.Parallel()
+	_, home, id, _, env := seedSession(t, textReply("hi"), 0, 1)
+	r := startEnv(t, home, env)
 
 	w := newWatcher(r, id)
 	w.followUntilDone(t, 1)
@@ -278,8 +282,9 @@ func TestWatchRejectsStaleEpochAndFutureSeq(t *testing.T) {
 }
 
 func TestWatchAfterRestoreReplaysUnderNewEpoch(t *testing.T) {
-	ws, home, id, dbPath := seedSession(t, textReply("hi"), 0, 1)
-	r := startIn(t, home)
+	t.Parallel()
+	ws, home, id, dbPath, env := seedSession(t, textReply("hi"), 0, 1)
+	r := startEnv(t, home, env)
 	old := newWatcher(r, id)
 	old.followUntilDone(t, 1)
 	r.stop(t)
@@ -290,14 +295,14 @@ func TestWatchAfterRestoreReplaysUnderNewEpoch(t *testing.T) {
 	require.NoError(t, h.Close())
 
 	// More history after the snapshot, so the old cursor lies past the restored log.
-	chatOnce(t, ws, "more\n")
+	chatOnce(t, ws, home, env, "more\n")
 	require.NoError(t, durable.Restore(t.Context(), snap, dbPath))
 
 	// One new event under the new epoch.
-	chatOnce(t, ws, "after restore\n")
+	chatOnce(t, ws, home, env, "after restore\n")
 	newEvents := allEvents(t, dbPath)
 
-	r = startIn(t, home)
+	r = startEnv(t, home, env)
 	old.client, old.token = newWatcher(r, id).client, r.token
 	m := epochMismatchOf(t, watchError(t, old, old.epoch(), old.last()))
 	require.NotEqual(t, old.epoch(), m.GetEpoch())
@@ -311,8 +316,9 @@ func TestWatchAfterRestoreReplaysUnderNewEpoch(t *testing.T) {
 }
 
 func TestWatchSendsHeartbeatsWhenIdle(t *testing.T) {
-	_, home, id, _ := seedSession(t, textReply("hi"), 0, 1)
-	r := startIn(t, home, "--heartbeat", "150ms")
+	t.Parallel()
+	_, home, id, _, env := seedSession(t, textReply("hi"), 0, 1)
+	r := startEnv(t, home, env, "--heartbeat", "150ms")
 
 	w := newWatcher(r, id)
 	w.followUntilDone(t, 1)
@@ -325,8 +331,9 @@ func TestWatchSendsHeartbeatsWhenIdle(t *testing.T) {
 }
 
 func TestWatchHoldsSessionAndIdleCloseReleasesIt(t *testing.T) {
-	_, home, id, dbPath := seedSession(t, textReply("hi"), 0, 1)
-	r := startIn(t, home, "--idle-timeout", "300ms")
+	t.Parallel()
+	_, home, id, dbPath, env := seedSession(t, textReply("hi"), 0, 1)
+	r := startEnv(t, home, env, "--idle-timeout", "300ms")
 
 	w := newWatcher(r, id)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -369,8 +376,9 @@ func TestWatchHoldsSessionAndIdleCloseReleasesIt(t *testing.T) {
 }
 
 func TestWatchWaitsOutAHeldLeaseThenReports(t *testing.T) {
-	_, home, id, dbPath := seedSession(t, textReply("hi"), 0, 1)
-	r := startIn(t, home, "--open-timeout", "300ms")
+	t.Parallel()
+	_, home, id, dbPath, env := seedSession(t, textReply("hi"), 0, 1)
+	r := startEnv(t, home, env, "--open-timeout", "300ms")
 
 	h := openSession(t, dbPath)
 	defer h.Close()
@@ -386,6 +394,7 @@ func TestWatchWaitsOutAHeldLeaseThenReports(t *testing.T) {
 }
 
 func TestWatchNeverPutsARewrittenCallInputOnTheWire(t *testing.T) {
+	t.Parallel()
 	const marker = "REWRITTEN-MARKER"
 	ws, home := newWorkspace(t)
 	rewrite := filepath.Join(t.TempDir(), "hook.sh")
@@ -396,8 +405,7 @@ func TestWatchNeverPutsARewrittenCallInputOnTheWire(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "hooks.json"), []byte(hookCfg), 0o600))
 
 	api := newFakeAPI(t, bashReply("echo original"), 0)
-	useAPI(t, api)
-	chatOnce(t, ws, "go\n", "--yes")
+	chatOnce(t, ws, home, apiEnv(api), "go\n", "--yes")
 	id, dbPath := sessionDB(t, home)
 
 	var stored bool
@@ -408,7 +416,7 @@ func TestWatchNeverPutsARewrittenCallInputOnTheWire(t *testing.T) {
 	}
 	require.True(t, stored, "the rewritten input must be in the log for this test to mean anything")
 
-	r := startIn(t, home)
+	r := startEnv(t, home, apiEnv(api))
 	w := newWatcher(r, id)
 	w.followUntilDone(t, 1)
 	r.stop(t)

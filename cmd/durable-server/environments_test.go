@@ -41,6 +41,7 @@ func (c apiClient) createEmptyIn(t *testing.T, environment, requestID string) (*
 }
 
 func TestServerInfoListsEnvironmentsFromFileAndFlag(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	writeEnvironments(t, home, goEnvironments)
 	c := newClient(envServer(t, home, "--sandbox-image", "durable-worker:dev"))
@@ -60,6 +61,7 @@ func TestServerInfoListsEnvironmentsFromFileAndFlag(t *testing.T) {
 }
 
 func TestEnvironmentsFileAloneMakesTheServerSandboxed(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	writeEnvironments(t, home, goEnvironments)
 	c := newClient(envServer(t, home))
@@ -68,6 +70,7 @@ func TestEnvironmentsFileAloneMakesTheServerSandboxed(t *testing.T) {
 }
 
 func TestCreateWithBadEnvironmentIsInvalidArgument(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	writeEnvironments(t, home, `{"go": {"image": "img"}, "rust": {"image": "img"}}`)
 	c := newClient(envServer(t, home))
@@ -87,6 +90,7 @@ func TestCreateWithBadEnvironmentIsInvalidArgument(t *testing.T) {
 }
 
 func TestPlainServerRejectsAnEnvironment(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	c := newClient(startIn(t, home))
 
@@ -96,6 +100,7 @@ func TestPlainServerRejectsAnEnvironment(t *testing.T) {
 }
 
 func TestInvalidEnvironmentsFileFailsStartup(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		body string
 		args []string
@@ -119,6 +124,7 @@ func TestInvalidEnvironmentsFileFailsStartup(t *testing.T) {
 }
 
 func TestCreateWithEnvironmentPinsImageAndGrants(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	writeEnvironments(t, home, goEnvironments)
 	c := newClient(envServer(t, home))
@@ -147,6 +153,7 @@ func TestCreateWithEnvironmentPinsImageAndGrants(t *testing.T) {
 }
 
 func TestRepeatedCreateReturnsTheFirstSessionEvenWhenTheEnvironmentChanged(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	writeEnvironments(t, home, `{"go": {"image": "durable-worker-go:dev"}, "rust": {"image": "durable-worker-rust:dev"}}`)
 	r := envServer(t, home)
@@ -192,6 +199,7 @@ func TestRepeatedCreateReturnsTheFirstSessionEvenWhenTheEnvironmentChanged(t *te
 }
 
 func TestListSessionsReportsTheEnvironment(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	dir := filepath.Join(home, ".durable", "sessions", "0123456789abcdef")
 	require.NoError(t, os.MkdirAll(dir, 0o700))

@@ -12,6 +12,7 @@ import (
 )
 
 func TestListSessionsShowsApprovalPendingInAnIdleSession(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	_, dbPath := sessionDB(t, home)
@@ -44,6 +45,7 @@ func TestListSessionsShowsApprovalPendingInAnIdleSession(t *testing.T) {
 }
 
 func TestCancelByRequestIDFromAClientThatDidNotSubmit(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	api := newFakeAPI(t, bashReply("echo ran"), 0)

@@ -49,6 +49,7 @@ func waitDone(t *testing.T, c apiClient, id string) *v1.Submission {
 }
 
 func TestCreateSessionRunsAndIsIdempotent(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, textReply("DONE"), 0)
 	c := newClient(startEnv(t, home, apiEnv(api), "--api-token", "dummy"))
@@ -76,6 +77,7 @@ func TestCreateSessionRunsAndIsIdempotent(t *testing.T) {
 }
 
 func TestCreateSessionRejectsBadCWD(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	file := filepath.Join(ws, "file")
 	require.NoError(t, os.WriteFile(file, nil, 0o600))
@@ -95,6 +97,7 @@ func TestCreateSessionRejectsBadCWD(t *testing.T) {
 }
 
 func TestCreateSessionWithMisconfiguredProviderFailsGenerically(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, textReply("DONE"), 0)
 	// A missing model now fails startup, so this uses a missing key, which only a session creation can see.
@@ -115,6 +118,7 @@ func TestCreateSessionWithMisconfiguredProviderFailsGenerically(t *testing.T) {
 }
 
 func TestServeProviderFlagsDoNotApplyToExistingSessions(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, textReply("DONE"), 0)
 	first := startEnv(t, home, apiEnv(api), "--api-token", "dummy")
@@ -136,6 +140,7 @@ func (c apiClient) createRepo(t *testing.T, repo, branch string) (*v1.CreateSess
 }
 
 func TestServeEffortReachesTheModelRequest(t *testing.T) {
+	t.Parallel()
 	tests := map[string]struct {
 		config string
 		args   []string

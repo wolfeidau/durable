@@ -13,8 +13,9 @@ import (
 )
 
 func TestShutdownEndsOpenStreamsWithUnavailable(t *testing.T) {
-	_, home, id, _ := seedSession(t, textReply("hi"), 0, 1)
-	r := startIn(t, home)
+	t.Parallel()
+	_, home, id, _, env := seedSession(t, textReply("hi"), 0, 1)
+	r := startEnv(t, home, env)
 
 	w := newWatcher(r, id)
 	ctx, cancel := context.WithTimeout(t.Context(), watchTimeout)
