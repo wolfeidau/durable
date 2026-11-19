@@ -5,13 +5,13 @@ import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@ta
 import { useEffect, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { listSessions } from "./gen/durable/v1/durable-SessionService_connectquery";
-import { SessionBar } from "./SessionBar";
-import { SessionList } from "./SessionList";
-import { SessionView } from "./SessionView";
-import { ConnectionPill, TokenInput, type WatchSummary } from "./StatusLine";
-import { getToken, setToken } from "./token";
-import { ServerPage } from "./ServerPage";
-import { serverHref, useRoute } from "./route";
+import { SessionBar } from "./sessions/SessionBar";
+import { SessionList } from "./sessions/SessionList";
+import { SessionView } from "./session/SessionView";
+import { ConnectionPill, TokenInput, type WatchSummary } from "./session/StatusLine";
+import { getToken, setToken } from "./lib/token";
+import { ServerPage } from "./server/ServerPage";
+import { serverHref, useRoute } from "./lib/route";
 import "./app.css";
 
 const bearer: Interceptor = (next) => (req) => {

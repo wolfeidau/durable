@@ -96,6 +96,17 @@ Lowercase, single word, descriptive of the domain — not the layer. Examples: `
 
 Only comment the **why**, never the **what**. No docstrings for obvious functions. A one-line comment is the maximum.
 
+### Web layout
+
+`web/src` is grouped by feature, and tests sit next to their modules:
+
+- `lib/` holds helpers with no components. It imports only `gen/` and `lib/`.
+- `ui/` holds shared components and hooks. It imports `lib/` and `ui/`.
+- `sessions/`, `server/` and `session/` (with `transcript/`, `report/` and `network/`) are features. A feature imports `lib/`, `ui/`, `gen/` and its own subtree, never another feature. Something two features need moves to `lib/` or `ui/`.
+- `main.tsx` wires the features together.
+
+`mise run check:web:layout` enforces this, and `check:web` runs it.
+
 ## Testing
 
 Use `github.com/stretchr/testify/require` for assertions. Prefer `require` over `assert` so test functions fail fast on the first unmet condition.

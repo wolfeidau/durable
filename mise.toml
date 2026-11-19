@@ -101,5 +101,19 @@ test -z "$(git status --porcelain src/gen)" || { git status --porcelain src/gen;
 bunx tsc --noEmit
 bunx tsc --noEmit -p tsconfig.test.json
 bun test
+mise run check:web:layout
 mise run web:build
+"""
+
+[tasks."check:web:layout"]
+dir = "{{config_root}}/web"
+run = """
+# Feature folders never import each other; only lib/, ui/ and gen/ are shared, and lib/ imports no ui/.
+bad=$( {
+  grep -rn 'from "\\.\\./' src/lib | grep -v 'from "\\.\\./gen/'
+  grep -rn 'from "\\.\\./' src/ui | grep -vE 'from "\\.\\./(gen|lib)/'
+  grep -n 'from "\\.\\./' src/sessions/* src/server/* src/session/*.ts* | grep -vE 'from "\\.\\./(gen|lib|ui)/'
+  grep -rn 'from "\\.\\./\\.\\./' src/session/*/ | grep -vE 'from "\\.\\./\\.\\./(gen|lib|ui)/'
+} || true )
+test -z "$bad" || { echo "web/src imports that cross feature folders:"; echo "$bad"; exit 1; }
 """
