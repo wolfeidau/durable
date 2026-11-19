@@ -47,6 +47,7 @@ func (c apiClient) decide(t *testing.T, id string, seq int64, allow bool) (*v1.A
 }
 
 func TestSubmitRunsToDoneAndIsExactlyOnce(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	api := newFakeAPI(t, textReply("hello there"), 0)
@@ -70,6 +71,7 @@ func TestSubmitRunsToDoneAndIsExactlyOnce(t *testing.T) {
 }
 
 func TestApprovalRunsExactlyOnce(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	marker := filepath.Join(ws, "marker.txt")
@@ -120,6 +122,7 @@ func TestApprovalRunsExactlyOnce(t *testing.T) {
 }
 
 func TestCancelParkedSubmission(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	marker := filepath.Join(ws, "marker.txt")
@@ -142,6 +145,7 @@ func TestCancelParkedSubmission(t *testing.T) {
 }
 
 func TestListSessions(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	a := createSession(t, ws, home, "a")
 	b := createSession(t, ws, home, "b")
@@ -167,6 +171,7 @@ func TestListSessions(t *testing.T) {
 }
 
 func TestUnknownAndMalformedSessionIDs(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	c := newClient(startIn(t, home, "--api-token", "dummy"))
 
@@ -181,6 +186,7 @@ func TestUnknownAndMalformedSessionIDs(t *testing.T) {
 }
 
 func TestCancelInterruptsRunningSubmission(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	api := newHoldingAPI(t)
@@ -213,6 +219,7 @@ func TestCancelInterruptsRunningSubmission(t *testing.T) {
 }
 
 func TestOpenFailureIsInternalWithoutPaths(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	meta := filepath.Join(home, ".durable", "sessions", id, "session.json")
@@ -225,6 +232,7 @@ func TestOpenFailureIsInternalWithoutPaths(t *testing.T) {
 }
 
 func TestSubmitWhileChatHoldsSessionIsUnavailable(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	id := createSession(t, ws, home, "s")
 	api := newFakeAPI(t, textReply("from chat"), 0)

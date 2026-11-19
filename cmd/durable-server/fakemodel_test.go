@@ -76,31 +76,23 @@ func (f *fakeAPI) count() int {
 	return len(f.bodies)
 }
 
-// useAPI points every process the test starts at the fake API.
-func useAPI(t *testing.T, api *fakeAPI) {
-	t.Helper()
-	t.Setenv("ANTHROPIC_BASE_URL", api.srv.URL)
-	t.Setenv("ANTHROPIC_API_KEY", "dummy")
-	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
-}
-
 func newWorkspace(t *testing.T) (workspace, home string) {
 	t.Helper()
 	ws, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
 	hm, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	t.Setenv("HOME", hm)
 	return ws, hm
 }
 
 // chatOnce runs durable chat with one prompt on stdin, which exits at EOF once the prompt is done.
-func chatOnce(t *testing.T, ws, prompt string, args ...string) {
+func chatOnce(t *testing.T, ws, home string, env []string, prompt string, args ...string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, durablePath, append([]string{"chat", "--session", "s"}, args...)...)
 	cmd.Dir = ws
+	cmd.Env = append(append(os.Environ(), "HOME="+home), env...)
 	cmd.Stdin = strings.NewReader(prompt)
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))

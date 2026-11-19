@@ -9,6 +9,7 @@ import (
 )
 
 func TestServerInfoReportsSettingsWithoutSecrets(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, `{"provider": {"name": "openrouter", "model": "vendor/model", "api_key": "env:DURABLE_TEST_KEY"}}`)
 	r := startEnv(t, home, []string{"DURABLE_TEST_KEY=sk-test-secret-0123456789", "DURABLE_GITHUB_TOKEN="})
@@ -36,6 +37,7 @@ func TestServerInfoReportsSettingsWithoutSecrets(t *testing.T) {
 }
 
 func TestServerInfoWarnsAboutANonLoopbackAddress(t *testing.T) {
+	t.Parallel()
 	r := startIn(t, t.TempDir(), "--addr", "0.0.0.0:0")
 	c := newClient(r)
 

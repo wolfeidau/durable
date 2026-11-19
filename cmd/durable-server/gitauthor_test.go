@@ -11,6 +11,7 @@ import (
 )
 
 func TestInvalidGitAuthorFailsStartup(t *testing.T) {
+	t.Parallel()
 	for _, v := range []string{"nobody", "<durable@localhost>"} {
 		out := runFailingIn(t, t.TempDir(), nil, "--git-author", v)
 
@@ -20,6 +21,7 @@ func TestInvalidGitAuthorFailsStartup(t *testing.T) {
 }
 
 func TestNewSessionPinsTheGitAuthor(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		args        []string
 		name, email string

@@ -156,6 +156,7 @@ func stopServer(t *testing.T, r *running) {
 }
 
 func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, telemetryConfig)
 	r := startIn(t, home)
@@ -243,6 +244,7 @@ func TestTelemetryReceivesAndAuditReadsStore(t *testing.T) {
 }
 
 func TestAuditDailyNeedsTelemetryStore(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeAuditPin(t, home, "bbbbbbbbbbbbbbbb")
 
@@ -252,6 +254,7 @@ func TestAuditDailyNeedsTelemetryStore(t *testing.T) {
 }
 
 func TestAuditRawNeedsTelemetryStore(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeAuditPin(t, home, "eeeeeeeeeeeeeeee")
 
@@ -262,6 +265,7 @@ func TestAuditRawNeedsTelemetryStore(t *testing.T) {
 }
 
 func TestAuditRawRejectsConflictingFlags(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeAuditPin(t, home, "ffffffffffffffff")
 
@@ -275,6 +279,7 @@ func TestAuditRawRejectsConflictingFlags(t *testing.T) {
 }
 
 func TestTelemetryPortClashFailsBeforeServing(t *testing.T) {
+	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer ln.Close()
@@ -288,6 +293,7 @@ func TestTelemetryPortClashFailsBeforeServing(t *testing.T) {
 }
 
 func TestTelemetryHeadersFileSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, telemetryConfig)
 	r := startIn(t, home)
@@ -299,6 +305,7 @@ func TestTelemetryHeadersFileSurvivesRestart(t *testing.T) {
 }
 
 func TestMalformedHeadersFileFailsStartup(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, telemetryConfig)
 	path := filepath.Join(home, ".durable", "otlp-headers")
@@ -311,6 +318,7 @@ func TestMalformedHeadersFileFailsStartup(t *testing.T) {
 }
 
 func TestReceiverCloseWithExpiredContextStillClosesStore(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	settings := &config.Settings{TelemetryAddr: "127.0.0.1:0", TelemetryRetention: time.Hour}
 	r, _, err := startReceiver(t.Context(), slog.New(slog.DiscardHandler), home, settings, nil)
@@ -325,6 +333,7 @@ func TestReceiverCloseWithExpiredContextStillClosesStore(t *testing.T) {
 }
 
 func TestAuditDailyRejectsSince(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeAuditPin(t, home, "cccccccccccccccc")
 
@@ -352,6 +361,7 @@ func ocsfWithoutDevice(t *testing.T) *logspb.LogRecord {
 }
 
 func TestAuditReportsDropsAndCoverage(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, telemetryConfig)
 	r := startIn(t, home)
@@ -387,6 +397,7 @@ func TestAuditReportsDropsAndCoverage(t *testing.T) {
 }
 
 func TestAuditWithStoreSurvivesGatewayError(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, telemetryConfig)
 	r := startIn(t, home)
@@ -406,6 +417,7 @@ func TestAuditWithStoreSurvivesGatewayError(t *testing.T) {
 }
 
 func TestAuditWithoutStoreReportsGatewayError(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeAuditPin(t, home, "2222222222222222")
 
@@ -416,6 +428,7 @@ func TestAuditWithoutStoreReportsGatewayError(t *testing.T) {
 }
 
 func TestAuditRejectsBadFlags(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	const session = "3333333333333333"
 	writeAuditPin(t, home, session)

@@ -27,6 +27,7 @@ func runConfig(t *testing.T, home string, args ...string) (string, error) {
 }
 
 func TestInvalidConfigFailsBeforeListeningAndListsEachError(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, `{
 	  "provider": {"name": "openrouter"},
@@ -44,6 +45,7 @@ func TestInvalidConfigFailsBeforeListeningAndListsEachError(t *testing.T) {
 }
 
 func TestSchemaInvalidConfigFailsStartupWithoutEchoingASecret(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, `{"provider": {"api_key": "sk-pasted0123456789"}}`)
 
@@ -54,6 +56,7 @@ func TestSchemaInvalidConfigFailsStartupWithoutEchoingASecret(t *testing.T) {
 }
 
 func TestFlagOverridingTheFileWarns(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, `{"listen": {"addr": "127.0.0.1:1"}, "provider": {"model": "file/model"}}`)
 	r := startIn(t, home, "--model", "flag/model")
@@ -67,6 +70,7 @@ func TestFlagOverridingTheFileWarns(t *testing.T) {
 }
 
 func TestConfigFileEnvironmentsAndLegacyFile(t *testing.T) {
+	t.Parallel()
 	t.Run("config file", func(t *testing.T) {
 		_, home := newWorkspace(t)
 		writeConfig(t, home, `{"environments": {"go": {"image": "durable-worker-go:dev", "grants": ["go-modules"]}}}`)
@@ -106,6 +110,7 @@ func TestConfigFileEnvironmentsAndLegacyFile(t *testing.T) {
 }
 
 func TestConfigCheckPrintsEffectiveSettingsWithSources(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, `{
 	  "listen": {"idle_timeout": "2m"},
@@ -127,6 +132,7 @@ func TestConfigCheckPrintsEffectiveSettingsWithSources(t *testing.T) {
 }
 
 func TestConfigCheckWarnsAboutTheLegacyFile(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeEnvironments(t, home, goEnvironments)
 
@@ -138,6 +144,7 @@ func TestConfigCheckWarnsAboutTheLegacyFile(t *testing.T) {
 }
 
 func TestConfigCheckExitsNonZeroOnErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("schema", func(t *testing.T) {
 		home := t.TempDir()
 		writeConfig(t, home, `{"listen": {"nope": 1}}`)
@@ -160,6 +167,7 @@ func TestConfigCheckExitsNonZeroOnErrors(t *testing.T) {
 }
 
 func TestConfigSchemaPrintsTheCommittedFile(t *testing.T) {
+	t.Parallel()
 	want, err := os.ReadFile(filepath.Join("..", "..", "schema", "durable-server.schema.json"))
 	require.NoError(t, err)
 
@@ -170,6 +178,7 @@ func TestConfigSchemaPrintsTheCommittedFile(t *testing.T) {
 }
 
 func TestConfigCheckReadsYAML(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
 	body := "# yaml-language-server: $schema=x\nlisten:\n  idle_timeout: 2m\nenvironments:\n  go:\n    image: durable-worker-go:dev\n"
@@ -183,6 +192,7 @@ func TestConfigCheckReadsYAML(t *testing.T) {
 }
 
 func TestConfigCheckRejectsBothConfigFiles(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, `{}`)
 	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "config.yaml"), []byte("{}\n"), 0o600))
@@ -202,6 +212,7 @@ func writeUserFile(t *testing.T, home, name, body string) {
 const badHooksYAML = "hooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: a\n          bogus: 1\n"
 
 func TestInvalidHooksFailStartupBeforeListening(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeUserFile(t, home, "hooks.yaml", badHooksYAML)
 
@@ -214,6 +225,7 @@ func TestInvalidHooksFailStartupBeforeListening(t *testing.T) {
 }
 
 func TestUnsetMCPVariableFailsStartupNamingIt(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeUserFile(t, home, "mcp.yaml", "mcpServers:\n  a:\n    command: srv\n    env:\n      K: ${DURABLE_TEST_UNSET_VAR}\n")
 
@@ -224,6 +236,7 @@ func TestUnsetMCPVariableFailsStartupNamingIt(t *testing.T) {
 }
 
 func TestBothMCPFilesFailStartup(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeUserFile(t, home, "mcp.json", `{}`)
 	writeUserFile(t, home, "mcp.yaml", "")
@@ -235,6 +248,7 @@ func TestBothMCPFilesFailStartup(t *testing.T) {
 }
 
 func TestConfigCheckReportsHooksErrorAndFails(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeUserFile(t, home, "hooks.yaml", badHooksYAML)
 
@@ -245,6 +259,7 @@ func TestConfigCheckReportsHooksErrorAndFails(t *testing.T) {
 }
 
 func TestConfigCheckWarnsOnUnsupportedMCPEntry(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeUserFile(t, home, "mcp.yaml", "mcpServers:\n  a:\n    type: sse\n    url: http://localhost/x\n")
 

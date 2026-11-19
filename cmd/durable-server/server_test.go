@@ -115,6 +115,7 @@ func h2cClient() *http.Client {
 }
 
 func TestRejectsBadRequests(t *testing.T) {
+	t.Parallel()
 	base, token := startServer(t)
 	path := base + durablev1connect.SessionServiceSubmitProcedure
 
@@ -151,6 +152,7 @@ func TestRejectsBadRequests(t *testing.T) {
 }
 
 func TestSubmitIsAuthenticatedOverEveryProtocol(t *testing.T) {
+	t.Parallel()
 	base, token := startServer(t)
 
 	for name, opts := range map[string][]connect.ClientOption{
@@ -173,6 +175,7 @@ func TestSubmitIsAuthenticatedOverEveryProtocol(t *testing.T) {
 }
 
 func TestGetDoesNotRunDecideApproval(t *testing.T) {
+	t.Parallel()
 	base, token := startServer(t)
 	req, err := http.NewRequest(http.MethodGet, base+durablev1connect.SessionServiceDecideApprovalProcedure+"?connect=v1&encoding=json&message=%7B%7D", nil)
 	require.NoError(t, err)
@@ -184,6 +187,7 @@ func TestGetDoesNotRunDecideApproval(t *testing.T) {
 }
 
 func TestServesUI(t *testing.T) {
+	t.Parallel()
 	base, _ := startServer(t)
 	// No Authorization header: the UI is exempt from the token.
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/", nil)
@@ -200,6 +204,7 @@ func TestServesUI(t *testing.T) {
 }
 
 func TestIsLoopback(t *testing.T) {
+	t.Parallel()
 	for addr, want := range map[string]bool{
 		"127.0.0.1:7878": true,
 		"[::1]:7878":     true,
@@ -214,6 +219,7 @@ func TestIsLoopback(t *testing.T) {
 }
 
 func TestServerJSONModeAndCleanup(t *testing.T) {
+	t.Parallel()
 	r := start(t)
 	path := filepath.Join(r.home, ".durable", "server.json")
 	st, err := os.Stat(path)
@@ -231,6 +237,7 @@ func TestServerJSONModeAndCleanup(t *testing.T) {
 }
 
 func TestShutdownDrainsInFlightRequest(t *testing.T) {
+	t.Parallel()
 	r := start(t)
 
 	// The body is still open, so the request is in flight when SIGTERM arrives.
@@ -282,6 +289,7 @@ func TestShutdownDrainsInFlightRequest(t *testing.T) {
 }
 
 func TestStartsWithKeyAndIdleFlagsAndShutsDownCleanly(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	ws := t.TempDir()
 	// An empty stdin creates the session and exits without calling the model.

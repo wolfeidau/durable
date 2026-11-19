@@ -25,6 +25,7 @@ func sandboxDelete(t *testing.T, home, id string) (string, error) {
 }
 
 func TestSandboxDeleteRejectsBadSessions(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	withoutPin := filepath.Join(home, ".durable", "sessions", "aaaaaaaaaaaaaaaa")
 	require.NoError(t, os.MkdirAll(withoutPin, 0o700))
@@ -66,6 +67,7 @@ func sandboxAuditSplit(t *testing.T, home, id string, args ...string) (stdout, s
 }
 
 func TestSandboxAuditRejectsBadSessions(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 
 	out, err := sandboxAudit(t, home, "../x")
@@ -78,6 +80,7 @@ func TestSandboxAuditRejectsBadSessions(t *testing.T) {
 }
 
 func TestSandboxDeleteRefusesWhileServerRuns(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	startIn(t, home)
 
@@ -88,6 +91,7 @@ func TestSandboxDeleteRefusesWhileServerRuns(t *testing.T) {
 }
 
 func TestSandboxImageWithoutGatewayFailsCreateGenerically(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, textReply("DONE"), 0)
 	// No gateway config, so the lazy connect fails whatever the developer's machine has.
@@ -127,6 +131,7 @@ func TestSandboxImageWithoutGatewayFailsCreateGenerically(t *testing.T) {
 }
 
 func TestPlainServerOffersDirectoriesAndRefusesEmptySessions(t *testing.T) {
+	t.Parallel()
 	_, home := newWorkspace(t)
 	c := newClient(startIn(t, home))
 
@@ -136,6 +141,7 @@ func TestPlainServerOffersDirectoriesAndRefusesEmptySessions(t *testing.T) {
 }
 
 func TestServeWithoutSandboxImageNeverTouchesTheGateway(t *testing.T) {
+	t.Parallel()
 	ws, home := newWorkspace(t)
 	api := newFakeAPI(t, textReply("DONE"), 0)
 	env := append(apiEnv(api), "XDG_CONFIG_HOME="+t.TempDir())

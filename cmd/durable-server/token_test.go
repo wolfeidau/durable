@@ -49,6 +49,7 @@ func status(t *testing.T, r *running, token string) int {
 }
 
 func TestTokenSurvivesRestartAndStaysOutOfOutput(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	first := startIn(t, home)
 	st, err := os.Stat(tokenPath(home))
@@ -68,6 +69,7 @@ func TestTokenSurvivesRestartAndStaysOutOfOutput(t *testing.T) {
 }
 
 func TestRotateTokenReplacesToken(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	first := startIn(t, home)
 	first.stop(t)
@@ -93,6 +95,7 @@ func TestRotateTokenReplacesToken(t *testing.T) {
 }
 
 func TestServeRefusesOpenTokenFile(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
 	require.NoError(t, os.WriteFile(tokenPath(home), []byte("secret\n"), 0o644))
@@ -106,6 +109,7 @@ func TestServeRefusesOpenTokenFile(t *testing.T) {
 }
 
 func TestServeRejectsEmptyTokenFile(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
 	require.NoError(t, os.WriteFile(tokenPath(home), []byte(" \n"), 0o600))
@@ -116,6 +120,7 @@ func TestServeRejectsEmptyTokenFile(t *testing.T) {
 }
 
 func TestSecondServerRefusedAndFirstKeepsDiscovery(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	first := startIn(t, home)
 
@@ -132,6 +137,7 @@ func TestSecondServerRefusedAndFirstKeepsDiscovery(t *testing.T) {
 }
 
 func TestLockNotStaleAfterKill(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	first := startIn(t, home)
 	first.crash(t)
@@ -141,6 +147,7 @@ func TestLockNotStaleAfterKill(t *testing.T) {
 }
 
 func TestURLPrintsBrowserLink(t *testing.T) {
+	t.Parallel()
 	r := start(t)
 	stdout, _, err := runSub(t, r.home, "url")
 	require.NoError(t, err)
@@ -148,6 +155,7 @@ func TestURLPrintsBrowserLink(t *testing.T) {
 }
 
 func TestURLWithoutServer(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	_, stderr, err := runSub(t, home, "url")
 	require.Error(t, err)
@@ -155,6 +163,7 @@ func TestURLWithoutServer(t *testing.T) {
 }
 
 func TestURLWithStaleServerInfo(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
 	// Port 1 is reserved and refuses connections.
@@ -169,6 +178,7 @@ func TestURLWithStaleServerInfo(t *testing.T) {
 }
 
 func TestBrowserURLUsesLoopbackForWildcardAddress(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, "http://127.0.0.1:7878/#token=t", browserURL("0.0.0.0:7878", "t"))
 	require.Equal(t, "http://127.0.0.1:7878/#token=t", browserURL("[::]:7878", "t"))
 	require.Equal(t, "http://127.0.0.1:7878/#token=t", browserURL("127.0.0.1:7878", "t"))

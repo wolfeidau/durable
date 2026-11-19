@@ -19,6 +19,7 @@ func wideSince() *v1.ListNetworkEventsRequest_SinceAgo {
 }
 
 func TestListNetworkEventsServedFromTelemetryStore(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeConfig(t, home, telemetryConfig)
 	r := startEnv(t, home, []string{"XDG_CONFIG_HOME=" + t.TempDir()})
@@ -72,6 +73,7 @@ func TestListNetworkEventsServedFromTelemetryStore(t *testing.T) {
 }
 
 func TestListNetworkEventsWithoutTelemetryReportsGatewayLog(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	// An empty gateway config dir makes the gateway read fail whatever the developer's machine has.
 	r := startEnv(t, home, []string{"XDG_CONFIG_HOME=" + t.TempDir()})
@@ -93,6 +95,7 @@ func TestListNetworkEventsWithoutTelemetryReportsGatewayLog(t *testing.T) {
 }
 
 func TestListNetworkEventsNeedsASandbox(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	r := startIn(t, home)
 	c := newClient(r)
