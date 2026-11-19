@@ -257,7 +257,7 @@ func createSessionDB(t *testing.T, ws, home string) (id, dbPath string) {
 	return sessionDB(t, home)
 }
 
-// The 50-watcher case takes about 64s of CI's go test step, so it runs only on request.
+// The 50-watcher case is the slowest under -race, so it runs only on request.
 const contentionEnv = "DURABLE_TEST_CONTENTION"
 
 func TestContentionRunTimeWithWatchers(t *testing.T) {

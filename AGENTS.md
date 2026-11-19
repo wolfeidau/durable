@@ -32,6 +32,12 @@ CI also race-checks the real binary, which `go test -race` alone doesn't. Run th
 GOFLAGS=-race GORACE=atexit_sleep_ms=0 go test -race -count=1 ./cmd/durable
 ```
 
+CI skips the 50-watcher contention case, the only check that a stalled watcher doesn't slow a run at that scale. Run it after changing the watch fan-out or session event streaming in `cmd/durable-server`:
+
+```sh
+mise run test:contention
+```
+
 The sandboxed run executes `./cmd/durable` in Docker with egress limited to OpenRouter and GitHub through the proxy allowlist in `e2e/squid.conf`. Set `OPENROUTER_API_KEY` in the environment to include the live tests. On failure the task prints the proxy's denied requests:
 
 ```sh
