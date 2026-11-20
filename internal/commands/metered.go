@@ -66,7 +66,7 @@ func (m meteredModel) traceReply(span trace.Span, msg durable.Message) {
 	u := msg.Usage
 	span.SetAttributes(
 		attribute.String("gen_ai.response.model", u.Model),
-		attribute.Int64("gen_ai.usage.input_tokens", u.InputTokens),
+		attribute.Int64("gen_ai.usage.input_tokens", u.InputTokens+u.CacheReadTokens+u.CacheWriteTokens), // semconv: input_tokens SHOULD include cached tokens
 		attribute.Int64("gen_ai.usage.output_tokens", u.OutputTokens),
 	)
 	if u.CacheReadTokens > 0 {
