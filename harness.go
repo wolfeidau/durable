@@ -465,13 +465,19 @@ func (h *Harness) failModel(ctx context.Context, sub Submission, err error) erro
 // persists is returned, so the submission stays running. Any other failure is recorded and the run
 // goes on, since the request may still fit.
 func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (_ bool, err error) {
-	ctx, span := h.trace.Start(ctx, "durable.compact", trace.WithAttributes(attribute.Bool("durable.compact.forced", force)))
-	outcome := "skipped"
+	// A started span can't be discarded, so a skip records nothing and the rest are recorded after the fact.
+	start := time.Now()
+	outcome := ""
 	defer func() {
 		if err != nil {
 			outcome = "failed"
 		}
-		span.SetAttributes(attribute.String("durable.compact.outcome", outcome))
+		if outcome == "" {
+			return
+		}
+		_, span := h.trace.Start(ctx, "durable.compact", trace.WithTimestamp(start), trace.WithAttributes(
+			attribute.Bool("durable.compact.forced", force),
+			attribute.String("durable.compact.outcome", outcome)))
 		SpanError(ctx, span, err)
 		span.End()
 	}()

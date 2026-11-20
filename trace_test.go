@@ -223,7 +223,7 @@ func TestTraceReplayedAfterCrash(t *testing.T) {
 	require.Equal(t, "allow", a["durable.tool.decision"].AsString())
 }
 
-func TestTraceCompactOutcome(t *testing.T) {
+func TestTraceCompactSkippedRecordsNoSpan(t *testing.T) {
 	ctx := context.Background()
 	rec, tp := newRecorder()
 	h := openWith(t, ctx, Options{
@@ -236,9 +236,52 @@ func TestTraceCompactOutcome(t *testing.T) {
 	_, err := h.Prompt(ctx, "a", "go")
 	require.NoError(t, err)
 
-	a := spanAttrs(findSpan(t, rec, "durable.compact"))
-	require.Equal(t, "skipped", a["durable.compact.outcome"].AsString())
+	for _, s := range rec.Ended() {
+		require.NotEqual(t, "durable.compact", s.Name())
+	}
+}
+
+func TestTraceCompactOutcomeCompacted(t *testing.T) {
+	ctx := context.Background()
+	rec, tp := newRecorder()
+	h := openWith(t, ctx, Options{
+		Model: modelFunc(okReply2), LeaseTTL: ttl, TracerProvider: tp,
+		Compactor: compactorFunc(func(_ context.Context, req CompactRequest) (Compaction, bool, error) {
+			if len(req.Messages) < 2 {
+				return Compaction{}, false, nil
+			}
+			return Compaction{Summary: "S", FirstKept: len(req.Messages) - 1}, true, nil
+		}),
+	})
+	defer h.Close()
+	for _, id := range []string{"a", "b"} {
+		_, err := h.Prompt(ctx, id, "msg "+id)
+		require.NoError(t, err)
+	}
+
+	s := findSpan(t, rec, "durable.compact")
+	a := spanAttrs(s)
+	require.Equal(t, "compacted", a["durable.compact.outcome"].AsString())
 	require.False(t, a["durable.compact.forced"].AsBool())
+	require.False(t, s.StartTime().After(s.EndTime()))
+}
+
+func TestTraceCompactOutcomeFailed(t *testing.T) {
+	ctx := context.Background()
+	rec, tp := newRecorder()
+	h := openWith(t, ctx, Options{
+		Model: modelFunc(okReply2), LeaseTTL: ttl, TracerProvider: tp,
+		Compactor: compactorFunc(func(context.Context, CompactRequest) (Compaction, bool, error) {
+			return Compaction{}, false, errors.New("bad summary")
+		}),
+	})
+	defer h.Close()
+	_, err := h.Prompt(ctx, "a", "go")
+	require.NoError(t, err)
+
+	s := findSpan(t, rec, "durable.compact")
+	require.Equal(t, "failed", spanAttrs(s)["durable.compact.outcome"].AsString())
+	require.Equal(t, codes.Unset, s.Status().Code)
 }
 
 type errTool struct{ fakeTool }

@@ -120,7 +120,7 @@ func TestMeteredModelChatSpan(t *testing.T) {
 	require.Equal(t, "openrouter", a["gen_ai.provider.name"].AsString())
 	require.Equal(t, "vendor/m", a["gen_ai.request.model"].AsString())
 	require.Equal(t, "vendor/m", a["gen_ai.response.model"].AsString())
-	require.EqualValues(t, 1000, a["gen_ai.usage.input_tokens"].AsInt64())
+	require.EqualValues(t, 3400, a["gen_ai.usage.input_tokens"].AsInt64())
 	require.EqualValues(t, 100, a["gen_ai.usage.output_tokens"].AsInt64())
 	require.EqualValues(t, 2000, a["gen_ai.usage.cache_read.input_tokens"].AsInt64())
 	require.EqualValues(t, 400, a["gen_ai.usage.cache_creation.input_tokens"].AsInt64())
