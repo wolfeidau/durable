@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func newRecorder() (*tracetest.SpanRecorder, *sdktrace.TracerProvider) {
@@ -321,9 +322,9 @@ func TestTraceRunSpanParentsEverySubmission(t *testing.T) {
 	ctx := context.Background()
 	rec, tp := newRecorder()
 	h := openWith(t, ctx, Options{
-		Model: &scriptedModel{}, LeaseTTL: ttl, TracerProvider: tp,
-		Tools:           []Tool{&fakeTool{name: "write_file"}, &fakeTool{name: "read_file"}},
-		TraceAttributes: []attribute.KeyValue{attribute.String("gen_ai.conversation.id", "sess-1")},
+		Model: &scriptedModel{}, LeaseTTL: ttl,
+		TracerProvider: WithSpanAttributes(tp, attribute.String("gen_ai.conversation.id", "sess-1")),
+		Tools:          []Tool{&fakeTool{name: "write_file"}, &fakeTool{name: "read_file"}},
 	})
 	defer h.Close()
 	_, err := h.Submit(ctx, "req-1", "one")
@@ -344,9 +345,22 @@ func TestTraceRunSpanParentsEverySubmission(t *testing.T) {
 	require.Len(t, runs, 1)
 	require.Len(t, agents, 2)
 	require.False(t, runs[0].Parent().IsValid())
-	require.Equal(t, "sess-1", spanAttrs(runs[0])["gen_ai.conversation.id"].AsString())
+	for _, s := range rec.Ended() {
+		require.Equal(t, "sess-1", spanAttrs(s)["gen_ai.conversation.id"].AsString(), s.Name())
+	}
 	require.Equal(t, codes.Unset, runs[0].Status().Code)
 	for _, a := range agents {
 		require.Equal(t, runs[0].SpanContext().SpanID(), a.Parent().SpanID())
 	}
+}
+
+func TestWithSpanAttributesKeepsNilAndSpanOwnAttributes(t *testing.T) {
+	require.Nil(t, WithSpanAttributes(nil, attribute.String("session.id", "s")))
+	rec, tp := newRecorder()
+	tr := Tracer(WithSpanAttributes(tp, attribute.String("session.id", "s")))
+	_, span := tr.Start(context.Background(), "x", trace.WithAttributes(attribute.String("k", "v")))
+	span.End()
+	a := spanAttrs(rec.Ended()[0])
+	require.Equal(t, "s", a["session.id"].AsString())
+	require.Equal(t, "v", a["k"].AsString())
 }

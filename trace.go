@@ -26,6 +26,32 @@ func Tracer(tp trace.TracerProvider) trace.Tracer {
 	return tp.Tracer(TracerName)
 }
 
+// WithSpanAttributes returns a provider whose tracers add attrs to every span they start. A nil tp stays nil.
+func WithSpanAttributes(tp trace.TracerProvider, attrs ...attribute.KeyValue) trace.TracerProvider {
+	if tp == nil || len(attrs) == 0 {
+		return tp
+	}
+	return attrProvider{TracerProvider: tp, attrs: attrs}
+}
+
+type attrProvider struct {
+	trace.TracerProvider
+	attrs []attribute.KeyValue
+}
+
+func (p attrProvider) Tracer(name string, opts ...trace.TracerOption) trace.Tracer {
+	return attrTracer{Tracer: p.TracerProvider.Tracer(name, opts...), attrs: p.attrs}
+}
+
+type attrTracer struct {
+	trace.Tracer
+	attrs []attribute.KeyValue
+}
+
+func (t attrTracer) Start(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	return t.Tracer.Start(ctx, name, append([]trace.SpanStartOption{trace.WithAttributes(t.attrs...)}, opts...)...)
+}
+
 // SetContent sets a content attribute, cut to 16 KiB. A cut also sets durable.content_truncated on the span.
 // Callers gate it on Options.CaptureContent.
 func SetContent(span trace.Span, key, value string) {
