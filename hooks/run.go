@@ -12,6 +12,10 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/wolfeidau/durable/tools"
 )
 
@@ -56,9 +60,17 @@ func (c *capture) Write(p []byte) (int, error) {
 // invoke runs one hook and logs a failure. Error text is for the log, not the model.
 // An ended parent ctx returns ctx.Err(), unlogged.
 func (r *Runner) invoke(ctx context.Context, event, tool string, h Handler, payload []byte) (output, error) {
+	ctx, span := r.tracer.Start(ctx, "durable.hook", trace.WithAttributes(
+		attribute.String("durable.hook.event", event),
+		attribute.String("durable.hook.tool", tool),
+	))
+	defer span.End()
 	out, err := r.start(ctx, h, payload)
+	span.SetAttributes(attribute.Int("durable.hook.exit_code", out.exit))
 	if err != nil && ctx.Err() == nil {
 		r.logFailure(event, tool, h, err, out.stderr)
+		// The error text holds the command line, which can hold secrets.
+		span.SetStatus(codes.Error, "hook failed")
 	}
 	return out, err
 }

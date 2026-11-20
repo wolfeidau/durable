@@ -4,10 +4,15 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // UnknownOutcome is the tool result recorded for a non-replayable call that
@@ -81,12 +86,19 @@ type Options struct {
 	// order, possibly from a tool's goroutine, and is never persisted. It must not block, call the harness or panic.
 	// Buffer and drop on your own side, and rebuild from Events after a reconnect.
 	OnDelta func(Delta)
+	// TracerProvider, if set, receives spans for submissions, model calls, compaction and tool calls. Nil records nothing.
+	// Spans are never durable: they add no events or rows.
+	TracerProvider trace.TracerProvider
+	// CaptureContent adds prompts, tool arguments and tool results to spans, each cut to 16 KiB. It is off by default
+	// because they can hold secrets and personal data.
+	CaptureContent bool
 }
 
 // Harness drives one durable session stored in one SQLite database.
 type Harness struct {
 	db    *sql.DB
 	opts  Options
+	trace trace.Tracer
 	tools map[string]Tool
 	specs []ToolSpec
 	owner string
@@ -129,7 +141,7 @@ func OpenDB(ctx context.Context, db *sql.DB, opts Options) (*Harness, error) {
 		return nil, fmt.Errorf("durable: migrate: %w", err)
 	}
 
-	h := &Harness{db: db, opts: opts, tools: map[string]Tool{}, owner: rand.Text(),
+	h := &Harness{db: db, opts: opts, trace: Tracer(opts.TracerProvider), tools: map[string]Tool{}, owner: rand.Text(),
 		leaseLost: make(chan struct{}), runSem: make(chan struct{}, 1)}
 	// The insert is atomic, so it is safe before the lease is taken.
 	if _, err := db.ExecContext(ctx, `INSERT INTO session_epoch (id, epoch) VALUES (1, ?) ON CONFLICT (id) DO NOTHING`, rand.Text()); err != nil {
@@ -341,7 +353,25 @@ func (h *Harness) runQueue(ctx context.Context) error {
 // committed step. That is the whole recovery story: after a crash, the
 // database holds the last committed step, so the next iteration picks the
 // right next step without knowing a crash happened.
-func (h *Harness) drive(ctx context.Context, sub Submission) error {
+func (h *Harness) drive(ctx context.Context, sub Submission) (err error) {
+	ctx, span := h.trace.Start(ctx, "invoke_agent durable", trace.WithAttributes(
+		attribute.String("gen_ai.operation.name", "invoke_agent"),
+		attribute.String("gen_ai.agent.name", "durable"),
+		attribute.String("durable.request_id", sub.RequestID),
+		attribute.Int64("durable.submission.seq", sub.Seq),
+	))
+	if h.opts.CaptureContent {
+		SetContent(span, "gen_ai.input.messages", userMessagesJSON(sub.Text))
+	}
+	defer func() {
+		// A cancelled run still has a status worth reading.
+		if cur, gerr := h.Get(context.WithoutCancel(ctx), sub.RequestID); gerr == nil {
+			span.SetAttributes(attribute.String("durable.submission.status", string(cur.Status)))
+		}
+		SpanError(ctx, span, err)
+		span.End()
+	}()
+
 	if sub.Status == StatusQueued {
 		err := h.commit(ctx, func(tx *sql.Tx) error {
 			if _, err := appendMessage(ctx, tx, sub.Seq, Message{Role: RoleUser, Text: sub.Text}); err != nil {
@@ -419,7 +449,18 @@ func (h *Harness) failModel(ctx context.Context, sub Submission, err error) erro
 // compactStep asks the Compactor for a cut and commits it with its event. A transient error that
 // persists is returned, so the submission stays running. Any other failure is recorded and the run
 // goes on, since the request may still fit.
-func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (bool, error) {
+func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (_ bool, err error) {
+	ctx, span := h.trace.Start(ctx, "durable.compact", trace.WithAttributes(attribute.Bool("durable.compact.forced", force)))
+	outcome := "skipped"
+	defer func() {
+		if err != nil {
+			outcome = "failed"
+		}
+		span.SetAttributes(attribute.String("durable.compact.outcome", outcome))
+		SpanError(ctx, span, err)
+		span.End()
+	}()
+
 	mc, err := loadContext(ctx, h.db)
 	if err != nil {
 		return false, err
@@ -436,9 +477,12 @@ func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (
 		if ctx.Err() != nil || isTransient(err) {
 			return false, err
 		}
-		return false, h.commit(ctx, func(tx *sql.Tx) error {
-			return addEvent(ctx, tx, Event{Kind: EventCompactionFailed, Submission: sub.Seq, Error: err.Error()})
+		cause := err
+		err = h.commit(ctx, func(tx *sql.Tx) error {
+			return addEvent(ctx, tx, Event{Kind: EventCompactionFailed, Submission: sub.Seq, Error: cause.Error()})
 		})
+		outcome = "failed"
+		return false, err
 	}
 	if !ok {
 		return false, nil
@@ -446,6 +490,9 @@ func (h *Harness) compactStep(ctx context.Context, sub Submission, force bool) (
 	err = h.commit(ctx, func(tx *sql.Tx) error {
 		return addCompaction(ctx, tx, sub.Seq, mc.Seqs[c.FirstKept], mc.Seqs[len(mc.Seqs)-1], c.Summary)
 	})
+	if err == nil {
+		outcome = "compacted"
+	}
 	return err == nil, err
 }
 
@@ -567,21 +614,60 @@ func retryTransient[T any](ctx context.Context, h *Harness, what string, fn func
 //	pending -> commit "started" -> execute -> commit result + tool message
 //	started (crash happened mid-call) -> replay if safe, else record UnknownOutcome
 func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) error {
+	ctx, span := h.trace.Start(ctx, "execute_tool "+c.Name, trace.WithAttributes(
+		attribute.String("gen_ai.operation.name", "execute_tool"),
+		attribute.String("gen_ai.tool.name", c.Name),
+		attribute.String("gen_ai.tool.call.id", c.ID),
+	))
+	defer span.End()
+	var ct callTrace
+	err := h.execCall(ctx, sub, c, &ct)
+
+	span.SetAttributes(attribute.Bool("durable.replayed", ct.replayed), attribute.Bool("durable.rewritten", ct.rewritten))
+	if ct.decision != "" {
+		span.SetAttributes(attribute.String("durable.tool.decision", ct.decision))
+	}
+	if h.opts.CaptureContent && ct.ran {
+		SetContent(span, "gen_ai.tool.call.arguments", string(ct.input))
+		SetContent(span, "gen_ai.tool.call.result", ct.result)
+	}
+	SpanError(ctx, span, err)
+	if ct.toolErr {
+		// The tool's error text is content, so the description stays generic.
+		span.SetStatus(codes.Error, "tool returned an error")
+	}
+	return err
+}
+
+// callTrace is what runCall's span reports about one execCall.
+type callTrace struct {
+	decision            string
+	replayed, rewritten bool
+	ran, toolErr        bool
+	input               json.RawMessage
+	result              string
+}
+
+func (h *Harness) execCall(ctx context.Context, sub Submission, c storedCall, ct *callTrace) error {
 	tool, known := h.tools[c.Name]
 
 	switch {
 	case !known && c.Status == callStarted:
 		// The vanished tool may already have run, so don't claim it never did.
+		ct.decision = "unknown_outcome"
 		return h.finishCall(ctx, sub, c, UnknownOutcome, true)
 	case !known:
+		ct.decision = "unknown_tool"
 		return h.finishCall(ctx, sub, c, fmt.Sprintf("unknown tool %q", c.Name), true)
 	case c.Status == callStarted && tool.Replay() != ReplaySafe:
+		ct.decision = "unknown_outcome"
 		note := h.recoverCall(ctx, c)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		return h.finishCall(ctx, sub, c, joinNote(UnknownOutcome, note), true)
 	case c.Status == callStarted:
+		ct.decision, ct.replayed, ct.rewritten = "allow", true, c.Rewritten
 		err := h.commit(ctx, func(tx *sql.Tx) error {
 			return addEvent(ctx, tx, Event{
 				Kind: EventCallReplayed, Submission: sub.Seq, Rewritten: c.Rewritten,
@@ -594,12 +680,18 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 	case c.Status == callPending:
 		call, result, blocked, err := h.decide(ctx, sub, c)
 		if err != nil {
+			if errors.Is(err, ErrAwaitingApproval) {
+				ct.decision = "parked"
+			}
 			return err
 		}
 		if blocked {
+			ct.decision = "blocked"
 			return h.finishCall(ctx, sub, c, result, true)
 		}
+		ct.decision = "allow"
 		rewritten := !sameInput(c.Input, call.Input)
+		ct.rewritten = rewritten
 		// The rewritten input commits with started so replay and Recover use it.
 		err = h.commit(ctx, func(tx *sql.Tx) error {
 			if _, err := tx.ExecContext(ctx,
@@ -629,6 +721,7 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 	if err != nil {
 		out, isErr = err.Error(), true
 	}
+	ct.ran, ct.toolErr, ct.input, ct.result = true, isErr, c.Input, out
 	return h.finishCall(ctx, sub, c, out, isErr)
 }
 

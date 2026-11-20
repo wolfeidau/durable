@@ -7,11 +7,13 @@ import (
 	"path/filepath"
 	"slices"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/hooks"
 )
 
-func newHookRunner(cfg hooks.Config, workspace, sessionDir string, yes bool) *hooks.Runner {
+func newHookRunner(cfg hooks.Config, workspace, sessionDir string, yes bool, tp trace.TracerProvider) *hooks.Runner {
 	mode := "default"
 	if yes {
 		mode = "bypassPermissions"
@@ -21,6 +23,7 @@ func newHookRunner(cfg hooks.Config, workspace, sessionDir string, yes bool) *ho
 		Workspace:      workspace,
 		PermissionMode: mode,
 		LogDir:         sessionDir,
+		TracerProvider: tp,
 	})
 }
 
