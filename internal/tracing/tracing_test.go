@@ -40,6 +40,33 @@ func TestSetupExportsSpansWithHeaders(t *testing.T) {
 	require.Equal(t, "Bearer test-token", got[0].Header.Get("Authorization"))
 }
 
+func exportedPath(t *testing.T, endpoint func(srvURL string) string) string {
+	t.Helper()
+	paths := make(chan string, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		select {
+		case paths <- r.URL.Path:
+		default:
+		}
+	}))
+	t.Cleanup(srv.Close)
+	tp, shutdown, err := Setup(t.Context(), Config{Endpoint: endpoint(srv.URL)})
+	require.NoError(t, err)
+	_, span := tp.Tracer("test").Start(t.Context(), "work")
+	span.End()
+	require.NoError(t, shutdown(context.Background()))
+	return <-paths
+}
+
+func TestSetupDefaultsHTTPPathToV1Traces(t *testing.T) {
+	require.Equal(t, "/v1/traces", exportedPath(t, func(u string) string { return u }))
+	require.Equal(t, "/v1/traces", exportedPath(t, func(u string) string { return u + "/" }))
+}
+
+func TestSetupUsesExplicitHTTPPathAsGiven(t *testing.T) {
+	require.Equal(t, "/custom/path", exportedPath(t, func(u string) string { return u + "/custom/path" }))
+}
+
 func TestSetupWithoutEndpointIsNoop(t *testing.T) {
 	tp, shutdown, err := Setup(t.Context(), Config{})
 	require.NoError(t, err)

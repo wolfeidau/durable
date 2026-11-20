@@ -4,6 +4,7 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"net/url"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -59,10 +60,26 @@ func Setup(ctx context.Context, cfg Config) (trace.TracerProvider, func(context.
 	return tp, tp.Shutdown, nil
 }
 
+// httpEndpoint appends /v1/traces to a base URL, because otlptracehttp would post to "/" for a URL without a path.
+func httpEndpoint(endpoint string) (string, error) {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse the OTLP endpoint: %w", err)
+	}
+	if u.Path == "" || u.Path == "/" {
+		u.Path = "/v1/traces"
+	}
+	return u.String(), nil
+}
+
 func newExporter(ctx context.Context, cfg Config) (sdktrace.SpanExporter, error) {
 	switch cfg.Protocol {
 	case "", ProtocolHTTP:
-		opts := []otlptracehttp.Option{otlptracehttp.WithEndpointURL(cfg.Endpoint)}
+		endpoint, err := httpEndpoint(cfg.Endpoint)
+		if err != nil {
+			return nil, err
+		}
+		opts := []otlptracehttp.Option{otlptracehttp.WithEndpointURL(endpoint)}
 		if len(cfg.Headers) > 0 {
 			opts = append(opts, otlptracehttp.WithHeaders(cfg.Headers))
 		}

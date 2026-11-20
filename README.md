@@ -171,12 +171,13 @@ environments:
 
 ### Tracing
 
-Setting `otel.endpoint` exports traces over OTLP. Without it tracing is off.
+Setting `otel.endpoint` exports traces over OTLP. Without it tracing is off. For `http/protobuf`, a base URL
+without a path gets `/v1/traces` appended, and an explicit path such as `/custom/path` is used as is.
 
 ```json
 {
   "otel": {
-    "endpoint": "https://otel.example.com:4318/v1/traces",
+    "endpoint": "https://otel.example.com:4318",
     "protocol": "http/protobuf",
     "headers": { "authorization": "env:OTLP_AUTH" },
     "capture_content": false
