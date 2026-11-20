@@ -189,7 +189,7 @@ without a path gets `/v1/traces` appended, and an explicit path such as `/custom
   per model call, an `execute_tool <name>` span per tool call, and `durable.compact` (only when a
   compaction runs or fails) and `durable.hook` where they happen. Spans carry `gen_ai.*` attributes such as `gen_ai.operation.name`,
   `gen_ai.tool.name` and `gen_ai.tool.call.id`.
-- **One trace per run:** group a session's runs by `gen_ai.conversation.id`.
+- **One trace per run:** group a session's runs by `gen_ai.conversation.id` (also set as `session.id`).
 - **Headers:** values are `op://` references, `env:NAME` or `file:PATH`, resolved at startup, and never logged. A
   reference that can't resolve fails startup.
 - **Headers file:** `"headers_from": "file:~/.config/otel/headers"` reads a list in the
