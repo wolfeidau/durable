@@ -151,6 +151,15 @@ func TestMeteredModelChatSpanError(t *testing.T) {
 	require.Equal(t, "*errors.errorString", attrsOf(s)["error.type"].AsString())
 }
 
+func TestMeteredModelChatSpanCancelIsNotAnError(t *testing.T) {
+	m, rec := tracedMetered(replyModel{err: context.Canceled}, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := m.Generate(ctx, nil, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, codes.Unset, rec.Ended()[0].Status().Code)
+}
+
 func TestMeteredModelReturnsErrorsUnchanged(t *testing.T) {
 	boom := durable.Transient(errors.New("boom"))
 	m := meteredModel{inner: replyModel{err: boom}, model: "m", info: ready(catalog.Info{Price: haikuPrice})}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/wolfeidau/durable"
@@ -43,8 +42,7 @@ func (m meteredModel) Generate(ctx context.Context, history []durable.Message, t
 	msg, err := m.inner.Generate(ctx, history, tools)
 	if err != nil {
 		span.SetAttributes(attribute.String("error.type", fmt.Sprintf("%T", err)))
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
+		durable.SpanError(ctx, span, err)
 		return msg, err
 	}
 	if msg.Usage == nil {
