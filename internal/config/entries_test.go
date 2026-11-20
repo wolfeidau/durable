@@ -9,7 +9,6 @@ import (
 func TestEntriesCoverEveryFieldWithSourcesAndNoSecretReferences(t *testing.T) {
 	t.Setenv("DURABLE_GITHUB_TOKEN", "")
 	file := `{
-  "telemetry": {"otlp_addr": "127.0.0.1:4318"},
   "provider": {"name": "openrouter", "model": "vendor/model", "api_key": "op://vault/item/field"},
   "git": {"hosts": {"github": {"token": "op://v/i/f"}}},
   "environments": {"go": {"image": "durable-worker-go:dev", "grants": ["go-modules"], "approvals": "auto"}}
@@ -27,14 +26,11 @@ func TestEntriesCoverEveryFieldWithSourcesAndNoSecretReferences(t *testing.T) {
 
 	require.Equal(t, []string{
 		"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat",
-		"telemetry.otlp_addr", "telemetry.retention",
 		"provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key",
 		"git.author", "git.hosts.github.token", "environments.go",
 	}, fields)
 	require.Equal(t, Entry{Field: "provider.model", Value: "vendor/model", Source: Source("config.json")}, got["provider.model"])
 	require.Equal(t, Entry{Field: "provider.api_key", Value: "1Password", Source: Source("config.json")}, got["provider.api_key"])
-	require.Equal(t, Entry{Field: "telemetry.otlp_addr", Value: "127.0.0.1:4318", Source: Source("config.json")}, got["telemetry.otlp_addr"])
-	require.Equal(t, Entry{Field: "telemetry.retention", Value: "720h0m0s", Source: SourceDefault}, got["telemetry.retention"])
 	require.Equal(t, "1Password", got["git.hosts.github.token"].Value)
 	require.Equal(t, Entry{Field: "listen.addr", Value: "127.0.0.1:7878", Source: SourceDefault}, got["listen.addr"])
 	require.Equal(t, Entry{Field: "environments.go", Value: "image=durable-worker-go:dev grants=go-modules approvals=auto", Source: Source("config.json")}, got["environments.go"])

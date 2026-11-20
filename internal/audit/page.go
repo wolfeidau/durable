@@ -3,7 +3,6 @@ package audit
 import (
 	"cmp"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"slices"
@@ -13,33 +12,9 @@ import (
 	"github.com/wolfeidau/durable/internal/sandbox/openshell"
 )
 
-// cursorTag marks a telemetry store cursor, so a cursor from any other source is rejected.
-const cursorTag = "s:"
-
-func encodeCursor(rowID int64) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(cursorTag + strconv.FormatInt(rowID, 10)))
-}
-
-// parseCursor returns zero for an empty cursor.
-func parseCursor(s string) (int64, error) {
-	if s == "" {
-		return 0, nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(s)
-	rest, ok := strings.CutPrefix(string(raw), cursorTag)
-	if err != nil || !ok {
-		return 0, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
-	}
-	id, err := strconv.ParseInt(rest, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("%w: not a cursor from this API", ErrBadCursor)
-	}
-	return id, nil
-}
-
 // gatewayEvents gives each log decision an id derived from its content, ordered by (time, id).
 // Identical decisions in the same millisecond get a counter, in log order. The ids let a client dedupe repeated reads;
-// they are not stable once the log drops lines, which is why the log source issues no cursor.
+// they are not stable once the log drops lines, so there is no cursor.
 func gatewayEvents(ds []openshell.Decision) []Event {
 	seen := map[string]int{}
 	out := make([]Event, len(ds))

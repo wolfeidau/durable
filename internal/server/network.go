@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	v1 "github.com/wolfeidau/durable/api/durable/v1"
@@ -22,7 +21,7 @@ const (
 	maxNetworkLimit = 1000
 )
 
-// ListNetworkEvents only reads the pin and the telemetry store, so it never opens the sandbox or the session.
+// ListNetworkEvents only reads the pin and the gateway log, so it never opens the sandbox or the session.
 func (s sessionService) ListNetworkEvents(ctx context.Context, req *connect.Request[v1.ListNetworkEventsRequest]) (*connect.Response[v1.ListNetworkEventsResponse], error) {
 	msg := req.Msg
 	dir, err := SessionDir(s.home, msg.GetSessionId())
@@ -54,8 +53,7 @@ func (s sessionService) ListNetworkEvents(ctx context.Context, req *connect.Requ
 		limit = maxNetworkLimit
 	}
 	res, err := audit.Read(ctx, audit.Query{
-		Store: s.telemetry, Gateway: s.gateway, Sandbox: pin.Name, Since: since, Now: now, Retention: s.retention,
-		After: msg.GetAfter(), Limit: limit,
+		Gateway: s.gateway, Sandbox: pin.Name, Since: since, After: msg.GetAfter(), Limit: limit,
 	})
 	if errors.Is(err, audit.ErrBadCursor) {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
@@ -64,11 +62,9 @@ func (s sessionService) ListNetworkEvents(ctx context.Context, req *connect.Requ
 		return nil, s.internal(ctx, "read network events", err)
 	}
 	return connect.NewResponse(&v1.ListNetworkEventsResponse{
-		Events:      networkEvents(res.Events),
-		Coverage:    s.networkCoverage(ctx, res.Coverage, since),
-		NextCursor:  res.NextCursor,
-		Truncated:   res.Truncated,
-		CursorReset: res.Reset,
+		Events:    networkEvents(res.Events),
+		Coverage:  s.networkCoverage(ctx, res.Coverage, since),
+		Truncated: res.Truncated,
 	}), nil
 }
 
@@ -101,27 +97,10 @@ func networkEvents(events []audit.Event) []*v1.NetworkEvent {
 
 func (s sessionService) networkCoverage(ctx context.Context, c audit.Coverage, since time.Time) *v1.NetworkCoverage {
 	out := &v1.NetworkCoverage{
-		Source:             v1.NetworkSource_NETWORK_SOURCE_STORE,
-		StoreAvailable:     c.StoreAvailable,
-		StoreEmpty:         c.StoreEmpty,
-		Resumable:          true,
-		GatewayLogStart:    optTime(c.GatewayStart),
-		HistoryStart:       optTime(c.HistoryStart),
-		DroppedOwn:         networkDrop(c.Drops.Own),
-		DroppedGatewayWide: networkDrop(c.Drops.GatewayWide),
-		DroppedUnknown:     networkDrop(c.Drops.Unknown),
-		Unattributed:       c.Drops.Unattributed,
-		Pruned:             c.Pruned,
-		Since:              timestamppb.New(since),
-	}
-	if c.Source == audit.SourceGateway {
-		out.Source = v1.NetworkSource_NETWORK_SOURCE_GATEWAY_LOG
-		out.SourceBounded = true
-		out.Resumable = false
-	}
-	if c.StoreAvailable {
-		out.Retention = durationpb.New(c.Retention)
-		out.UnattributedFromDay = since.UTC().Format(time.DateOnly)
+		Source:          v1.NetworkSource_NETWORK_SOURCE_GATEWAY_LOG,
+		SourceBounded:   true,
+		GatewayLogStart: optTime(c.GatewayStart),
+		Since:           timestamppb.New(since),
 	}
 	if c.GatewayErr != nil {
 		// Gateway errors can name providers, so only the log gets the cause.
@@ -129,13 +108,6 @@ func (s sessionService) networkCoverage(ctx context.Context, c audit.Coverage, s
 		out.GatewayError = "the gateway log could not be read: see the server log"
 	}
 	return out
-}
-
-func networkDrop(d audit.Drop) *v1.NetworkDrop {
-	if d.Count == 0 {
-		return nil
-	}
-	return &v1.NetworkDrop{Dropped: d.Count, Since: timestamppb.New(d.Since)}
 }
 
 func optTime(t time.Time) *timestamppb.Timestamp {

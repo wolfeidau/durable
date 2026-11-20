@@ -199,6 +199,29 @@ describe("NetworkPoller", () => {
     expect(seen.length).toBe(1);
   });
 
+  test("a rejected cursor reloads from the window start without an error", async () => {
+    const { poller, seen, tick, next } = setup((req, n) =>
+      req.after !== "" ? new ConnectError("invalid cursor", Code.InvalidArgument) : res({ events: [ev(`e${n}`, n)], nextCursor: "stale" }),
+    );
+    poller.start();
+    await tick();
+    await next();
+    expect(seen.map((s) => s.after)).toEqual(["", "stale", ""]);
+    expect(poller.getSnapshot().error).toBeUndefined();
+    expect(ids(poller.getSnapshot())).toEqual(["e3"]);
+    poller.stop();
+  });
+
+  test("InvalidArgument without a cursor sets the error and retries", async () => {
+    const { poller, seen, tick, next } = setup(() => new ConnectError("bad since", Code.InvalidArgument));
+    poller.start();
+    await tick();
+    expect(poller.getSnapshot().error).toBe("bad since");
+    await next();
+    expect(seen.map((s) => s.after)).toEqual(["", ""]);
+    poller.stop();
+  });
+
   test("other errors keep the events, set the error and retry; success clears it", async () => {
     const { poller, seen, tick, next } = setup((_, n) =>
       n === 2 ? new ConnectError("boom", Code.Unavailable) : res({ events: [ev(`e${n}`, n)], nextCursor: `c${n}` }),
@@ -335,7 +358,7 @@ describe("coverageNotes", () => {
       pruned: true,
     });
     expect(n).toHaveLength(1);
-    expect(n[0]!.text).toContain("store is off");
+    expect(n[0]!.text).toContain("No network event history is kept");
   });
 });
 
