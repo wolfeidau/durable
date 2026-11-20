@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"maps"
 	"net/mail"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"time"
+
+	"golang.org/x/net/http/httpguts"
 
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/creds"
@@ -39,8 +42,8 @@ var GitHostKinds = []string{github.Kind}
 
 // Secret reference patterns: a pasted value matches none of them.
 const (
-	secretRefPattern = `^(` + creds.OpRefPattern + `|gh|env:[A-Za-z_][A-Za-z0-9_]*)$`
-	apiKeyRefPattern = `^(` + creds.OpRefPattern + `|env:[A-Za-z_][A-Za-z0-9_]*)$`
+	secretRefPattern = `^(` + creds.OpRefPattern + `|gh|env:[A-Za-z_][A-Za-z0-9_]*|` + creds.FileRefPattern + `)$`
+	apiKeyRefPattern = `^(` + creds.OpRefPattern + `|env:[A-Za-z_][A-Za-z0-9_]*|` + creds.FileRefPattern + `)$`
 	durationPattern  = `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`
 )
 
@@ -49,13 +52,32 @@ var (
 	apiKeyRefRE = regexp.MustCompile(apiKeyRefPattern)
 )
 
+// OTel protocols; the first is the default.
+const (
+	OTelProtocolHTTP = "http/protobuf"
+	OTelProtocolGRPC = "grpc"
+)
+
+// OTelProtocols lists the supported OTLP protocols.
+var OTelProtocols = []string{OTelProtocolHTTP, OTelProtocolGRPC}
+
 // Config is the shape of ~/.durable/config.json or config.yaml.
 type Config struct {
 	Schema       string                 `json:"$schema,omitempty" jsonschema:"URL of this schema, so editors can validate the file."`
 	Listen       Listen                 `json:"listen,omitzero" jsonschema:"Where the server listens and how it times out clients."`
 	Provider     Provider               `json:"provider,omitzero" jsonschema:"The model provider for new sessions. Existing sessions keep their pin."`
 	Git          Git                    `json:"git,omitzero" jsonschema:"Git settings for sandboxed sessions."`
+	OTel         OTel                   `json:"otel,omitzero" jsonschema:"Export traces over OTLP. Setting endpoint turns it on."`
 	Environments map[string]Environment `json:"environments,omitempty" jsonschema:"Sandbox environments, by name. A session picks one; default is used when it names none."`
+}
+
+// OTel configures the trace exporter.
+type OTel struct {
+	Endpoint       string            `json:"endpoint,omitempty" jsonschema:"OTLP endpoint as an absolute http or https URL. Empty turns tracing off."`
+	Protocol       string            `json:"protocol,omitempty" jsonschema:"OTLP protocol: http/protobuf (default) or grpc."`
+	Headers        map[string]string `json:"headers,omitempty" jsonschema:"Headers sent with every export, by name. Each value is an op:// 1Password reference, env:NAME or file:PATH, never the value itself."`
+	HeadersFrom    string            `json:"headers_from,omitempty" jsonschema:"Secret reference (op://, env:NAME or file:PATH) whose content is a header list in the OTEL_EXPORTER_OTLP_HEADERS format, key=value,key2=value2 with URL-encoded values. Merged with headers."`
+	CaptureContent bool              `json:"capture_content,omitempty" jsonschema:"Record prompts, responses and tool input and output on spans. Off by default because they can hold secrets."`
 }
 
 // Listen configures the HTTP listener.
@@ -72,7 +94,7 @@ type Provider struct {
 	Protocol string `json:"protocol,omitempty" jsonschema:"Wire protocol. Empty uses the provider's default."`
 	Model    string `json:"model,omitempty" jsonschema:"Model name. Required for openrouter; for anthropic, empty uses the built-in default."`
 	Effort   string `json:"effort,omitempty" jsonschema:"Reasoning effort for sessions. Empty uses the built-in default on anthropic-messages and the model's own default on openai-responses."`
-	APIKey   string `json:"api_key,omitempty" jsonschema:"Where to read the provider's API key: an op:// 1Password reference or env:NAME. Never the key itself. Empty uses the provider's default credentials."`
+	APIKey   string `json:"api_key,omitempty" jsonschema:"Where to read the provider's API key: an op:// 1Password reference, env:NAME or file:PATH. Never the key itself. Empty uses the provider's default credentials."`
 }
 
 // Git configures commits and git hosts.
@@ -83,7 +105,7 @@ type Git struct {
 
 // GitHost configures one git host.
 type GitHost struct {
-	Token string `json:"token" jsonschema:"Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, or env:NAME. Never the token itself."`
+	Token string `json:"token" jsonschema:"Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, env:NAME or file:PATH. Never the token itself."`
 }
 
 // Environment pairs a worker image with network grants.
@@ -123,8 +145,16 @@ type Settings struct {
 	APIKey    string
 	GitAuthor string
 	// GitHosts maps a host kind to its token's secret reference.
-	GitHosts     map[string]string
-	Environments map[string]commands.Environment
+	GitHosts map[string]string
+	// OTel* are the trace exporter settings; an empty endpoint means tracing is off.
+	OTelEndpoint       string
+	OTelProtocol       string
+	OTelCaptureContent bool
+	// OTelHeaders maps a header name to its secret reference.
+	OTelHeaders map[string]string
+	// OTelHeadersFrom is the secret reference of an OTLP header list.
+	OTelHeadersFrom string
+	Environments    map[string]commands.Environment
 
 	// Sources is keyed by field path, such as listen.addr or environments.go.
 	Sources  map[string]Source
@@ -145,12 +175,13 @@ func defaults() *Settings {
 		Heartbeat:    20 * time.Second,
 		GitAuthor:    DefaultGitAuthor,
 		GitHosts:     map[string]string{},
+		OTelHeaders:  map[string]string{},
 		Environments: map[string]commands.Environment{},
 		Sources:      map[string]Source{},
 		file:         "config.json",
 		fileLabel:    "~/.durable/config.json",
 	}
-	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key", "git.author"} {
+	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key", "git.author", "otel.endpoint"} {
 		s.Sources[f] = SourceDefault
 	}
 	return s
@@ -251,6 +282,26 @@ func (s *Settings) fromFile(c Config) error {
 	for kind, h := range c.Git.Hosts {
 		s.GitHosts[kind] = h.Token
 		s.Sources["git.hosts."+kind+".token"] = s.file
+	}
+	if c.OTel.Endpoint != "" {
+		s.OTelEndpoint = c.OTel.Endpoint
+		s.Sources["otel.endpoint"] = s.file
+	}
+	if c.OTel.Protocol != "" {
+		s.OTelProtocol = c.OTel.Protocol
+		s.Sources["otel.protocol"] = s.file
+	}
+	if c.OTel.CaptureContent {
+		s.OTelCaptureContent = true
+		s.Sources["otel.capture_content"] = s.file
+	}
+	for name, ref := range c.OTel.Headers {
+		s.OTelHeaders[name] = ref
+		s.Sources["otel.headers."+name] = s.file
+	}
+	if c.OTel.HeadersFrom != "" {
+		s.OTelHeadersFrom = c.OTel.HeadersFrom
+		s.Sources["otel.headers_from"] = s.file
 	}
 	for name, e := range c.Environments {
 		s.Environments[name] = commands.Environment{Name: name, Image: e.Image, Grants: e.Grants, Approvals: e.Approvals}
@@ -397,7 +448,7 @@ func (s *Settings) applyGitHostFlags(flags []string) {
 		kind, value, ok := strings.Cut(f, "=")
 		switch {
 		case !ok || value == "":
-			s.errs = append(s.errs, errors.New("--git-host-token must be <kind>=<source>, where source is an op:// reference, gh or env:NAME"))
+			s.errs = append(s.errs, errors.New("--git-host-token must be <kind>=<source>, where source is an op:// reference, gh, env:NAME or file:PATH"))
 			continue
 		case !slices.Contains(GitHostKinds, kind):
 			s.errs = append(s.errs, fmt.Errorf("unsupported git host kind in --git-host-token; supported kinds: %s", strings.Join(GitHostKinds, ", ")))
@@ -406,7 +457,7 @@ func (s *Settings) applyGitHostFlags(flags []string) {
 			s.errs = append(s.errs, fmt.Errorf("--git-host-token given more than once for %s", kind))
 			continue
 		case !secretRefRE.MatchString(value):
-			s.errs = append(s.errs, fmt.Errorf("--git-host-token %s must be an op:// secret reference, gh or env:NAME", kind))
+			s.errs = append(s.errs, fmt.Errorf("--git-host-token %s must be an op:// secret reference, gh, env:NAME or file:PATH", kind))
 			continue
 		}
 		seen[kind] = true
@@ -448,6 +499,7 @@ func (s *Settings) Validate() error {
 	if len(s.GitHosts) > 0 && len(s.Environments) == 0 {
 		errs = append(errs, errors.New("a git host token needs --sandbox-image or an environment, because repositories are only reachable from a sandbox"))
 	}
+	errs = append(errs, s.validateOTel()...)
 	for _, name := range slices.Sorted(maps.Keys(s.Environments)) {
 		if strings.TrimSpace(s.Environments[name].Image) == "" {
 			errs = append(errs, fmt.Errorf("environment %q: image is required", name))
@@ -466,6 +518,53 @@ func (s *Settings) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+func (s *Settings) validateOTel() []error {
+	if s.OTelEndpoint == "" {
+		if s.OTelProtocol != "" || s.OTelCaptureContent || len(s.OTelHeaders) > 0 || s.OTelHeadersFrom != "" {
+			return []error{errors.New("otel.protocol, otel.headers, otel.headers_from and otel.capture_content need otel.endpoint")}
+		}
+		return nil
+	}
+	var errs []error
+	if u, err := url.Parse(s.OTelEndpoint); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		errs = append(errs, errors.New("otel.endpoint must be an absolute http or https URL with a host"))
+	}
+	if s.OTelProtocol != "" && !slices.Contains(OTelProtocols, s.OTelProtocol) {
+		errs = append(errs, fmt.Errorf("otel.protocol must be one of %s", strings.Join(OTelProtocols, ", ")))
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.OTelHeaders)) {
+		if !httpguts.ValidHeaderFieldName(name) {
+			errs = append(errs, fmt.Errorf("otel.headers: header %q has an invalid name", name))
+		}
+	}
+	return errs
+}
+
+// OTelSettings is the trace exporter configuration with the protocol default applied.
+type OTelSettings struct {
+	Endpoint       string
+	Protocol       string
+	CaptureContent bool
+	Headers        map[string]creds.Source
+	// HeadersFrom is nil when unset.
+	HeadersFrom *creds.Source
+}
+
+// OTel returns the trace exporter settings; Endpoint is empty when tracing is off.
+func (s *Settings) OTel() OTelSettings {
+	o := OTelSettings{Endpoint: s.OTelEndpoint, Protocol: s.OTelProtocol, CaptureContent: s.OTelCaptureContent, Headers: make(map[string]creds.Source, len(s.OTelHeaders))}
+	if o.Protocol == "" {
+		o.Protocol = OTelProtocolHTTP
+	}
+	for name, ref := range s.OTelHeaders {
+		o.Headers[name] = creds.Source{Flag: "otel.headers." + name, Value: ref}
+	}
+	if s.OTelHeadersFrom != "" {
+		o.HeadersFrom = &creds.Source{Flag: "otel.headers_from", Value: s.OTelHeadersFrom}
+	}
+	return o
 }
 
 // GitIdentity is the parsed git author; it is valid after Validate succeeds.

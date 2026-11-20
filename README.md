@@ -155,7 +155,7 @@ environments:
 - **Effort:** `provider.effort` (or `--effort`) sets reasoning effort for every session the server
   runs, as the CLI's `--effort` does. It isn't pinned, so a change applies when a session next opens.
 - **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` take an `op://`
-  1Password reference (`op://<vault>/<item>/[<section>/]<field>`, checked at startup), `env:NAME`, or, for a git token only, `gh`. A pasted token fails validation,
+  1Password reference (`op://<vault>/<item>/[<section>/]<field>`, checked at startup), `env:NAME`, `file:PATH` (absolute or `~/`, read once at startup with surrounding whitespace trimmed), or, for a git token only, `gh`. A pasted token fails validation,
   and errors never quote the value. Without `api_key`, openrouter reads `OPENROUTER_API_KEY` and
   anthropic uses the SDK's credentials.
 - **Schema:** [`schema/durable-server.schema.json`](schema/durable-server.schema.json) is generated
@@ -168,6 +168,41 @@ environments:
   `durable-server config schema` prints the schema.
 - **Legacy `environments.json`** is still read, with a deprecation warning, when `config.json`
   defines no environments. If both define them, startup fails.
+
+### Tracing
+
+Setting `otel.endpoint` exports traces over OTLP. Without it tracing is off. For `http/protobuf`, a base URL
+without a path gets `/v1/traces` appended, and an explicit path such as `/custom/path` is used as is.
+
+```json
+{
+  "otel": {
+    "endpoint": "https://otel.example.com:4318",
+    "protocol": "http/protobuf",
+    "headers": { "authorization": "env:OTLP_AUTH" },
+    "capture_content": false
+  }
+}
+```
+
+- **Spans:** each run is `durable.run`, then `invoke_agent durable`, which holds a `chat <model>` span
+  per model call, an `execute_tool <name>` span per tool call, and `durable.compact` and
+  `durable.hook` where they happen. Spans carry `gen_ai.*` attributes such as `gen_ai.operation.name`,
+  `gen_ai.tool.name` and `gen_ai.tool.call.id`.
+- **One trace per run:** group a session's runs by `gen_ai.conversation.id`.
+- **Headers:** values are `op://` references, `env:NAME` or `file:PATH`, resolved at startup, and never logged. A
+  reference that can't resolve fails startup.
+- **Headers file:** `"headers_from": "file:~/.config/otel/headers"` reads a list in the
+  `OTEL_EXPORTER_OTLP_HEADERS` format, `key=value,key2=value2` with URL-encoded values. It merges with
+  `headers`, and a name set by both fails startup.
+- **Content:** `capture_content` is off by default. When on, spans also carry
+  `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments` and
+  `gen_ai.tool.call.result`. Tool results are taken after `PostToolUse` hooks, so their redaction applies.
+  `gen_ai.tool.call.arguments` is the model's original input. A gate-rewritten input is never exported, and a
+  replayed rewritten call omits the attribute (`durable.rewritten=true` marks it).
+  Prompts and files can still hold secrets, so send them only to a collector you trust.
+- **Protocols:** `http/protobuf` (default) or `grpc`. An export failure logs a warning and never
+  affects a run.
 
 ### Sandboxed sessions
 
@@ -218,7 +253,7 @@ service. A `telemetry` key in `config.json` now fails startup, so remove it, alo
 
 GitHub is the only git host so far.
 
-- `--git-host-token github=<source>` takes an `op://` reference, `env:NAME` or `gh`, which runs
+- `--git-host-token github=<source>` takes an `op://` reference, `env:NAME`, `file:PATH` or `gh`, which runs
   `gh auth token`. **`gh` is for local dev only:** its token usually reaches every repo your login can. Without it, `git.hosts.github.token` in the config applies, then
   `DURABLE_GITHUB_TOKEN`. `GITHUB_TOKEN` and `GH_TOKEN` are never read.
 - At startup the server checks each token with `GET /user` and logs the login, kind and scopes,

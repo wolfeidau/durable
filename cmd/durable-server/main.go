@@ -8,16 +8,21 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/net/http/httpguts"
 
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/config"
@@ -26,6 +31,7 @@ import (
 	"github.com/wolfeidau/durable/internal/githost/github"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/server"
+	"github.com/wolfeidau/durable/internal/tracing"
 )
 
 // serveCmd's flags override ~/.durable/config.json or config.yaml, so none has a default here: zero means not given.
@@ -42,7 +48,7 @@ type serveCmd struct {
 	APIToken              string        `name:"api-token" help:"API key for the provider. Visible in the process list and shell history; prefer --api-token-from-1password."`
 	APITokenFrom1Password string        `name:"api-token-from-1password" placeholder:"op://..." help:"1Password secret reference for the provider API key. Without a key flag, provider.api_key from the config file applies, then OPENROUTER_API_KEY for openrouter."`
 	SandboxImage          string        `name:"sandbox-image" placeholder:"REF" help:"Run the built-in tools of new sessions in an OpenShell sandbox from this worker image (see mise run image:worker), as the \"default\" environment. Environments in ~/.durable/config.json or config.yaml add images and network grants. Existing sessions keep their pin."`
-	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference, gh or env:NAME. Only github is supported; without the flag, github reads git.hosts.github.token from the config file, then DURABLE_GITHUB_TOKEN. Needs --sandbox-image or an environment."`
+	GitHostTokens         []string      `name:"git-host-token" sep:"none" placeholder:"KIND=SOURCE" help:"Token for a git host, as <kind>=<source>, where source is an op:// reference, gh, env:NAME or file:PATH. Only github is supported; without the flag, github reads git.hosts.github.token from the config file, then DURABLE_GITHUB_TOKEN. Needs --sandbox-image or an environment."`
 	GitAuthor             string        `name:"git-author" placeholder:"NAME <EMAIL>" help:"The git user.name and user.email for commits in new sandboxed sessions. Default durable <durable@localhost>. Existing sessions keep their pin."`
 	GitHubAPIURL          string        `name:"github-api-url" env:"DURABLE_GITHUB_API_URL" hidden:"" help:"GitHub API base URL, for tests."`
 }
@@ -149,6 +155,14 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
+	otelCfg := settings.OTel()
+	tp, stopTracing, err := startTracing(ctx, logger, otelCfg)
+	if err != nil {
+		return err
+	}
+	// Deferred before the registry so it runs after registry.Close, which ends the last spans.
+	defer stopTracing()
+
 	// Requests drain within the grace period, and streams end when the base context is cancelled.
 	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
@@ -191,6 +205,9 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		Effort:      settings.Effort,
 		Sandbox:     sandboxCfg,
 		Logger:      logger,
+
+		TracerProvider: tp,
+		CaptureContent: otelCfg.CaptureContent,
 	})
 	defer registry.Close()
 	draining := make(chan struct{})
@@ -221,6 +238,69 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	return shutdownServe(ctx, srv, cancelBase, registry)
+}
+
+// startTracing resolves the header secrets and starts the exporter; the returned stop flushes it.
+func startTracing(ctx context.Context, logger *slog.Logger, cfg config.OTelSettings) (trace.TracerProvider, func(), error) {
+	headers := make(map[string]string, len(cfg.Headers))
+	for name, src := range cfg.Headers {
+		v, err := creds.Resolve(ctx, src)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve otel.headers.%s: %w", name, err)
+		}
+		headers[name] = v
+	}
+	if cfg.HeadersFrom != nil {
+		raw, err := creds.Resolve(ctx, *cfg.HeadersFrom)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
+		}
+		fromRef, err := tracing.ParseHeaders(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
+		}
+		for have := range headers {
+			for name := range fromRef {
+				if strings.EqualFold(have, name) {
+					return nil, nil, fmt.Errorf("otel.headers.%s is also set by otel.headers_from", have)
+				}
+			}
+		}
+		maps.Copy(headers, fromRef)
+	}
+	// Values are secrets, so an error never prints them.
+	for _, name := range slices.Sorted(maps.Keys(headers)) {
+		if !httpguts.ValidHeaderFieldName(name) {
+			return nil, nil, fmt.Errorf("otel header %q has an invalid name", name)
+		}
+		if !httpguts.ValidHeaderFieldValue(headers[name]) {
+			return nil, nil, fmt.Errorf("otel header %q has an invalid value", name)
+		}
+	}
+	tp, shutdown, err := tracing.Setup(ctx, tracing.Config{
+		Endpoint:       cfg.Endpoint,
+		Protocol:       cfg.Protocol,
+		ServiceVersion: buildVersion(),
+		Headers:        headers,
+		ErrorHandler:   func(err error) { logger.Warn("trace export failed", slog.Any("error", err)) },
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return tp, func() {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := shutdown(flushCtx); err != nil {
+			logger.Warn("failed to flush traces", slog.Any("error", err))
+		}
+	}, nil
+}
+
+func buildVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "unknown"
 }
 
 // shutdownServe drains the API, then closes the registry.

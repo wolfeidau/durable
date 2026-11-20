@@ -13,6 +13,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/compaction"
@@ -88,6 +91,9 @@ type AssembleConfig struct {
 	Sandbox *SandboxConfig
 	// Logger receives a failed sandbox stop on Close; nil discards it.
 	Logger *slog.Logger
+	// TracerProvider and CaptureContent feed Options, the chat spans and the hook spans; a nil provider records nothing.
+	TracerProvider trace.TracerProvider
+	CaptureContent bool
 }
 
 // Assembled is a session's options plus what the CLI reports about them.
@@ -236,16 +242,23 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	sessionID := filepath.Base(dir)
 	// Not pinned: the window and prices don't feed the prompt prefix, and a slow or failed lookup doesn't block the session.
 	pending := catalog.Start(ctx, spec.Catalog(spec, key), modelName(rt), lookupNotice(out, cfg.Logger, rt))
+	inner := protocolModels[rt.Protocol](rt, spec, modelArgs{
+		Key:       key,
+		System:    buildPrompt(pinned.Text),
+		Effort:    cfg.Effort,
+		SessionID: sessionID,
+		OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
+	})
 	opts := durable.Options{
-		Model: meteredModel{model: modelName(rt), info: pending.Info, inner: protocolModels[rt.Protocol](rt, spec, modelArgs{
-			Key:       key,
-			System:    buildPrompt(pinned.Text),
-			Effort:    cfg.Effort,
-			SessionID: sessionID,
-			OnCompact: func() { fmt.Fprintln(out, "\n[compacting history]") },
-		})},
-		Tools:    toolset,
-		LeaseTTL: cfg.LeaseTTL,
+		Model: meteredModel{
+			inner: inner, model: modelName(rt), provider: rt.Provider, info: pending.Info,
+			tracer: durable.Tracer(cfg.TracerProvider), captureContent: cfg.CaptureContent,
+		},
+		Tools:           toolset,
+		LeaseTTL:        cfg.LeaseTTL,
+		TracerProvider:  cfg.TracerProvider,
+		CaptureContent:  cfg.CaptureContent,
+		TraceAttributes: []attribute.KeyValue{attribute.String("gen_ai.conversation.id", sessionID)},
 	}
 	addCompaction(out, &opts, rt, spec, pending, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)
@@ -311,7 +324,7 @@ func (c AssembleConfig) applyGate(opts *durable.Options, toolset []durable.Tool,
 	}
 	if !hookCfg.Empty() {
 		// base comes from the unwrapped tools, so the display wrapper can stay outermost.
-		runner := newHookRunner(hookCfg, c.CWD, dir, yes)
+		runner := newHookRunner(hookCfg, c.CWD, dir, yes, c.TracerProvider)
 		opts.Gate = runner.Gate(base)
 		opts.Tools = runner.Wrap(toolset)
 	}

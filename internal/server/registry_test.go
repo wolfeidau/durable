@@ -14,6 +14,9 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/codes"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
@@ -103,6 +106,52 @@ func TestConcurrentAcquireSharesOneHarness(t *testing.T) {
 		require.Same(t, sessions[0], s)
 	}
 	require.EqualValues(t, 1, e.opens.Load())
+}
+
+func spanDone(rec *tracetest.SpanRecorder, name string) bool {
+	for _, sp := range rec.Ended() {
+		if sp.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+func TestRunSpanIsANewRootParentingTheSubmission(t *testing.T) {
+	e := newEnv(t)
+	rec := tracetest.NewSpanRecorder()
+	e.cfg.TracerProvider = sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(rec))
+	r := e.registry(t)
+	s, release, err := r.Acquire(t.Context(), e.id)
+	require.NoError(t, err)
+	defer release()
+
+	_, err = s.Harness().Submit(t.Context(), "r1", "hello")
+	require.NoError(t, err)
+	s.Kick()
+	require.Eventually(t, func() bool { return spanDone(rec, "durable.run") }, 10*time.Second, 10*time.Millisecond)
+
+	var agent, run sdktrace.ReadOnlySpan
+	for _, sp := range rec.Ended() {
+		switch sp.Name() {
+		case "invoke_agent durable":
+			agent = sp
+		case "durable.run":
+			run = sp
+		}
+	}
+	require.NotNil(t, agent)
+	require.NotNil(t, run)
+	require.Equal(t, run.SpanContext().SpanID(), agent.Parent().SpanID())
+	require.False(t, run.Parent().IsValid())
+	require.Equal(t, codes.Unset, run.Status().Code)
+	var conv string
+	for _, kv := range run.Attributes() {
+		if kv.Key == "gen_ai.conversation.id" {
+			conv = kv.Value.AsString()
+		}
+	}
+	require.Equal(t, e.id, conv)
 }
 
 func TestKickRunsQueuedSubmissionAndWaitWakes(t *testing.T) {

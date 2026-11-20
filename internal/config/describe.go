@@ -19,6 +19,8 @@ func describeRef(ref string) string {
 		return "gh"
 	case strings.HasPrefix(ref, "env:"):
 		return "env " + strings.TrimPrefix(ref, "env:")
+	case strings.HasPrefix(ref, "file:"):
+		return "file " + strings.TrimPrefix(ref, "file:")
 	}
 	return "unset"
 }
@@ -63,6 +65,20 @@ func (s *Settings) Entries() []Entry {
 	line("git.author", s.GitAuthor)
 	for _, kind := range slices.Sorted(maps.Keys(s.GitHosts)) {
 		line("git.hosts."+kind+".token", describeRef(s.GitHosts[kind]))
+	}
+	if s.OTelEndpoint == "" {
+		line("otel.endpoint", "off")
+	} else {
+		o := s.OTel()
+		line("otel.endpoint", o.Endpoint)
+		line("otel.protocol", o.Protocol)
+		line("otel.capture_content", fmt.Sprint(o.CaptureContent))
+		for _, name := range slices.Sorted(maps.Keys(s.OTelHeaders)) {
+			line("otel.headers."+name, describeRef(s.OTelHeaders[name]))
+		}
+		if s.OTelHeadersFrom != "" {
+			line("otel.headers_from", describeRef(s.OTelHeadersFrom))
+		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(s.Environments)) {
 		e := s.Environments[name]

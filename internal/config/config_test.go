@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/creds"
 )
 
 const fullFile = `{
@@ -110,6 +111,8 @@ func TestSchemaFailuresNameThePathAndNeverEchoASecret(t *testing.T) {
 		"missing image":     {`{"environments": {"go": {}}}`, "image"},
 		"bad approvals":     {`{"environments": {"go": {"image": "i", "approvals": "` + secret + `"}}}`, "environments.<name>.approvals: must be one of"},
 		"removed telemetry": {`{"telemetry": {"otlp_addr": "127.0.0.1:4318"}}`, "telemetry"},
+		"literal header":    {`{"otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "` + secret + `"}}}`, "otel.headers.authorization"},
+		"bad otel protocol": {`{"otel": {"endpoint": "http://localhost:4318", "protocol": "` + secret + `"}}`, "otel.protocol: must be one of"},
 		"bad duration":      {`{"listen": {"idle_timeout": "soon"}}`, "idle_timeout"},
 		"bad host kind":     {`{"git": {"hosts": {"gitlab": {"token": "gh"}}}}`, "git.hosts: must be one of [github]"},
 		"literal api key":   {`{"provider": {"api_key": "` + secret + `"}}`, "provider.api_key"},
@@ -240,7 +243,7 @@ func TestFlagErrorsAreCollectedWithoutEchoingTokens(t *testing.T) {
 
 	require.ErrorContains(t, err, "--git-host-token must be <kind>=<source>")
 	require.ErrorContains(t, err, "supported kinds: github")
-	require.ErrorContains(t, err, "--git-host-token github must be an op:// secret reference, gh or env:NAME")
+	require.ErrorContains(t, err, "--git-host-token github must be an op:// secret reference, gh, env:NAME or file:PATH")
 	require.ErrorContains(t, err, "--git-author")
 	require.ErrorContains(t, err, "needs a model")
 	require.NotContains(t, err.Error(), pasted)
@@ -513,4 +516,75 @@ func TestRemovedTelemetrySectionFailsToLoad(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "telemetry")
+}
+
+func loadOTel(t *testing.T, otel string) (*Settings, error) {
+	t.Helper()
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	s, err := Load(writeHome(t, map[string]string{"config.json": `{"otel": ` + otel + `}`}))
+	if err != nil {
+		return nil, err
+	}
+	return s, s.Validate()
+}
+
+func TestOTelSection(t *testing.T) {
+	s, err := loadOTel(t, `{"endpoint": "https://otel.example.com:4318", "protocol": "grpc", "headers": {"authorization": "env:OTLP_AUTH"}, "capture_content": true}`)
+	require.NoError(t, err)
+	o := s.OTel()
+	require.Equal(t, "https://otel.example.com:4318", o.Endpoint)
+	require.Equal(t, "grpc", o.Protocol)
+	require.True(t, o.CaptureContent)
+	require.Equal(t, creds.Source{Flag: "otel.headers.authorization", Value: "env:OTLP_AUTH"}, o.Headers["authorization"])
+}
+
+func TestOTelRejectsInvalidHeaderName(t *testing.T) {
+	_, err := loadOTel(t, `{"endpoint": "http://localhost:4318", "headers": {"bad name": "env:OTLP_AUTH"}}`)
+	require.ErrorContains(t, err, `otel.headers: header "bad name" has an invalid name`)
+}
+
+func TestOTelHeadersFromAcceptsEachRefKind(t *testing.T) {
+	for _, ref := range []string{"file:/run/secrets/otel", "env:OTLP_HEADERS", "op://vault/item/field"} {
+		s, err := loadOTel(t, `{"endpoint": "http://localhost:4318", "headers_from": "`+ref+`"}`)
+		require.NoError(t, err, ref)
+		require.Equal(t, &creds.Source{Flag: "otel.headers_from", Value: ref}, s.OTel().HeadersFrom)
+	}
+	s, err := loadOTel(t, `{"endpoint": "http://localhost:4318"}`)
+	require.NoError(t, err)
+	require.Nil(t, s.OTel().HeadersFrom)
+}
+
+func TestOTelProtocolDefaultsToHTTP(t *testing.T) {
+	s, err := loadOTel(t, `{"endpoint": "http://localhost:4318"}`)
+	require.NoError(t, err)
+	require.Equal(t, "http/protobuf", s.OTel().Protocol)
+	require.False(t, s.OTel().CaptureContent)
+}
+
+func TestOTelOffByDefault(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	s, err := Load(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, s.Validate())
+	require.Empty(t, s.OTel().Endpoint)
+}
+
+func TestOTelRejectsBadSettings(t *testing.T) {
+	tests := map[string]struct{ body, want string }{
+		"headers without endpoint":  {`{"headers": {"authorization": "env:X"}}`, "need otel.endpoint"},
+		"protocol without endpoint": {`{"protocol": "grpc"}`, "need otel.endpoint"},
+		"from without endpoint":     {`{"headers_from": "env:X"}`, "need otel.endpoint"},
+		"pasted headers_from":       {`{"endpoint": "http://localhost:4318", "headers_from": "a=b"}`, "otel.headers_from"},
+		"capture without endpoint":  {`{"capture_content": true}`, "need otel.endpoint"},
+		"relative endpoint":         {`{"endpoint": "localhost:4318/v1"}`, "otel.endpoint"},
+		"path only endpoint":        {`{"endpoint": "/v1/traces"}`, "otel.endpoint"},
+		"ftp endpoint":              {`{"endpoint": "ftp://example.com"}`, "otel.endpoint"},
+		"no host":                   {`{"endpoint": "http://"}`, "otel.endpoint"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			_, err := loadOTel(t, tt.body)
+			require.ErrorContains(t, err, tt.want)
+		})
+	}
 }

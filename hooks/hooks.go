@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/wolfeidau/durable"
 )
 
@@ -25,18 +27,21 @@ type Options struct {
 	PermissionMode string
 	// LogDir receives hooks.log; empty disables the log.
 	LogDir string
+	// TracerProvider receives a span per hook command; nil records nothing.
+	TracerProvider trace.TracerProvider
 }
 
 // Runner runs the configured hooks for one session.
 type Runner struct {
-	cfg  Config
-	opts Options
-	mu   sync.Mutex // serialises hooks.log writes
+	cfg    Config
+	opts   Options
+	tracer trace.Tracer
+	mu     sync.Mutex // serialises hooks.log writes
 }
 
 // New returns a Runner for cfg.
 func New(cfg Config, opts Options) *Runner {
-	return &Runner{cfg: cfg, opts: opts}
+	return &Runner{cfg: cfg, opts: opts, tracer: durable.Tracer(opts.TracerProvider)}
 }
 
 type payload struct {
