@@ -15,12 +15,14 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/net/http/httpguts"
 
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/config"
@@ -265,6 +267,15 @@ func startTracing(ctx context.Context, logger *slog.Logger, cfg config.OTelSetti
 			}
 		}
 		maps.Copy(headers, fromRef)
+	}
+	// Values are secrets, so an error never prints them.
+	for _, name := range slices.Sorted(maps.Keys(headers)) {
+		if !httpguts.ValidHeaderFieldName(name) {
+			return nil, nil, fmt.Errorf("otel header %q has an invalid name", name)
+		}
+		if !httpguts.ValidHeaderFieldValue(headers[name]) {
+			return nil, nil, fmt.Errorf("otel header %q has an invalid value", name)
+		}
 	}
 	tp, shutdown, err := tracing.Setup(ctx, tracing.Config{
 		Endpoint:       cfg.Endpoint,

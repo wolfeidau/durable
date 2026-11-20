@@ -538,6 +538,11 @@ func TestOTelSection(t *testing.T) {
 	require.Equal(t, creds.Source{Flag: "otel.headers.authorization", Value: "env:OTLP_AUTH"}, o.Headers["authorization"])
 }
 
+func TestOTelRejectsInvalidHeaderName(t *testing.T) {
+	_, err := loadOTel(t, `{"endpoint": "http://localhost:4318", "headers": {"bad name": "env:OTLP_AUTH"}}`)
+	require.ErrorContains(t, err, `otel.headers: header "bad name" has an invalid name`)
+}
+
 func TestOTelHeadersFromAcceptsEachRefKind(t *testing.T) {
 	for _, ref := range []string{"file:/run/secrets/otel", "env:OTLP_HEADERS", "op://vault/item/field"} {
 		s, err := loadOTel(t, `{"endpoint": "http://localhost:4318", "headers_from": "`+ref+`"}`)

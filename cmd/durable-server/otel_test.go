@@ -220,6 +220,9 @@ func TestInvalidOTelConfigFailsStartup(t *testing.T) {
 	require.NoError(t, os.WriteFile(dup, []byte("X-Auth=fakesecretvalue"), 0o600))
 	tests["malformed headers_from"] = struct{ otel, want string }{`{"endpoint": "http://localhost:4318", "headers_from": "file:` + malformed + `"}`, "otel.headers_from"}
 	tests["duplicate header"] = struct{ otel, want string }{`{"endpoint": "http://localhost:4318", "headers": {"x-auth": "env:DURABLE_TEST_SET_VAR"}, "headers_from": "file:` + dup + `"}`, "otel.headers.x-auth is also set by otel.headers_from"}
+	lines := filepath.Join(dir, "lines")
+	require.NoError(t, os.WriteFile(lines, []byte("x-a=1\nx-b=2"), 0o600))
+	tests["headers_from one per line"] = struct{ otel, want string }{`{"endpoint": "http://localhost:4318", "headers_from": "file:` + lines + `"}`, "x-a"}
 	tests["headers_from without endpoint"] = struct{ otel, want string }{`{"headers_from": "file:` + dup + `"}`, "otel.headers_from"}
 	tests["pasted headers_from"] = struct{ otel, want string }{`{"endpoint": "http://localhost:4318", "headers_from": "a=Bearer abc"}`, "otel.headers_from"}
 	for name, tt := range tests {
@@ -233,6 +236,10 @@ func TestInvalidOTelConfigFailsStartup(t *testing.T) {
 			require.Contains(t, out, tt.want)
 			require.NotContains(t, out, "Bearer abc")
 			require.NotContains(t, out, "fakesecretvalue")
+			require.NotContains(t, out, "x-b=2")
+			if name == "headers_from one per line" {
+				require.Contains(t, out, "has an invalid value")
+			}
 			require.NoFileExists(t, filepath.Join(home, ".durable", "server.json"))
 		})
 	}

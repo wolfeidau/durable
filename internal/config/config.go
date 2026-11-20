@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/http/httpguts"
+
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/githost/github"
@@ -531,6 +533,11 @@ func (s *Settings) validateOTel() []error {
 	}
 	if s.OTelProtocol != "" && !slices.Contains(OTelProtocols, s.OTelProtocol) {
 		errs = append(errs, fmt.Errorf("otel.protocol must be one of %s", strings.Join(OTelProtocols, ", ")))
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.OTelHeaders)) {
+		if !httpguts.ValidHeaderFieldName(name) {
+			errs = append(errs, fmt.Errorf("otel.headers: header %q has an invalid name", name))
+		}
 	}
 	return errs
 }
