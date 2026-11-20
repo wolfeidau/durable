@@ -628,7 +628,9 @@ func (h *Harness) runCall(ctx context.Context, sub Submission, c storedCall) err
 		span.SetAttributes(attribute.String("durable.tool.decision", ct.decision))
 	}
 	if h.opts.CaptureContent && ct.ran {
-		SetContent(span, "gen_ai.tool.call.arguments", string(ct.input))
+		if ct.hasInput {
+			SetContent(span, "gen_ai.tool.call.arguments", string(ct.input))
+		}
 		SetContent(span, "gen_ai.tool.call.result", ct.result)
 	}
 	SpanError(ctx, span, err)
@@ -644,6 +646,7 @@ type callTrace struct {
 	decision            string
 	replayed, rewritten bool
 	ran, toolErr        bool
+	hasInput            bool
 	input               json.RawMessage
 	result              string
 }
@@ -668,6 +671,8 @@ func (h *Harness) execCall(ctx context.Context, sub Submission, c storedCall, ct
 		return h.finishCall(ctx, sub, c, joinNote(UnknownOutcome, note), true)
 	case c.Status == callStarted:
 		ct.decision, ct.replayed, ct.rewritten = "allow", true, c.Rewritten
+		// A rewritten input may hold secrets the model must not see, so it is never exported.
+		ct.input, ct.hasInput = c.Input, !c.Rewritten
 		err := h.commit(ctx, func(tx *sql.Tx) error {
 			return addEvent(ctx, tx, Event{
 				Kind: EventCallReplayed, Submission: sub.Seq, Rewritten: c.Rewritten,
@@ -692,6 +697,7 @@ func (h *Harness) execCall(ctx context.Context, sub Submission, c storedCall, ct
 		ct.decision = "allow"
 		rewritten := !sameInput(c.Input, call.Input)
 		ct.rewritten = rewritten
+		ct.input, ct.hasInput = c.Input, true
 		// The rewritten input commits with started so replay and Recover use it.
 		err = h.commit(ctx, func(tx *sql.Tx) error {
 			if _, err := tx.ExecContext(ctx,
@@ -721,7 +727,7 @@ func (h *Harness) execCall(ctx context.Context, sub Submission, c storedCall, ct
 	if err != nil {
 		out, isErr = err.Error(), true
 	}
-	ct.ran, ct.toolErr, ct.input, ct.result = true, isErr, c.Input, out
+	ct.ran, ct.toolErr, ct.result = true, isErr, out
 	return h.finishCall(ctx, sub, c, out, isErr)
 }
 

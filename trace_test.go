@@ -92,10 +92,51 @@ func TestTraceCapturesContent(t *testing.T) {
 	require.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"fix it"}]}]`,
 		spanAttrs(findSpan(t, rec, "invoke_agent durable"))["gen_ai.input.messages"].AsString())
 	ta := spanAttrs(findSpan(t, rec, "execute_tool write_file"))
-	require.JSONEq(t, `{"path":"b.txt"}`, ta["gen_ai.tool.call.arguments"].AsString())
+	require.JSONEq(t, `{"path":"a.txt"}`, ta["gen_ai.tool.call.arguments"].AsString())
 	require.Equal(t, "write_file ok (run 1)", ta["gen_ai.tool.call.result"].AsString())
 	require.True(t, ta["durable.rewritten"].AsBool())
 	require.NotContains(t, ta, "durable.content_truncated")
+	requireNoAttrContains(t, rec, "b.txt")
+}
+
+func requireNoAttrContains(t *testing.T, rec *tracetest.SpanRecorder, secret string) {
+	t.Helper()
+	for _, s := range rec.Ended() {
+		for _, kv := range s.Attributes() {
+			require.NotContains(t, kv.Value.String(), secret, "%s %s", s.Name(), kv.Key)
+		}
+	}
+}
+
+func TestTraceOmitsRewrittenInputOnReplay(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+	model := &scriptedModel{}
+	write := &fakeTool{name: "write_file", replay: ReplayNever}
+	read := &fakeTool{name: "read_file", replay: ReplaySafe, crashOn: 1}
+
+	crashCtx, cancel := context.WithCancel(context.Background())
+	read.cancel = cancel
+	h1, err := Open(crashCtx, path, Options{
+		Model: model, Tools: []Tool{write, read}, LeaseTTL: ttl, Gate: rewriteGate(`{"path":"secret.txt"}`),
+	})
+	require.NoError(t, err)
+	_, _ = h1.Prompt(crashCtx, "req-1", "fix the bug")
+	h1.abandon()
+
+	ctx := context.Background()
+	rec, tp := newRecorder()
+	h2, err := Open(ctx, path, Options{
+		Model: model, Tools: []Tool{write, read}, LeaseTTL: ttl, TracerProvider: tp, CaptureContent: true,
+	})
+	require.NoError(t, err)
+	defer h2.Close()
+	require.NoError(t, h2.Run(ctx))
+
+	a := spanAttrs(findSpan(t, rec, "execute_tool read_file"))
+	require.True(t, a["durable.replayed"].AsBool())
+	require.True(t, a["durable.rewritten"].AsBool())
+	require.NotContains(t, a, "gen_ai.tool.call.arguments")
+	requireNoAttrContains(t, rec, "secret.txt")
 }
 
 type bigTool struct{ fakeTool }

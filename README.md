@@ -196,7 +196,9 @@ Setting `otel.endpoint` exports traces over OTLP. Without it tracing is off.
   `headers`, and a name set by both fails startup.
 - **Content:** `capture_content` is off by default. When on, spans also carry
   `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments` and
-  `gen_ai.tool.call.result`. Tool output is taken after `PostToolUse` hooks, so their redaction applies.
+  `gen_ai.tool.call.result`. Tool results are taken after `PostToolUse` hooks, so their redaction applies.
+  `gen_ai.tool.call.arguments` is the model's original input. A gate-rewritten input is never exported, and a
+  replayed rewritten call omits the attribute (`durable.rewritten=true` marks it).
   Prompts and files can still hold secrets, so send them only to a collector you trust.
 - **Protocols:** `http/protobuf` (default) or `grpc`. An export failure logs a warning and never
   affects a run.
