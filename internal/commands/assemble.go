@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/wolfeidau/durable"
@@ -253,10 +254,11 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 			inner: inner, model: modelName(rt), provider: rt.Provider, info: pending.Info,
 			tracer: durable.Tracer(cfg.TracerProvider), captureContent: cfg.CaptureContent,
 		},
-		Tools:          toolset,
-		LeaseTTL:       cfg.LeaseTTL,
-		TracerProvider: cfg.TracerProvider,
-		CaptureContent: cfg.CaptureContent,
+		Tools:           toolset,
+		LeaseTTL:        cfg.LeaseTTL,
+		TracerProvider:  cfg.TracerProvider,
+		CaptureContent:  cfg.CaptureContent,
+		TraceAttributes: []attribute.KeyValue{attribute.String("gen_ai.conversation.id", sessionID)},
 	}
 	addCompaction(out, &opts, rt, spec, pending, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)

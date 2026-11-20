@@ -92,6 +92,8 @@ type Options struct {
 	// CaptureContent adds prompts, tool arguments and tool results to spans, each cut to 16 KiB. It is off by default
 	// because they can hold secrets and personal data.
 	CaptureContent bool
+	// TraceAttributes are added to the durable.run root span of each Run that has work.
+	TraceAttributes []attribute.KeyValue
 }
 
 // Harness drives one durable session stored in one SQLite database.
@@ -335,13 +337,26 @@ func (h *Harness) acquire(ctx context.Context) (func(), error) {
 	}
 }
 
-func (h *Harness) runQueue(ctx context.Context) error {
+func (h *Harness) runQueue(ctx context.Context) (err error) {
+	// The run span starts with the first submission, so a Run with nothing queued records nothing.
+	runCtx := ctx
+	var run trace.Span
+	defer func() {
+		if run != nil {
+			SpanError(ctx, run, err)
+			run.End()
+		}
+	}()
 	for {
 		sub, ok, err := nextUnfinished(ctx, h.db)
 		if err != nil || !ok {
 			return err
 		}
-		if err := h.drive(ctx, sub); err != nil {
+		if run == nil {
+			// A new root, because the run outlives the request that kicked it.
+			runCtx, run = h.trace.Start(ctx, "durable.run", trace.WithNewRoot(), trace.WithAttributes(h.opts.TraceAttributes...))
+		}
+		if err := h.drive(runCtx, sub); err != nil {
 			return err
 		}
 	}

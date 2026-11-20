@@ -264,3 +264,46 @@ func TestTraceToolErrorSetsStatusWithoutLeakingText(t *testing.T) {
 func okReply2(context.Context, []Message, []ToolSpec) (Message, error) {
 	return Message{Role: RoleAssistant, Text: "ok"}, nil
 }
+
+func TestTraceEmptyRunRecordsNoSpans(t *testing.T) {
+	ctx := context.Background()
+	rec, tp := newRecorder()
+	h := openWith(t, ctx, Options{Model: &scriptedModel{}, LeaseTTL: ttl, TracerProvider: tp})
+	defer h.Close()
+	require.NoError(t, h.Run(ctx))
+	require.Empty(t, rec.Ended())
+}
+
+func TestTraceRunSpanParentsEverySubmission(t *testing.T) {
+	ctx := context.Background()
+	rec, tp := newRecorder()
+	h := openWith(t, ctx, Options{
+		Model: &scriptedModel{}, LeaseTTL: ttl, TracerProvider: tp,
+		Tools:           []Tool{&fakeTool{name: "write_file"}, &fakeTool{name: "read_file"}},
+		TraceAttributes: []attribute.KeyValue{attribute.String("gen_ai.conversation.id", "sess-1")},
+	})
+	defer h.Close()
+	_, err := h.Submit(ctx, "req-1", "one")
+	require.NoError(t, err)
+	_, err = h.Submit(ctx, "req-2", "two")
+	require.NoError(t, err)
+	require.NoError(t, h.Run(ctx))
+
+	var runs, agents []sdktrace.ReadOnlySpan
+	for _, s := range rec.Ended() {
+		switch s.Name() {
+		case "durable.run":
+			runs = append(runs, s)
+		case "invoke_agent durable":
+			agents = append(agents, s)
+		}
+	}
+	require.Len(t, runs, 1)
+	require.Len(t, agents, 2)
+	require.False(t, runs[0].Parent().IsValid())
+	require.Equal(t, "sess-1", spanAttrs(runs[0])["gen_ai.conversation.id"].AsString())
+	require.Equal(t, codes.Unset, runs[0].Status().Code)
+	for _, a := range agents {
+		require.Equal(t, runs[0].SpanContext().SpanID(), a.Parent().SpanID())
+	}
+}

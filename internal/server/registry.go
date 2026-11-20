@@ -323,7 +323,6 @@ func (r *Registry) release(e *entry) {
 
 func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Session, error) {
 	s := newSession(r.logger.With(slog.String("session", filepath.Base(dir))), r.cfg.RetryBase, r.cfg.RetryCap)
-	s.tracer, s.id = durable.Tracer(r.cfg.TracerProvider), filepath.Base(dir)
 	ac := commands.AssembleConfig{
 		Home:           r.cfg.Home,
 		APIToken:       r.cfg.APIToken,

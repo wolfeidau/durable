@@ -7,10 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
 )
@@ -18,10 +14,8 @@ import (
 // Session is an open harness with a progress notifier and a run driver.
 type Session struct {
 	logger *slog.Logger
-	tracer trace.Tracer // set before start
 	h      *durable.Harness
 	asm    *commands.Assembled
-	id     string // the session id, for the run span
 
 	mu         sync.Mutex
 	newest     int64
@@ -49,7 +43,6 @@ type Session struct {
 
 func newSession(logger *slog.Logger, retryBase, retryCap time.Duration) *Session {
 	return &Session{
-		tracer:     durable.Tracer(nil),
 		retryBase:  retryBase,
 		retryCap:   retryCap,
 		logger:     logger,
@@ -198,17 +191,9 @@ func (s *Session) drive(ctx context.Context) {
 		if !ok {
 			return
 		}
-		// A new root, because the run outlives the request that kicked it.
-		spanCtx, span := s.tracer.Start(runCtx, "durable.run", trace.WithNewRoot(),
-			trace.WithAttributes(attribute.String("gen_ai.conversation.id", s.id)))
-		err := s.h.Run(spanCtx)
+		err := s.h.Run(runCtx)
 		// An interrupted run is a normal outcome, so only a run nobody cancelled can have failed.
 		failed := err != nil && !errors.Is(err, durable.ErrAwaitingApproval) && runCtx.Err() == nil
-		if failed || errors.Is(err, durable.ErrLeaseLost) {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
-		span.End()
 		cancel()
 		if errors.Is(err, durable.ErrLeaseLost) {
 			s.mu.Lock()

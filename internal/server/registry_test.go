@@ -129,30 +129,20 @@ func TestRunSpanIsANewRootParentingTheSubmission(t *testing.T) {
 	_, err = s.Harness().Submit(t.Context(), "r1", "hello")
 	require.NoError(t, err)
 	s.Kick()
-	require.Eventually(t, func() bool {
-		for _, sp := range rec.Ended() {
-			if sp.Name() == "durable.run" && spanDone(rec, "invoke_agent durable") {
-				return true
-			}
-		}
-		return false
-	}, 10*time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return spanDone(rec, "durable.run") }, 10*time.Second, 10*time.Millisecond)
 
-	var agent sdktrace.ReadOnlySpan
+	var agent, run sdktrace.ReadOnlySpan
 	for _, sp := range rec.Ended() {
-		if sp.Name() == "invoke_agent durable" {
+		switch sp.Name() {
+		case "invoke_agent durable":
 			agent = sp
-		}
-	}
-	require.NotNil(t, agent)
-	// An earlier kick may have produced an empty run, so find the one that drove the submission.
-	var run sdktrace.ReadOnlySpan
-	for _, sp := range rec.Ended() {
-		if sp.Name() == "durable.run" && sp.SpanContext().SpanID() == agent.Parent().SpanID() {
+		case "durable.run":
 			run = sp
 		}
 	}
+	require.NotNil(t, agent)
 	require.NotNil(t, run)
+	require.Equal(t, run.SpanContext().SpanID(), agent.Parent().SpanID())
 	require.False(t, run.Parent().IsValid())
 	require.Equal(t, codes.Unset, run.Status().Code)
 	var conv string
