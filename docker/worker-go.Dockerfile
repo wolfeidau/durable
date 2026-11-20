@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.27.3-trixie AS go
+FROM golang:1.27.4-trixie AS go
 FROM durable-worker:dev
 ARG TARGETARCH
 USER root
