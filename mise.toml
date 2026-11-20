@@ -11,6 +11,7 @@ buf = "1.75.0"
 "go:google.golang.org/protobuf/cmd/protoc-gen-go" = "1.36.12"
 "go:connectrpc.com/connect/cmd/protoc-gen-connect-go" = "1.21.1"
 bun = "1.4.4"
+"go:golang.org/x/tools/gopls" = "0.24.0"
 
 [tasks."check:tidy"]
 run = "go mod tidy -diff"
