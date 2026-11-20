@@ -39,7 +39,7 @@ func TestEntriesCoverEveryFieldWithSourcesAndNoSecretReferences(t *testing.T) {
 
 func TestOTelEntriesNeverPrintTheReference(t *testing.T) {
 	t.Setenv("DURABLE_GITHUB_TOKEN", "")
-	file := `{"otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "op://vault/item/field", "x-team": "env:TEAM"}}}`
+	file := `{"otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "op://vault/item/field", "x-team": "env:TEAM"}, "headers_from": "file:/run/secrets/list"}}`
 	s, err := Load(writeHome(t, map[string]string{"config.json": file}))
 	require.NoError(t, err)
 
@@ -55,6 +55,8 @@ func TestOTelEntriesNeverPrintTheReference(t *testing.T) {
 	require.Equal(t, "false", got["otel.capture_content"].Value)
 	require.Equal(t, "1Password", got["otel.headers.authorization"].Value)
 	require.Equal(t, "env TEAM", got["otel.headers.x-team"].Value)
+	require.Equal(t, "file /run/secrets/list", got["otel.headers_from"].Value)
+	require.Equal(t, Source("config.json"), got["otel.headers_from"].Source)
 }
 
 func TestFileRefsAreAcceptedAndShownByPath(t *testing.T) {
@@ -81,6 +83,7 @@ func TestMalformedFileRefsAreRejected(t *testing.T) {
 		for name, body := range map[string]string{
 			"provider.api_key":           `{"provider": {"api_key": "` + bad + `"}}`,
 			"git.hosts.github.token":     `{"git": {"hosts": {"github": {"token": "` + bad + `"}}}}`,
+			"otel.headers_from":          `{"otel": {"endpoint": "http://localhost:4318", "headers_from": "` + bad + `"}}`,
 			"otel.headers.authorization": `{"otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "` + bad + `"}}}`,
 		} {
 			_, err := Load(writeHome(t, map[string]string{"config.json": body}))

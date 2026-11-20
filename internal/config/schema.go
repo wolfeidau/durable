@@ -51,6 +51,7 @@ func Schema() (*jsonschema.Schema, error) {
 	otel := s.Properties["otel"]
 	otel.Properties["protocol"].Enum = enum(OTelProtocols)
 	otel.Properties["headers"].AdditionalProperties.Pattern = apiKeyRefPattern
+	otel.Properties["headers_from"].Pattern = apiKeyRefPattern
 
 	envs := s.Properties["environments"]
 	env := envs.AdditionalProperties
@@ -184,6 +185,11 @@ func checkSecrets(doc any) error {
 	headers, _ := o["headers"].(map[string]any)
 	for name, v := range headers {
 		if err := checkRef("otel.headers."+name, v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
+			return err
+		}
+	}
+	if v, ok := o["headers_from"]; ok {
+		if err := checkRef("otel.headers_from", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
 			return err
 		}
 	}

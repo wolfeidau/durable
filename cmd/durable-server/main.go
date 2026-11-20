@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -246,6 +247,24 @@ func startTracing(ctx context.Context, logger *slog.Logger, cfg config.OTelSetti
 			return nil, nil, fmt.Errorf("failed to resolve otel.headers.%s: %w", name, err)
 		}
 		headers[name] = v
+	}
+	if cfg.HeadersFrom != nil {
+		raw, err := creds.Resolve(ctx, *cfg.HeadersFrom)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
+		}
+		fromRef, err := tracing.ParseHeaders(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
+		}
+		for have := range headers {
+			for name := range fromRef {
+				if strings.EqualFold(have, name) {
+					return nil, nil, fmt.Errorf("otel.headers.%s is also set by otel.headers_from", have)
+				}
+			}
+		}
+		maps.Copy(headers, fromRef)
 	}
 	tp, shutdown, err := tracing.Setup(ctx, tracing.Config{
 		Endpoint:       cfg.Endpoint,

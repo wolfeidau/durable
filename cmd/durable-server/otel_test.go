@@ -29,6 +29,7 @@ type collector struct {
 	spans   []*tracepb.Span
 	service []string
 	header  string
+	other   string
 }
 
 func newCollector(t *testing.T) *collector {
@@ -43,6 +44,7 @@ func newCollector(t *testing.T) *collector {
 		}
 		c.mu.Lock()
 		c.header = r.Header.Get("x-test")
+		c.other = r.Header.Get("x-other")
 		for _, rs := range req.GetResourceSpans() {
 			for _, kv := range rs.GetResource().GetAttributes() {
 				if kv.GetKey() == "service.name" {
@@ -181,6 +183,26 @@ func TestOTelHeaderReadFromFile(t *testing.T) {
 	require.Equal(t, otelHeaderValue, col.header)
 }
 
+func TestOTelHeadersFromFile(t *testing.T) {
+	t.Parallel()
+	ws, home := newWorkspace(t)
+	col := newCollector(t)
+	list := filepath.Join(t.TempDir(), "headers")
+	require.NoError(t, os.WriteFile(list, []byte("x-test=Bearer abc123,x-other=1\n"), 0o600))
+	writeConfig(t, home, fmt.Sprintf(`{"otel": {"endpoint": %q, "headers_from": "file:%s"}}`, col.srv.URL+"/v1/traces", list))
+	api := newFakeAPI(t, bashReply("echo ran"), 0)
+	r := startEnv(t, home, apiEnv(api), "--api-token", "dummy")
+
+	runToolPrompt(t, home, ws, r, api)
+	r.stop(t)
+
+	require.Eventually(t, func() bool { return len(col.snapshot()) >= 4 }, 10*time.Second, 50*time.Millisecond)
+	col.mu.Lock()
+	defer col.mu.Unlock()
+	require.Equal(t, "Bearer abc123", col.header)
+	require.Equal(t, "1", col.other)
+}
+
 func TestInvalidOTelConfigFailsStartup(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct{ otel, want string }{
@@ -191,16 +213,26 @@ func TestInvalidOTelConfigFailsStartup(t *testing.T) {
 		"missing header file":    {`{"endpoint": "http://localhost:4318", "headers": {"authorization": "file:/nonexistent/durable-secret"}}`, "otel.headers.authorization"},
 		"unresolvable header":    {`{"endpoint": "http://localhost:4318", "headers": {"authorization": "env:DURABLE_TEST_UNSET_VAR"}}`, "otel.headers.authorization"},
 	}
+	dir := t.TempDir()
+	malformed := filepath.Join(dir, "malformed")
+	require.NoError(t, os.WriteFile(malformed, []byte("fakesecretvalue"), 0o600))
+	dup := filepath.Join(dir, "dup")
+	require.NoError(t, os.WriteFile(dup, []byte("X-Auth=fakesecretvalue"), 0o600))
+	tests["malformed headers_from"] = struct{ otel, want string }{`{"endpoint": "http://localhost:4318", "headers_from": "file:` + malformed + `"}`, "otel.headers_from"}
+	tests["duplicate header"] = struct{ otel, want string }{`{"endpoint": "http://localhost:4318", "headers": {"x-auth": "env:DURABLE_TEST_SET_VAR"}, "headers_from": "file:` + dup + `"}`, "otel.headers.x-auth is also set by otel.headers_from"}
+	tests["headers_from without endpoint"] = struct{ otel, want string }{`{"headers_from": "file:` + dup + `"}`, "otel.headers_from"}
+	tests["pasted headers_from"] = struct{ otel, want string }{`{"endpoint": "http://localhost:4318", "headers_from": "a=Bearer abc"}`, "otel.headers_from"}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			home := t.TempDir()
 			writeConfig(t, home, `{"otel": `+tt.otel+`}`)
 
-			out := runFailingIn(t, home, []string{"DURABLE_TEST_UNSET_VAR="})
+			out := runFailingIn(t, home, []string{"DURABLE_TEST_UNSET_VAR=", "DURABLE_TEST_SET_VAR=x"})
 
 			require.Contains(t, out, tt.want)
 			require.NotContains(t, out, "Bearer abc")
+			require.NotContains(t, out, "fakesecretvalue")
 			require.NoFileExists(t, filepath.Join(home, ".durable", "server.json"))
 		})
 	}

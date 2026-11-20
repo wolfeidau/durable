@@ -191,6 +191,9 @@ Setting `otel.endpoint` exports traces over OTLP. Without it tracing is off.
 - **One trace per run:** group a session's runs by `gen_ai.conversation.id`.
 - **Headers:** values are `op://` references, `env:NAME` or `file:PATH`, resolved at startup, and never logged. A
   reference that can't resolve fails startup.
+- **Headers file:** `"headers_from": "file:~/.config/otel/headers"` reads a list in the
+  `OTEL_EXPORTER_OTLP_HEADERS` format, `key=value,key2=value2` with URL-encoded values. It merges with
+  `headers`, and a name set by both fails startup.
 - **Content:** `capture_content` is off by default. When on, spans also carry
   `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments` and
   `gen_ai.tool.call.result`. Tool output is taken after `PostToolUse` hooks, so their redaction applies.

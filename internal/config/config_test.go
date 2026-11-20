@@ -538,6 +538,17 @@ func TestOTelSection(t *testing.T) {
 	require.Equal(t, creds.Source{Flag: "otel.headers.authorization", Value: "env:OTLP_AUTH"}, o.Headers["authorization"])
 }
 
+func TestOTelHeadersFromAcceptsEachRefKind(t *testing.T) {
+	for _, ref := range []string{"file:/run/secrets/otel", "env:OTLP_HEADERS", "op://vault/item/field"} {
+		s, err := loadOTel(t, `{"endpoint": "http://localhost:4318", "headers_from": "`+ref+`"}`)
+		require.NoError(t, err, ref)
+		require.Equal(t, &creds.Source{Flag: "otel.headers_from", Value: ref}, s.OTel().HeadersFrom)
+	}
+	s, err := loadOTel(t, `{"endpoint": "http://localhost:4318"}`)
+	require.NoError(t, err)
+	require.Nil(t, s.OTel().HeadersFrom)
+}
+
 func TestOTelProtocolDefaultsToHTTP(t *testing.T) {
 	s, err := loadOTel(t, `{"endpoint": "http://localhost:4318"}`)
 	require.NoError(t, err)
@@ -557,6 +568,8 @@ func TestOTelRejectsBadSettings(t *testing.T) {
 	tests := map[string]struct{ body, want string }{
 		"headers without endpoint":  {`{"headers": {"authorization": "env:X"}}`, "need otel.endpoint"},
 		"protocol without endpoint": {`{"protocol": "grpc"}`, "need otel.endpoint"},
+		"from without endpoint":     {`{"headers_from": "env:X"}`, "need otel.endpoint"},
+		"pasted headers_from":       {`{"endpoint": "http://localhost:4318", "headers_from": "a=b"}`, "otel.headers_from"},
 		"capture without endpoint":  {`{"capture_content": true}`, "need otel.endpoint"},
 		"relative endpoint":         {`{"endpoint": "localhost:4318/v1"}`, "otel.endpoint"},
 		"path only endpoint":        {`{"endpoint": "/v1/traces"}`, "otel.endpoint"},

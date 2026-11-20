@@ -74,6 +74,7 @@ type OTel struct {
 	Endpoint       string            `json:"endpoint,omitempty" jsonschema:"OTLP endpoint as an absolute http or https URL. Empty turns tracing off."`
 	Protocol       string            `json:"protocol,omitempty" jsonschema:"OTLP protocol: http/protobuf (default) or grpc."`
 	Headers        map[string]string `json:"headers,omitempty" jsonschema:"Headers sent with every export, by name. Each value is an op:// 1Password reference, env:NAME or file:PATH, never the value itself."`
+	HeadersFrom    string            `json:"headers_from,omitempty" jsonschema:"Secret reference (op://, env:NAME or file:PATH) whose content is a header list in the OTEL_EXPORTER_OTLP_HEADERS format, key=value,key2=value2 with URL-encoded values. Merged with headers."`
 	CaptureContent bool              `json:"capture_content,omitempty" jsonschema:"Record prompts, responses and tool input and output on spans. Off by default because they can hold secrets."`
 }
 
@@ -148,8 +149,10 @@ type Settings struct {
 	OTelProtocol       string
 	OTelCaptureContent bool
 	// OTelHeaders maps a header name to its secret reference.
-	OTelHeaders  map[string]string
-	Environments map[string]commands.Environment
+	OTelHeaders map[string]string
+	// OTelHeadersFrom is the secret reference of an OTLP header list.
+	OTelHeadersFrom string
+	Environments    map[string]commands.Environment
 
 	// Sources is keyed by field path, such as listen.addr or environments.go.
 	Sources  map[string]Source
@@ -293,6 +296,10 @@ func (s *Settings) fromFile(c Config) error {
 	for name, ref := range c.OTel.Headers {
 		s.OTelHeaders[name] = ref
 		s.Sources["otel.headers."+name] = s.file
+	}
+	if c.OTel.HeadersFrom != "" {
+		s.OTelHeadersFrom = c.OTel.HeadersFrom
+		s.Sources["otel.headers_from"] = s.file
 	}
 	for name, e := range c.Environments {
 		s.Environments[name] = commands.Environment{Name: name, Image: e.Image, Grants: e.Grants, Approvals: e.Approvals}
@@ -513,8 +520,8 @@ func (s *Settings) Validate() error {
 
 func (s *Settings) validateOTel() []error {
 	if s.OTelEndpoint == "" {
-		if s.OTelProtocol != "" || s.OTelCaptureContent || len(s.OTelHeaders) > 0 {
-			return []error{errors.New("otel.protocol, otel.headers and otel.capture_content need otel.endpoint")}
+		if s.OTelProtocol != "" || s.OTelCaptureContent || len(s.OTelHeaders) > 0 || s.OTelHeadersFrom != "" {
+			return []error{errors.New("otel.protocol, otel.headers, otel.headers_from and otel.capture_content need otel.endpoint")}
 		}
 		return nil
 	}
@@ -534,6 +541,8 @@ type OTelSettings struct {
 	Protocol       string
 	CaptureContent bool
 	Headers        map[string]creds.Source
+	// HeadersFrom is nil when unset.
+	HeadersFrom *creds.Source
 }
 
 // OTel returns the trace exporter settings; Endpoint is empty when tracing is off.
@@ -544,6 +553,9 @@ func (s *Settings) OTel() OTelSettings {
 	}
 	for name, ref := range s.OTelHeaders {
 		o.Headers[name] = creds.Source{Flag: "otel.headers." + name, Value: ref}
+	}
+	if s.OTelHeadersFrom != "" {
+		o.HeadersFrom = &creds.Source{Flag: "otel.headers_from", Value: s.OTelHeadersFrom}
 	}
 	return o
 }

@@ -76,6 +76,9 @@ func (s *Settings) Entries() []Entry {
 		for _, name := range slices.Sorted(maps.Keys(s.OTelHeaders)) {
 			line("otel.headers."+name, describeRef(s.OTelHeaders[name]))
 		}
+		if s.OTelHeadersFrom != "" {
+			line("otel.headers_from", describeRef(s.OTelHeadersFrom))
+		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(s.Environments)) {
 		e := s.Environments[name]

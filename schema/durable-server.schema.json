@@ -124,6 +124,11 @@
             "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*|file:(/|~/).+)$"
           }
         },
+        "headers_from": {
+          "type": "string",
+          "description": "Secret reference (op://, env:NAME or file:PATH) whose content is a header list in the OTEL_EXPORTER_OTLP_HEADERS format, key=value,key2=value2 with URL-encoded values. Merged with headers.",
+          "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*|file:(/|~/).+)$"
+        },
         "capture_content": {
           "type": "boolean",
           "description": "Record prompts, responses and tool input and output on spans. Off by default because they can hold secrets."
