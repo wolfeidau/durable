@@ -145,12 +145,14 @@ func TestRunSpanIsANewRootParentingTheSubmission(t *testing.T) {
 	require.Equal(t, run.SpanContext().SpanID(), agent.Parent().SpanID())
 	require.False(t, run.Parent().IsValid())
 	require.Equal(t, codes.Unset, run.Status().Code)
-	attrs := map[string]string{}
-	for _, kv := range run.Attributes() {
-		attrs[string(kv.Key)] = kv.Value.AsString()
+	for _, sp := range rec.Ended() {
+		attrs := map[string]string{}
+		for _, kv := range sp.Attributes() {
+			attrs[string(kv.Key)] = kv.Value.AsString()
+		}
+		require.Equal(t, e.id, attrs["gen_ai.conversation.id"], sp.Name())
+		require.Equal(t, e.id, attrs["session.id"], sp.Name())
 	}
-	require.Equal(t, e.id, attrs["gen_ai.conversation.id"])
-	require.Equal(t, e.id, attrs["session.id"])
 }
 
 func TestKickRunsQueuedSubmissionAndWaitWakes(t *testing.T) {

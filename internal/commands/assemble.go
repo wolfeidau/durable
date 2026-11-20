@@ -240,6 +240,9 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	}
 
 	sessionID := filepath.Base(dir)
+	// session.id too, because backends such as quacktel group sessions by it rather than the GenAI key.
+	cfg.TracerProvider = durable.WithSpanAttributes(cfg.TracerProvider,
+		attribute.String("gen_ai.conversation.id", sessionID), attribute.String("session.id", sessionID))
 	// Not pinned: the window and prices don't feed the prompt prefix, and a slow or failed lookup doesn't block the session.
 	pending := catalog.Start(ctx, spec.Catalog(spec, key), modelName(rt), lookupNotice(out, cfg.Logger, rt))
 	inner := protocolModels[rt.Protocol](rt, spec, modelArgs{
@@ -258,8 +261,6 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		LeaseTTL:       cfg.LeaseTTL,
 		TracerProvider: cfg.TracerProvider,
 		CaptureContent: cfg.CaptureContent,
-		// session.id too, because backends such as quacktel group sessions by it rather than the GenAI key.
-		TraceAttributes: []attribute.KeyValue{attribute.String("gen_ai.conversation.id", sessionID), attribute.String("session.id", sessionID)},
 	}
 	addCompaction(out, &opts, rt, spec, pending, modelArgs{Key: key, System: compaction.SystemPrompt, Effort: cfg.Effort, SessionID: sessionID})
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)
