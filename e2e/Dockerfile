@@ -1,4 +1,4 @@
-FROM golang:1.27.3-trixie
+FROM golang:1.27.4-trixie
 
 RUN useradd --create-home --uid 10001 tester \
     && mkdir -p /src /home/tester/.cache /go/pkg \
