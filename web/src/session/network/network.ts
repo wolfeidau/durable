@@ -164,6 +164,12 @@ export class NetworkPoller {
           this.publish({ ...this.snapshot, status: "stopped", error: ce.rawMessage });
           return;
         }
+        // A cursor from before a server restart or upgrade can be rejected; reload from the window start instead.
+        if (ce.code === Code.InvalidArgument && sent !== "") {
+          after = "";
+          this.first = true;
+          continue;
+        }
         this.publish({ ...this.snapshot, error: ce.rawMessage });
       }
       await Promise.race([this.sleep(this.interval()), this.stopSignal]);
@@ -211,7 +217,7 @@ export function coverageNotes(s: NetworkState, fmt: (d: Date) => string): Note[]
       });
     }
     if (!c.storeAvailable) {
-      notes.push({ tone: "warn", text: "The telemetry store is off, so dropped and unattributed event counts are unknown." });
+      notes.push({ tone: "warn", text: "No network event history is kept, so dropped and unattributed event counts are unknown." });
     }
     if (c.gatewayError) {
       notes.push({ tone: "error", text: "The gateway log could not be read, so its decisions are missing. See the server log." });
