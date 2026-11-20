@@ -67,22 +67,6 @@
       "description": "The model provider for new sessions. Existing sessions keep their pin.",
       "additionalProperties": false
     },
-    "telemetry": {
-      "type": "object",
-      "properties": {
-        "otlp_addr": {
-          "type": "string",
-          "description": "Address for the OTLP/HTTP receiver that stores sandbox network events as host:port. Empty turns telemetry off."
-        },
-        "retention": {
-          "type": "string",
-          "description": "Keep raw network events this long as a Go duration of at least 1h. Defaults to 720h. Daily totals are kept indefinitely.",
-          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
-        }
-      },
-      "description": "Receiving sandbox network events from the OpenShell gateway.",
-      "additionalProperties": false
-    },
     "git": {
       "type": "object",
       "properties": {

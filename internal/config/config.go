@@ -7,13 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"net"
 	"net/mail"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,10 +29,6 @@ const (
 	legacyLabel = "~/.durable/environments.json"
 
 	githubTokenEnv = "DURABLE_GITHUB_TOKEN" //nolint:gosec // a variable name, not a credential
-
-	// DefaultTelemetryRetention is how long raw network events are kept.
-	DefaultTelemetryRetention = 720 * time.Hour
-	minTelemetryRetention     = time.Hour
 
 	// DefaultGitAuthor is the commit identity of sandboxed sessions.
 	DefaultGitAuthor = "durable <durable@localhost>"
@@ -60,7 +54,6 @@ type Config struct {
 	Schema       string                 `json:"$schema,omitempty" jsonschema:"URL of this schema, so editors can validate the file."`
 	Listen       Listen                 `json:"listen,omitzero" jsonschema:"Where the server listens and how it times out clients."`
 	Provider     Provider               `json:"provider,omitzero" jsonschema:"The model provider for new sessions. Existing sessions keep their pin."`
-	Telemetry    Telemetry              `json:"telemetry,omitzero" jsonschema:"Receiving sandbox network events from the OpenShell gateway."`
 	Git          Git                    `json:"git,omitzero" jsonschema:"Git settings for sandboxed sessions."`
 	Environments map[string]Environment `json:"environments,omitempty" jsonschema:"Sandbox environments, by name. A session picks one; default is used when it names none."`
 }
@@ -71,12 +64,6 @@ type Listen struct {
 	IdleTimeout string `json:"idle_timeout,omitempty" jsonschema:"Close a session with no clients and no work after this long, as a Go duration. Defaults to 5m."`
 	OpenTimeout string `json:"open_timeout,omitempty" jsonschema:"Give up opening a session after this long, as a Go duration. Defaults to 10s."`
 	Heartbeat   string `json:"heartbeat,omitempty" jsonschema:"Send a heartbeat on an idle event stream this often, as a Go duration. Defaults to 20s."`
-}
-
-// Telemetry configures receiving sandbox network events from the OpenShell gateway.
-type Telemetry struct {
-	OTLPAddr  string `json:"otlp_addr,omitempty" jsonschema:"Address for the OTLP/HTTP receiver that stores sandbox network events as host:port. Empty turns telemetry off."`
-	Retention string `json:"retention,omitempty" jsonschema:"Keep raw network events this long as a Go duration of at least 1h. Defaults to 720h. Daily totals are kept indefinitely."`
 }
 
 // Provider configures the model provider.
@@ -128,13 +115,10 @@ type Settings struct {
 	IdleTimeout time.Duration
 	OpenTimeout time.Duration
 	Heartbeat   time.Duration
-	// TelemetryAddr is empty when telemetry is off.
-	TelemetryAddr      string
-	TelemetryRetention time.Duration
-	Provider           string
-	Protocol           string
-	Model              string
-	Effort             string
+	Provider    string
+	Protocol    string
+	Model       string
+	Effort      string
 	// APIKey is a secret reference; empty leaves the provider's own credential lookup in charge.
 	APIKey    string
 	GitAuthor string
@@ -155,19 +139,18 @@ type Settings struct {
 
 func defaults() *Settings {
 	s := &Settings{
-		Addr:               "127.0.0.1:7878",
-		IdleTimeout:        5 * time.Minute,
-		OpenTimeout:        10 * time.Second,
-		Heartbeat:          20 * time.Second,
-		TelemetryRetention: DefaultTelemetryRetention,
-		GitAuthor:          DefaultGitAuthor,
-		GitHosts:           map[string]string{},
-		Environments:       map[string]commands.Environment{},
-		Sources:            map[string]Source{},
-		file:               "config.json",
-		fileLabel:          "~/.durable/config.json",
+		Addr:         "127.0.0.1:7878",
+		IdleTimeout:  5 * time.Minute,
+		OpenTimeout:  10 * time.Second,
+		Heartbeat:    20 * time.Second,
+		GitAuthor:    DefaultGitAuthor,
+		GitHosts:     map[string]string{},
+		Environments: map[string]commands.Environment{},
+		Sources:      map[string]Source{},
+		file:         "config.json",
+		fileLabel:    "~/.durable/config.json",
 	}
-	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "telemetry.otlp_addr", "telemetry.retention", "provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key", "git.author"} {
+	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key", "git.author"} {
 		s.Sources[f] = SourceDefault
 	}
 	return s
@@ -237,7 +220,6 @@ func (s *Settings) fromFile(c Config) error {
 		{"listen.idle_timeout", c.Listen.IdleTimeout, &s.IdleTimeout},
 		{"listen.open_timeout", c.Listen.OpenTimeout, &s.OpenTimeout},
 		{"listen.heartbeat", c.Listen.Heartbeat, &s.Heartbeat},
-		{"telemetry.retention", c.Telemetry.Retention, &s.TelemetryRetention},
 	} {
 		if d.v == "" {
 			continue
@@ -254,7 +236,6 @@ func (s *Settings) fromFile(c Config) error {
 		to        *string
 	}{
 		{"listen.addr", c.Listen.Addr, &s.Addr},
-		{"telemetry.otlp_addr", c.Telemetry.OTLPAddr, &s.TelemetryAddr},
 		{"provider.name", c.Provider.Name, &s.Provider},
 		{"provider.protocol", c.Provider.Protocol, &s.Protocol},
 		{"provider.model", c.Provider.Model, &s.Model},
@@ -459,14 +440,6 @@ func (s *Settings) Validate() error {
 	if s.Provider == commands.ProviderOpenRouter && s.Model == "" {
 		errs = append(errs, fmt.Errorf("provider openrouter needs a model; set provider.model in %s or pass --model", s.fileLabel))
 	}
-	if s.TelemetryAddr != "" {
-		if err := checkHostPort(s.TelemetryAddr); err != nil {
-			errs = append(errs, fmt.Errorf("telemetry.otlp_addr %w", err))
-		}
-	}
-	if s.TelemetryRetention < minTelemetryRetention {
-		errs = append(errs, fmt.Errorf("telemetry.retention %s must be at least %s", s.TelemetryRetention, minTelemetryRetention))
-	}
 	id, err := ParseGitAuthor(s.GitAuthor)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%s %q %w", s.label("git.author", "--git-author"), s.GitAuthor, err))
@@ -493,17 +466,6 @@ func (s *Settings) Validate() error {
 		}
 	}
 	return errors.Join(errs...)
-}
-
-func checkHostPort(addr string) error {
-	_, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return errors.New("must be host:port")
-	}
-	if _, err := strconv.ParseUint(port, 10, 16); err != nil {
-		return errors.New("must have a numeric port from 0 to 65535")
-	}
-	return nil
 }
 
 // GitIdentity is the parsed git author; it is valid after Validate succeeds.

@@ -19,7 +19,6 @@ import (
 
 	"github.com/wolfeidau/durable/api/durable/v1/durablev1connect"
 	"github.com/wolfeidau/durable/internal/audit"
-	"github.com/wolfeidau/durable/internal/telemetry"
 )
 
 // all: embeds ui/dist when it exists, which a fresh clone lacks.
@@ -55,12 +54,7 @@ type Config struct {
 	// Settings and Warnings are shown by GetServerInfo; Settings values must not hold secret references.
 	Settings []Setting
 	Warnings []string
-	// Telemetry is the store the OTLP receiver writes, or nil when telemetry is off. ListNetworkEvents reads it
-	// alongside the receiver's writes.
-	Telemetry *telemetry.Store
-	// TelemetryRetention is how long Telemetry keeps raw events, reported in the coverage.
-	TelemetryRetention time.Duration
-	// Gateway reads the sandbox log when the store has no decisions; nil means the log is never read.
+	// Gateway reads the sandbox log for network events; nil means the log is never read.
 	Gateway audit.Gateway
 }
 
@@ -89,8 +83,6 @@ type sessionService struct {
 	logger    *slog.Logger
 	settings  []Setting
 	warnings  []string
-	telemetry *telemetry.Store
-	retention time.Duration
 	gateway   audit.Gateway
 }
 
@@ -104,7 +96,7 @@ func (s *Server) Handler() http.Handler {
 	path, h := durablev1connect.NewSessionServiceHandler(sessionService{
 		reg: s.cfg.Registry, home: s.cfg.Home, heartbeat: heartbeat, draining: s.cfg.Draining, logger: s.logger(),
 		settings: s.cfg.Settings, warnings: s.cfg.Warnings,
-		telemetry: s.cfg.Telemetry, retention: s.cfg.TelemetryRetention, gateway: s.cfg.Gateway,
+		gateway: s.cfg.Gateway,
 	})
 	mux.Handle(path, s.requireToken(h))
 

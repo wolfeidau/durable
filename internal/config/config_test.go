@@ -109,8 +109,7 @@ func TestSchemaFailuresNameThePathAndNeverEchoASecret(t *testing.T) {
 		"unknown grant":     {`{"environments": {"go": {"image": "i", "grants": ["nope"]}}}`, "grants"},
 		"missing image":     {`{"environments": {"go": {}}}`, "image"},
 		"bad approvals":     {`{"environments": {"go": {"image": "i", "approvals": "` + secret + `"}}}`, "environments.<name>.approvals: must be one of"},
-		"unknown telemetry": {`{"telemetry": {"addr": "x"}}`, "addr"},
-		"bad retention":     {`{"telemetry": {"retention": "soon"}}`, "telemetry.retention"},
+		"removed telemetry": {`{"telemetry": {"otlp_addr": "127.0.0.1:4318"}}`, "telemetry"},
 		"bad duration":      {`{"listen": {"idle_timeout": "soon"}}`, "idle_timeout"},
 		"bad host kind":     {`{"git": {"hosts": {"gitlab": {"token": "gh"}}}}`, "git.hosts: must be one of [github]"},
 		"literal api key":   {`{"provider": {"api_key": "` + secret + `"}}`, "provider.api_key"},
@@ -509,49 +508,9 @@ func TestNpmRegistryWithoutMiseWarns(t *testing.T) {
 	require.Empty(t, load(`["mise", "npm-registry"]`).Warnings)
 }
 
-func TestTelemetryDefaultsToOffWithThirtyDaysRetention(t *testing.T) {
-	s, err := Load(t.TempDir())
+func TestRemovedTelemetrySectionFailsToLoad(t *testing.T) {
+	_, err := Load(writeHome(t, map[string]string{"config.json": `{"telemetry": {"otlp_addr": "127.0.0.1:4318"}}`}))
 
-	require.NoError(t, err)
-	require.NoError(t, s.Validate())
-	require.Empty(t, s.TelemetryAddr)
-	require.Equal(t, 720*time.Hour, s.TelemetryRetention)
-	require.Equal(t, SourceDefault, s.Sources["telemetry.otlp_addr"])
-	require.Equal(t, SourceDefault, s.Sources["telemetry.retention"])
-}
-
-func TestTelemetrySectionIsParsedWithFileSources(t *testing.T) {
-	body := `{"telemetry": {"otlp_addr": "127.0.0.1:0", "retention": "48h"}}`
-	s, err := Load(writeHome(t, map[string]string{"config.json": body}))
-
-	require.NoError(t, err)
-	require.NoError(t, s.Validate())
-	require.Equal(t, "127.0.0.1:0", s.TelemetryAddr)
-	require.Equal(t, 48*time.Hour, s.TelemetryRetention)
-	require.Equal(t, Source("config.json"), s.Sources["telemetry.otlp_addr"])
-	require.Equal(t, Source("config.json"), s.Sources["telemetry.retention"])
-}
-
-func TestTelemetryValidation(t *testing.T) {
-	tests := map[string]struct {
-		body string
-		want string
-	}{
-		"no port":        {`{"telemetry": {"otlp_addr": "127.0.0.1"}}`, "telemetry.otlp_addr"},
-		"non-numeric":    {`{"telemetry": {"otlp_addr": "127.0.0.1:http"}}`, "telemetry.otlp_addr"},
-		"port too large": {`{"telemetry": {"otlp_addr": "127.0.0.1:65536"}}`, "telemetry.otlp_addr"},
-		"short":          {`{"telemetry": {"retention": "30m"}}`, "telemetry.retention"},
-		"negative":       {`{"telemetry": {"retention": "-2h"}}`, "telemetry.retention"},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			s, err := Load(writeHome(t, map[string]string{"config.json": tc.body}))
-			if err == nil {
-				err = s.Validate()
-			}
-
-			require.Error(t, err)
-			require.Contains(t, err.Error(), tc.want)
-		})
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "telemetry")
 }
