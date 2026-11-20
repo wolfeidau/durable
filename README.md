@@ -169,6 +169,35 @@ environments:
 - **Legacy `environments.json`** is still read, with a deprecation warning, when `config.json`
   defines no environments. If both define them, startup fails.
 
+### Tracing
+
+Setting `otel.endpoint` exports traces over OTLP. Without it tracing is off.
+
+```json
+{
+  "otel": {
+    "endpoint": "https://otel.example.com:4318/v1/traces",
+    "protocol": "http/protobuf",
+    "headers": { "authorization": "env:OTLP_AUTH" },
+    "capture_content": false
+  }
+}
+```
+
+- **Spans:** each run is `durable.run`, then `invoke_agent durable`, which holds a `chat <model>` span
+  per model call, an `execute_tool <name>` span per tool call, and `durable.compact` and
+  `durable.hook` where they happen. Spans carry `gen_ai.*` attributes such as `gen_ai.operation.name`,
+  `gen_ai.tool.name` and `gen_ai.tool.call.id`.
+- **One trace per run:** group a session's runs by `gen_ai.conversation.id`.
+- **Headers:** values are `op://` references or `env:NAME`, resolved at startup, and never logged. A
+  reference that can't resolve fails startup.
+- **Content:** `capture_content` is off by default. When on, spans also carry
+  `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments` and
+  `gen_ai.tool.call.result`. Tool output is taken after `PostToolUse` hooks, so their redaction applies.
+  Prompts and files can still hold secrets, so send them only to a collector you trust.
+- **Protocols:** `http/protobuf` (default) or `grpc`. An export failure logs a warning and never
+  affects a run.
+
 ### Sandboxed sessions
 
 An environment runs the tools of new sessions in an [OpenShell](https://docs.nvidia.com/openshell/)

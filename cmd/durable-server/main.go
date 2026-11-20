@@ -13,11 +13,13 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/config"
@@ -26,6 +28,7 @@ import (
 	"github.com/wolfeidau/durable/internal/githost/github"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/server"
+	"github.com/wolfeidau/durable/internal/tracing"
 )
 
 // serveCmd's flags override ~/.durable/config.json or config.yaml, so none has a default here: zero means not given.
@@ -149,6 +152,14 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
+	otelCfg := settings.OTel()
+	tp, stopTracing, err := startTracing(ctx, logger, otelCfg)
+	if err != nil {
+		return err
+	}
+	// Deferred before the registry so it runs after registry.Close, which ends the last spans.
+	defer stopTracing()
+
 	// Requests drain within the grace period, and streams end when the base context is cancelled.
 	baseCtx, cancelBase := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelBase()
@@ -191,6 +202,9 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		Effort:      settings.Effort,
 		Sandbox:     sandboxCfg,
 		Logger:      logger,
+
+		TracerProvider: tp,
+		CaptureContent: otelCfg.CaptureContent,
 	})
 	defer registry.Close()
 	draining := make(chan struct{})
@@ -221,6 +235,42 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	return shutdownServe(ctx, srv, cancelBase, registry)
+}
+
+// startTracing resolves the header secrets and starts the exporter; the returned stop flushes it.
+func startTracing(ctx context.Context, logger *slog.Logger, cfg config.OTelSettings) (trace.TracerProvider, func(), error) {
+	headers := make(map[string]string, len(cfg.Headers))
+	for name, src := range cfg.Headers {
+		v, err := creds.Resolve(ctx, src)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve otel.headers.%s: %w", name, err)
+		}
+		headers[name] = v
+	}
+	tp, shutdown, err := tracing.Setup(ctx, tracing.Config{
+		Endpoint:       cfg.Endpoint,
+		Protocol:       cfg.Protocol,
+		ServiceVersion: buildVersion(),
+		Headers:        headers,
+		ErrorHandler:   func(err error) { logger.Warn("trace export failed", slog.Any("error", err)) },
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return tp, func() {
+		flushCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		if err := shutdown(flushCtx); err != nil {
+			logger.Warn("failed to flush traces", slog.Any("error", err))
+		}
+	}, nil
+}
+
+func buildVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
+		return info.Main.Version
+	}
+	return "unknown"
 }
 
 // shutdownServe drains the API, then closes the registry.
