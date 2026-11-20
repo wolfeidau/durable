@@ -56,3 +56,35 @@ func TestOTelEntriesNeverPrintTheReference(t *testing.T) {
 	require.Equal(t, "1Password", got["otel.headers.authorization"].Value)
 	require.Equal(t, "env TEAM", got["otel.headers.x-team"].Value)
 }
+
+func TestFileRefsAreAcceptedAndShownByPath(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	file := `{
+  "provider": {"name": "openrouter", "api_key": "file:/run/secrets/key"},
+  "git": {"hosts": {"github": {"token": "file:~/.tok"}}},
+  "otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "file:/run/secrets/otel"}}
+}`
+	s, err := Load(writeHome(t, map[string]string{"config.json": file}))
+	require.NoError(t, err)
+
+	got := map[string]string{}
+	for _, e := range s.Entries() {
+		got[e.Field] = e.Value
+	}
+	require.Equal(t, "file /run/secrets/key", got["provider.api_key"])
+	require.Equal(t, "file ~/.tok", got["git.hosts.github.token"])
+	require.Equal(t, "file /run/secrets/otel", got["otel.headers.authorization"])
+}
+
+func TestMalformedFileRefsAreRejected(t *testing.T) {
+	for _, bad := range []string{"file:", "file:relative"} {
+		for name, body := range map[string]string{
+			"provider.api_key":           `{"provider": {"api_key": "` + bad + `"}}`,
+			"git.hosts.github.token":     `{"git": {"hosts": {"github": {"token": "` + bad + `"}}}}`,
+			"otel.headers.authorization": `{"otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "` + bad + `"}}}`,
+		} {
+			_, err := Load(writeHome(t, map[string]string{"config.json": body}))
+			require.ErrorContains(t, err, name, bad)
+		}
+	}
+}

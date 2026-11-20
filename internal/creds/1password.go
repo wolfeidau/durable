@@ -7,14 +7,21 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
 
 const (
-	ghSource  = "gh"
-	envPrefix = "env:"
+	ghSource   = "gh"
+	envPrefix  = "env:"
+	filePrefix = "file:"
 )
+
+// FileRefPattern is file:PATH where PATH is absolute or starts with ~/, unanchored so callers can embed it.
+const FileRefPattern = `file:(/|~/).+`
+
+var fileRefRE = regexp.MustCompile(`^` + FileRefPattern + `$`)
 
 // OpRefPattern is op://vault/item/[section/]field with an optional ?attribute=..., unanchored so callers can embed it.
 const OpRefPattern = `op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\?.+)?`
@@ -32,7 +39,7 @@ type Source struct {
 	Flag string
 	// Env is read when Value is empty.
 	Env string
-	// Value is an op:// reference, the literal "gh" for the GitHub CLI's token, env:NAME, or empty.
+	// Value is an op:// reference, the literal "gh" for the GitHub CLI's token, env:NAME, file:PATH (absolute or ~/), or empty.
 	Value string
 }
 
@@ -59,12 +66,34 @@ func Resolve(ctx context.Context, s Source) (string, error) {
 			return "", fmt.Errorf("no secret for %s: set %s", s.Flag, name)
 		}
 		return secret, nil
+	case fileRefRE.MatchString(s.Value):
+		return readFile(s)
 	case s.Value != "":
-		return "", fmt.Errorf("%s must be an op:// secret reference, gh or env:NAME", s.Flag)
+		return "", fmt.Errorf("%s must be an op:// secret reference, gh, env:NAME or file:PATH", s.Flag)
 	}
 	secret := strings.TrimSpace(os.Getenv(s.Env))
 	if secret == "" {
 		return "", fmt.Errorf("no token: set %s or %s", s.Flag, s.Env)
+	}
+	return secret, nil
+}
+
+func readFile(s Source) (string, error) {
+	path := strings.TrimPrefix(s.Value, filePrefix)
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("failed to read %s from file %s: %w", s.Flag, path, err)
+		}
+		path = filepath.Join(home, rest)
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // the path is the operator's own config
+	if err != nil {
+		return "", fmt.Errorf("failed to read %s from file %s: %w", s.Flag, path, err)
+	}
+	secret := strings.TrimSpace(string(b))
+	if secret == "" {
+		return "", fmt.Errorf("no secret for %s: %s is empty", s.Flag, path)
 	}
 	return secret, nil
 }

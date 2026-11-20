@@ -40,8 +40,8 @@ var GitHostKinds = []string{github.Kind}
 
 // Secret reference patterns: a pasted value matches none of them.
 const (
-	secretRefPattern = `^(` + creds.OpRefPattern + `|gh|env:[A-Za-z_][A-Za-z0-9_]*)$`
-	apiKeyRefPattern = `^(` + creds.OpRefPattern + `|env:[A-Za-z_][A-Za-z0-9_]*)$`
+	secretRefPattern = `^(` + creds.OpRefPattern + `|gh|env:[A-Za-z_][A-Za-z0-9_]*|` + creds.FileRefPattern + `)$`
+	apiKeyRefPattern = `^(` + creds.OpRefPattern + `|env:[A-Za-z_][A-Za-z0-9_]*|` + creds.FileRefPattern + `)$`
 	durationPattern  = `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`
 )
 
@@ -73,7 +73,7 @@ type Config struct {
 type OTel struct {
 	Endpoint       string            `json:"endpoint,omitempty" jsonschema:"OTLP endpoint as an absolute http or https URL. Empty turns tracing off."`
 	Protocol       string            `json:"protocol,omitempty" jsonschema:"OTLP protocol: http/protobuf (default) or grpc."`
-	Headers        map[string]string `json:"headers,omitempty" jsonschema:"Headers sent with every export, by name. Each value is an op:// 1Password reference or env:NAME, never the value itself."`
+	Headers        map[string]string `json:"headers,omitempty" jsonschema:"Headers sent with every export, by name. Each value is an op:// 1Password reference, env:NAME or file:PATH, never the value itself."`
 	CaptureContent bool              `json:"capture_content,omitempty" jsonschema:"Record prompts, responses and tool input and output on spans. Off by default because they can hold secrets."`
 }
 
@@ -91,7 +91,7 @@ type Provider struct {
 	Protocol string `json:"protocol,omitempty" jsonschema:"Wire protocol. Empty uses the provider's default."`
 	Model    string `json:"model,omitempty" jsonschema:"Model name. Required for openrouter; for anthropic, empty uses the built-in default."`
 	Effort   string `json:"effort,omitempty" jsonschema:"Reasoning effort for sessions. Empty uses the built-in default on anthropic-messages and the model's own default on openai-responses."`
-	APIKey   string `json:"api_key,omitempty" jsonschema:"Where to read the provider's API key: an op:// 1Password reference or env:NAME. Never the key itself. Empty uses the provider's default credentials."`
+	APIKey   string `json:"api_key,omitempty" jsonschema:"Where to read the provider's API key: an op:// 1Password reference, env:NAME or file:PATH. Never the key itself. Empty uses the provider's default credentials."`
 }
 
 // Git configures commits and git hosts.
@@ -102,7 +102,7 @@ type Git struct {
 
 // GitHost configures one git host.
 type GitHost struct {
-	Token string `json:"token" jsonschema:"Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, or env:NAME. Never the token itself."`
+	Token string `json:"token" jsonschema:"Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, env:NAME or file:PATH. Never the token itself."`
 }
 
 // Environment pairs a worker image with network grants.
@@ -439,7 +439,7 @@ func (s *Settings) applyGitHostFlags(flags []string) {
 		kind, value, ok := strings.Cut(f, "=")
 		switch {
 		case !ok || value == "":
-			s.errs = append(s.errs, errors.New("--git-host-token must be <kind>=<source>, where source is an op:// reference, gh or env:NAME"))
+			s.errs = append(s.errs, errors.New("--git-host-token must be <kind>=<source>, where source is an op:// reference, gh, env:NAME or file:PATH"))
 			continue
 		case !slices.Contains(GitHostKinds, kind):
 			s.errs = append(s.errs, fmt.Errorf("unsupported git host kind in --git-host-token; supported kinds: %s", strings.Join(GitHostKinds, ", ")))
@@ -448,7 +448,7 @@ func (s *Settings) applyGitHostFlags(flags []string) {
 			s.errs = append(s.errs, fmt.Errorf("--git-host-token given more than once for %s", kind))
 			continue
 		case !secretRefRE.MatchString(value):
-			s.errs = append(s.errs, fmt.Errorf("--git-host-token %s must be an op:// secret reference, gh or env:NAME", kind))
+			s.errs = append(s.errs, fmt.Errorf("--git-host-token %s must be an op:// secret reference, gh, env:NAME or file:PATH", kind))
 			continue
 		}
 		seen[kind] = true

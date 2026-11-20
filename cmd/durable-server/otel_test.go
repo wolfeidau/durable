@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -161,6 +162,25 @@ func TestTracesReachTheCollector(t *testing.T) {
 	}
 }
 
+func TestOTelHeaderReadFromFile(t *testing.T) {
+	t.Parallel()
+	ws, home := newWorkspace(t)
+	col := newCollector(t)
+	secret := filepath.Join(t.TempDir(), "header")
+	require.NoError(t, os.WriteFile(secret, []byte(otelHeaderValue+"\n"), 0o600))
+	writeConfig(t, home, fmt.Sprintf(`{"otel": {"endpoint": %q, "headers": {"x-test": "file:%s"}}}`, col.srv.URL+"/v1/traces", secret))
+	api := newFakeAPI(t, bashReply("echo ran"), 0)
+	r := startEnv(t, home, apiEnv(api), "--api-token", "dummy")
+
+	runToolPrompt(t, home, ws, r, api)
+	r.stop(t)
+
+	require.Eventually(t, func() bool { return len(col.snapshot()) >= 4 }, 10*time.Second, 50*time.Millisecond)
+	col.mu.Lock()
+	defer col.mu.Unlock()
+	require.Equal(t, otelHeaderValue, col.header)
+}
+
 func TestInvalidOTelConfigFailsStartup(t *testing.T) {
 	t.Parallel()
 	tests := map[string]struct{ otel, want string }{
@@ -168,6 +188,7 @@ func TestInvalidOTelConfigFailsStartup(t *testing.T) {
 		"unknown protocol":       {`{"endpoint": "http://localhost:4318", "protocol": "udp"}`, "otel.protocol"},
 		"pasted header":          {`{"endpoint": "http://localhost:4318", "headers": {"authorization": "Bearer abc"}}`, "otel.headers.authorization"},
 		"content without target": {`{"capture_content": true}`, "otel.capture_content"},
+		"missing header file":    {`{"endpoint": "http://localhost:4318", "headers": {"authorization": "file:/nonexistent/durable-secret"}}`, "otel.headers.authorization"},
 		"unresolvable header":    {`{"endpoint": "http://localhost:4318", "headers": {"authorization": "env:DURABLE_TEST_UNSET_VAR"}}`, "otel.headers.authorization"},
 	}
 	for name, tt := range tests {

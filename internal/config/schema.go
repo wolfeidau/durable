@@ -175,7 +175,7 @@ func checkSecrets(doc any) error {
 	}
 	if p, ok := root["provider"].(map[string]any); ok {
 		if v, ok := p["api_key"]; ok {
-			if err := checkRef("provider.api_key", v, apiKeyRefRE.MatchString, "an op:// secret reference or env:NAME"); err != nil {
+			if err := checkRef("provider.api_key", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
 				return err
 			}
 		}
@@ -183,7 +183,7 @@ func checkSecrets(doc any) error {
 	o, _ := root["otel"].(map[string]any)
 	headers, _ := o["headers"].(map[string]any)
 	for name, v := range headers {
-		if err := checkRef("otel.headers."+name, v, apiKeyRefRE.MatchString, "an op:// secret reference or env:NAME"); err != nil {
+		if err := checkRef("otel.headers."+name, v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
 			return err
 		}
 	}
@@ -195,7 +195,7 @@ func checkSecrets(doc any) error {
 			continue
 		}
 		if v, ok := host["token"]; ok {
-			if err := checkRef("git.hosts."+kind+".token", v, secretRefRE.MatchString, "an op:// secret reference, gh or env:NAME"); err != nil {
+			if err := checkRef("git.hosts."+kind+".token", v, secretRefRE.MatchString, "an op:// secret reference, gh, env:NAME or file:PATH"); err != nil {
 				return err
 			}
 		}

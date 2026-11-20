@@ -60,8 +60,8 @@
         },
         "api_key": {
           "type": "string",
-          "description": "Where to read the provider's API key: an op:// 1Password reference or env:NAME. Never the key itself. Empty uses the provider's default credentials.",
-          "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*)$"
+          "description": "Where to read the provider's API key: an op:// 1Password reference, env:NAME or file:PATH. Never the key itself. Empty uses the provider's default credentials.",
+          "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*|file:(/|~/).+)$"
         }
       },
       "description": "The model provider for new sessions. Existing sessions keep their pin.",
@@ -82,8 +82,8 @@
             "properties": {
               "token": {
                 "type": "string",
-                "description": "Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, or env:NAME. Never the token itself.",
-                "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|gh|env:[A-Za-z_][A-Za-z0-9_]*)$"
+                "description": "Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, env:NAME or file:PATH. Never the token itself.",
+                "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|gh|env:[A-Za-z_][A-Za-z0-9_]*|file:(/|~/).+)$"
               }
             },
             "required": [
@@ -118,10 +118,10 @@
         },
         "headers": {
           "type": "object",
-          "description": "Headers sent with every export, by name. Each value is an op:// 1Password reference or env:NAME, never the value itself.",
+          "description": "Headers sent with every export, by name. Each value is an op:// 1Password reference, env:NAME or file:PATH, never the value itself.",
           "additionalProperties": {
             "type": "string",
-            "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*)$"
+            "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*|file:(/|~/).+)$"
           }
         },
         "capture_content": {

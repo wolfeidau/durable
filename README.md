@@ -155,7 +155,7 @@ environments:
 - **Effort:** `provider.effort` (or `--effort`) sets reasoning effort for every session the server
   runs, as the CLI's `--effort` does. It isn't pinned, so a change applies when a session next opens.
 - **References, never secrets:** `provider.api_key` and `git.hosts.<kind>.token` take an `op://`
-  1Password reference (`op://<vault>/<item>/[<section>/]<field>`, checked at startup), `env:NAME`, or, for a git token only, `gh`. A pasted token fails validation,
+  1Password reference (`op://<vault>/<item>/[<section>/]<field>`, checked at startup), `env:NAME`, `file:PATH` (absolute or `~/`, read once at startup with surrounding whitespace trimmed), or, for a git token only, `gh`. A pasted token fails validation,
   and errors never quote the value. Without `api_key`, openrouter reads `OPENROUTER_API_KEY` and
   anthropic uses the SDK's credentials.
 - **Schema:** [`schema/durable-server.schema.json`](schema/durable-server.schema.json) is generated
@@ -189,7 +189,7 @@ Setting `otel.endpoint` exports traces over OTLP. Without it tracing is off.
   `durable.hook` where they happen. Spans carry `gen_ai.*` attributes such as `gen_ai.operation.name`,
   `gen_ai.tool.name` and `gen_ai.tool.call.id`.
 - **One trace per run:** group a session's runs by `gen_ai.conversation.id`.
-- **Headers:** values are `op://` references or `env:NAME`, resolved at startup, and never logged. A
+- **Headers:** values are `op://` references, `env:NAME` or `file:PATH`, resolved at startup, and never logged. A
   reference that can't resolve fails startup.
 - **Content:** `capture_content` is off by default. When on, spans also carry
   `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments` and
@@ -247,7 +247,7 @@ service. A `telemetry` key in `config.json` now fails startup, so remove it, alo
 
 GitHub is the only git host so far.
 
-- `--git-host-token github=<source>` takes an `op://` reference, `env:NAME` or `gh`, which runs
+- `--git-host-token github=<source>` takes an `op://` reference, `env:NAME`, `file:PATH` or `gh`, which runs
   `gh auth token`. **`gh` is for local dev only:** its token usually reaches every repo your login can. Without it, `git.hosts.github.token` in the config applies, then
   `DURABLE_GITHUB_TOKEN`. `GITHUB_TOKEN` and `GH_TOKEN` are never read.
 - At startup the server checks each token with `GET /user` and logs the login, kind and scopes,

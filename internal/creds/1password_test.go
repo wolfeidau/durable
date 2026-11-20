@@ -147,3 +147,39 @@ func TestResolveAPITokenRejectsAMalformedReferenceWithoutEchoingIt(t *testing.T)
 	require.ErrorContains(t, err, "must be an op:// secret reference")
 	require.NotContains(t, err.Error(), "vault/item")
 }
+
+func TestResolveFile(t *testing.T) {
+	const secret = "s3cr3t-file-value"
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	write := func(name, body string) string {
+		p := filepath.Join(tmp, name)
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o600))
+		return p
+	}
+	abs := write("abs", secret)
+	write("nl", secret+"\n")
+	empty := write("empty", " \n\t")
+
+	for name, value := range map[string]string{"absolute": "file:" + abs, "trailing newline": "file:" + filepath.Join(tmp, "nl"), "home relative": "file:~/abs"} {
+		got, err := Resolve(context.Background(), Source{Flag: "--x", Value: value})
+		require.NoError(t, err, name)
+		require.Equal(t, secret, got, name)
+	}
+
+	_, err := Resolve(context.Background(), Source{Flag: "--x", Value: "file:" + empty})
+	require.ErrorContains(t, err, "--x")
+	require.ErrorContains(t, err, empty)
+	require.ErrorContains(t, err, "is empty")
+
+	missing := filepath.Join(tmp, "missing")
+	_, err = Resolve(context.Background(), Source{Flag: "--x", Value: "file:" + missing})
+	require.ErrorContains(t, err, "--x")
+	require.ErrorContains(t, err, missing)
+	require.NotContains(t, err.Error(), secret)
+
+	for _, bad := range []string{"file:", "file:relative"} {
+		_, err = Resolve(context.Background(), Source{Flag: "--x", Value: bad})
+		require.ErrorContains(t, err, "file:PATH")
+	}
+}

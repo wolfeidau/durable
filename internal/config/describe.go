@@ -19,6 +19,8 @@ func describeRef(ref string) string {
 		return "gh"
 	case strings.HasPrefix(ref, "env:"):
 		return "env " + strings.TrimPrefix(ref, "env:")
+	case strings.HasPrefix(ref, "file:"):
+		return "file " + strings.TrimPrefix(ref, "file:")
 	}
 	return "unset"
 }

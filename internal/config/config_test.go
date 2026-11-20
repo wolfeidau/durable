@@ -243,7 +243,7 @@ func TestFlagErrorsAreCollectedWithoutEchoingTokens(t *testing.T) {
 
 	require.ErrorContains(t, err, "--git-host-token must be <kind>=<source>")
 	require.ErrorContains(t, err, "supported kinds: github")
-	require.ErrorContains(t, err, "--git-host-token github must be an op:// secret reference, gh or env:NAME")
+	require.ErrorContains(t, err, "--git-host-token github must be an op:// secret reference, gh, env:NAME or file:PATH")
 	require.ErrorContains(t, err, "--git-author")
 	require.ErrorContains(t, err, "needs a model")
 	require.NotContains(t, err.Error(), pasted)
