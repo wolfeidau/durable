@@ -101,6 +101,37 @@
       "description": "Git settings for sandboxed sessions.",
       "additionalProperties": false
     },
+    "otel": {
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "OTLP endpoint as an absolute http or https URL. Empty turns tracing off."
+        },
+        "protocol": {
+          "type": "string",
+          "description": "OTLP protocol: http/protobuf (default) or grpc.",
+          "enum": [
+            "http/protobuf",
+            "grpc"
+          ]
+        },
+        "headers": {
+          "type": "object",
+          "description": "Headers sent with every export, by name. Each value is an op:// 1Password reference or env:NAME, never the value itself.",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*)$"
+          }
+        },
+        "capture_content": {
+          "type": "boolean",
+          "description": "Record prompts, responses and tool input and output on spans. Off by default because they can hold secrets."
+        }
+      },
+      "description": "Export traces over OTLP. Setting endpoint turns it on.",
+      "additionalProperties": false
+    },
     "environments": {
       "type": "object",
       "description": "Sandbox environments, by name. A session picks one; default is used when it names none.",

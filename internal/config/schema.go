@@ -48,6 +48,10 @@ func Schema() (*jsonschema.Schema, error) {
 	hosts.PropertyNames = &jsonschema.Schema{Enum: enum(GitHostKinds)}
 	hosts.AdditionalProperties.Properties["token"].Pattern = secretRefPattern
 
+	otel := s.Properties["otel"]
+	otel.Properties["protocol"].Enum = enum(OTelProtocols)
+	otel.Properties["headers"].AdditionalProperties.Pattern = apiKeyRefPattern
+
 	envs := s.Properties["environments"]
 	env := envs.AdditionalProperties
 	env.Properties["image"].MinLength = new(1)
@@ -174,6 +178,13 @@ func checkSecrets(doc any) error {
 			if err := checkRef("provider.api_key", v, apiKeyRefRE.MatchString, "an op:// secret reference or env:NAME"); err != nil {
 				return err
 			}
+		}
+	}
+	o, _ := root["otel"].(map[string]any)
+	headers, _ := o["headers"].(map[string]any)
+	for name, v := range headers {
+		if err := checkRef("otel.headers."+name, v, apiKeyRefRE.MatchString, "an op:// secret reference or env:NAME"); err != nil {
+			return err
 		}
 	}
 	g, _ := root["git"].(map[string]any)
