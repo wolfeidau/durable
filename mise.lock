@@ -176,6 +176,11 @@ version = "1.21.1"
 backend = "go:connectrpc.com/connect/cmd/protoc-gen-connect-go"
 specifiers = ["1.21.1"]
 
+[[tools."go:golang.org/x/tools/gopls"]]
+version = "0.24.0"
+backend = "go:golang.org/x/tools/gopls"
+specifiers = ["0.24.0"]
+
 [[tools."go:google.golang.org/protobuf/cmd/protoc-gen-go"]]
 version = "1.36.12"
 backend = "go:google.golang.org/protobuf/cmd/protoc-gen-go"
