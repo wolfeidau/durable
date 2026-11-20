@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
@@ -47,6 +48,9 @@ type RegistryConfig struct {
 	RetryBase time.Duration
 	RetryCap  time.Duration
 	Logger    *slog.Logger
+	// TracerProvider receives every session's spans; nil records nothing. CaptureContent adds prompts and tool I/O to them.
+	TracerProvider trace.TracerProvider
+	CaptureContent bool
 
 	// assemble is a test seam.
 	assemble func(context.Context, commands.AssembleConfig) (*commands.Assembled, error)
@@ -319,14 +323,17 @@ func (r *Registry) release(e *entry) {
 
 func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Session, error) {
 	s := newSession(r.logger.With(slog.String("session", filepath.Base(dir))), r.cfg.RetryBase, r.cfg.RetryCap)
+	s.tracer, s.id = durable.Tracer(r.cfg.TracerProvider), filepath.Base(dir)
 	ac := commands.AssembleConfig{
-		Home:        r.cfg.Home,
-		APIToken:    r.cfg.APIToken,
-		Interactive: false,
-		Observer:    s.observe,
-		Sandbox:     r.cfg.Sandbox,
-		Logger:      s.logger,
-		Effort:      r.cfg.Effort,
+		Home:           r.cfg.Home,
+		APIToken:       r.cfg.APIToken,
+		Interactive:    false,
+		Observer:       s.observe,
+		Sandbox:        r.cfg.Sandbox,
+		Logger:         s.logger,
+		Effort:         r.cfg.Effort,
+		TracerProvider: r.cfg.TracerProvider,
+		CaptureContent: r.cfg.CaptureContent,
 	}
 	if spec != nil {
 		ac.CWD, ac.Session, ac.Workspace, ac.SessionID = spec.cwd, spec.name, spec.workspace, spec.id
