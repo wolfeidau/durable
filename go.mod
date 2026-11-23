@@ -4,9 +4,9 @@ go 1.27
 
 require (
 	connectrpc.com/connect v1.21.1
-	github.com/ai-openshell/sdk-go v0.1.8
+	github.com/ai-openshell/sdk-go v0.1.9
 	github.com/alecthomas/kong v1.17.0
-	github.com/anthropics/anthropic-sdk-go/v2 v2.11.0
+	github.com/anthropics/anthropic-sdk-go/v2 v2.12.0
 	github.com/google/jsonschema-go v0.4.3
 	github.com/mattn/go-sqlite3 v1.14.53
 	github.com/modelcontextprotocol/go-sdk v1.8.0
