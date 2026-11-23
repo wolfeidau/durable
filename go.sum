@@ -14,8 +14,8 @@ github.com/alecthomas/kong v1.17.0 h1:f52BVWChYMDkMkCoqkEWRuFOk/K4B5LO7xIijeLJRd
 github.com/alecthomas/kong v1.17.0/go.mod h1:wrlbXem1CWqUV5Vbmss5ISYhsVPkBb1Yo7YKJghju2I=
 github.com/alecthomas/repr v0.5.2 h1:SU73FTI9D1P5UNtvseffFSGmdNci/O6RsqzeXJtP0Qs=
 github.com/alecthomas/repr v0.5.2/go.mod h1:Fr0507jx4eOXV7AlPV6AVZLYrLIuIeSOWtW57eE/O/4=
-github.com/anthropics/anthropic-sdk-go/v2 v2.12.0 h1:k5AHnteatEw2ZOF+xFWTu60hn2yAr+Yi9FF/5izmQGU=
-github.com/anthropics/anthropic-sdk-go/v2 v2.12.0/go.mod h1:9MisVFnaVHMm4A8Pm1h75dsxyM3M8vv6NW9O5Tm2Q4k=
+github.com/anthropics/anthropic-sdk-go/v2 v2.13.0 h1:IClHmLpdWZBOn8IrkDkQJuHinFlSa/URtkNECjXcgmE=
+github.com/anthropics/anthropic-sdk-go/v2 v2.13.0/go.mod h1:9MisVFnaVHMm4A8Pm1h75dsxyM3M8vv6NW9O5Tm2Q4k=
 github.com/aws/aws-sdk-go-v2 v1.38.0 h1:UCRQ5mlqcFk9HJDIqENSLR3wiG1VTWlyUfLDEvY7RxU=
 github.com/aws/aws-sdk-go-v2 v1.38.0/go.mod h1:9Q0OoGQoboYIAJyslFyF1f5K1Ryddop8gqMhWx/n4Wg=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.3 h1:tW1/Rkad38LA15X4UQtjXZXNKsCgkshC3EbmcUmghTg=
