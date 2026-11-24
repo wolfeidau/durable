@@ -27,19 +27,25 @@ function Harness({ sandboxed, calls, initial }: { sandboxed: boolean; calls: unk
 }
 
 describe("ViewTabs", () => {
-  test("arrow keys move between tabs and report the view", async () => {
+  test("arrow keys move focus between tabs, and Enter or Space opens one", async () => {
     const user = userEvent.setup();
     const calls: unknown[] = [];
     render(<Harness sandboxed calls={calls} />);
     await user.tab();
     expect(screen.getByRole("tab", { name: "Transcript" })).toHaveProperty("tabIndex", 0);
-    await user.keyboard("{ArrowRight}");
-    expect(calls).toEqual(["report"]);
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: /Network/ }));
+    expect(calls).toEqual([]);
+    expect(screen.getByRole("tab", { name: "Transcript" }).getAttribute("aria-selected")).toBe("true");
+    await user.keyboard("{Enter}");
+    expect(calls).toEqual(["network"]);
+    await user.keyboard("{ArrowLeft}");
+    expect(calls).toEqual(["network"]);
+    await user.keyboard(" ");
+    expect(calls).toEqual(["network", "report"]);
     expect(screen.getByRole("tab", { name: "Report" }).getAttribute("aria-selected")).toBe("true");
-    await user.keyboard("{ArrowRight}");
-    expect(calls).toEqual(["report", "network"]);
-    await user.keyboard("{ArrowLeft}{ArrowLeft}");
-    expect(calls).toEqual(["report", "network", "report", undefined]);
+    await user.keyboard("{ArrowLeft}{Enter}");
+    expect(calls).toEqual(["network", "report", undefined]);
   });
 
   test("the Network tab is absent unless sandboxed, and shows the denied count", () => {

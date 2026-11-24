@@ -21,6 +21,8 @@ export function ViewTabs({ view, onTab, sandboxed, deniedCount, actions, childre
       className="session-view"
       ref={ref}
       selectedKey={view}
+      // Manual: Report builds its overview and Network fetches, so arrowing past them shouldn't open them.
+      keyboardActivation="manual"
       onSelectionChange={(key) => onTab(key === "transcript" ? undefined : (key as "report" | "network"))}
     >
       <div className="toolbar">
