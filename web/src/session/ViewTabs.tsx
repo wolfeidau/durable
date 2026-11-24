@@ -1,8 +1,8 @@
 import type { ReactElement, ReactNode, Ref } from "react";
 import { Tab, TabList, TabPanel, Tabs } from "react-aria-components";
 import type { OpenTab } from "./transcript/Call";
+import type { View } from "./view";
 
-export type View = "transcript" | "report" | "network";
 
 interface Props {
   view: View;

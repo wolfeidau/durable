@@ -19,6 +19,7 @@ import { useFollowScroll } from "./useFollowScroll";
 import { useNetwork } from "./network/useNetwork";
 import { useWatchEvents } from "./useWatchEvents";
 import { ViewPanel, ViewTabs } from "./ViewTabs";
+import { viewOf } from "./view";
 
 interface Props {
   sessionId: string;
@@ -46,8 +47,9 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
   const turns = useMemo(() => builder.current.update(w.events), [w.events]);
   const stats = useMemo(() => summarize(w.events), [w.events]);
   const report = useMemo(() => buildReport(w.events), [w.events]);
-  const onReport = tab === "report" && !focus;
-  const onNetwork = tab === "network" && !focus;
+  const view = viewOf(tab, focus);
+  const onReport = view === "report";
+  const onNetwork = view === "network";
   const onTranscript = !onReport && !onNetwork;
   const sandboxed = Boolean(meta?.environment);
   const net = useNetwork(transport, sessionId, meta?.createdAt ? timestampDate(meta.createdAt) : undefined, sandboxed);
@@ -129,7 +131,7 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
   return (
     <ViewTabs
       ref={root}
-      view={onReport ? "report" : onNetwork ? "network" : "transcript"}
+      view={view}
       onTab={onTab}
       sandboxed={sandboxed}
       deniedCount={deniedCount}
