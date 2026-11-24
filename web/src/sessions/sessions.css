@@ -66,22 +66,16 @@
 .segmented.env { max-width: 100%; flex-wrap: wrap; margin-bottom: 0; }
 .segmented.env label { overflow-wrap: anywhere; }
 
-.segmented input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
+.segmented label > span { display: block; padding: 0.35rem 0.9rem; }
 
 .segmented label {
-  padding: 0.35rem 0.9rem;
   cursor: pointer;
   color: var(--text);
   background: var(--surface);
 }
 
-.segmented input:checked + label { background: var(--accent); color: var(--accent-text); }
-.segmented input:focus-visible + label { outline: 2px solid var(--link); outline-offset: -2px; }
+.segmented label[data-selected] { background: var(--accent); color: var(--accent-text); }
+.segmented label[data-focus-visible] { outline: 2px solid var(--link); outline-offset: -2px; }
 .fields { display: grid; gap: 0.75rem; }
 .form-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
 .new-session .banner { margin: 1rem 0 0; }

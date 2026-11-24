@@ -1,5 +1,4 @@
 import type { ReactElement } from "react";
-import { activate } from "../../lib/a11y";
 import { DataTable, Num } from "../../ui/DataTable";
 import { seconds } from "../../lib/format";
 import type { Overview } from "./overview";
@@ -46,14 +45,13 @@ export function ToolChart({ report, overview, onJump }: { report: Report; overvi
             const named = overview.calls.filter((c) => c.name === t.name);
             const target = named.filter((c) => c.ms !== undefined).sort((a, b) => b.ms! - a.ms!)[0] ?? named[0];
             const jump = target ? () => onJump(`call-${target.id}`) : undefined;
+            const Row = jump ? "button" : "div";
             return (
-              <div
+              <Row
                 key={t.name}
-                className={`tools-row${jump ? " link" : ""}`}
-                role={jump ? "button" : undefined}
-                tabIndex={jump ? 0 : undefined}
+                className={`tools-row${jump ? " row-btn link" : ""}`}
+                type={jump ? "button" : undefined}
                 onClick={jump}
-                onKeyDown={jump && activate(jump)}
                 {...tipProps(
                   tip,
                   <>
@@ -79,7 +77,7 @@ export function ToolChart({ report, overview, onJump }: { report: Report; overvi
                 </span>
                 <span className="num">{seconds(t.avg)}</span>
                 <span className="num">{seconds(t.p95)}</span>
-              </div>
+              </Row>
             );
           })}
         </div>

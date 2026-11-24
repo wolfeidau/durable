@@ -16,6 +16,7 @@ import { environmentHint, environmentLabel } from "../lib/environments";
 import { QueryStatus } from "../ui/QueryStatus";
 import { errText } from "../lib/rpc";
 import { readStored, store } from "../lib/storage";
+import { Segmented } from "./Segmented";
 import { age, kindText, sorted, where } from "./sessions";
 
 const modeLabels: Record<Mode, string> = { directory: "Directory", empty: "Empty workspace", repo: "Repository" };
@@ -59,21 +60,12 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
     <form className="card new-session" id="new-session" onSubmit={(e) => void submit(e)}>
       <h2>New session</h2>
       {modes.length > 1 ? (
-        <div className="segmented" role="radiogroup" aria-label="Workspace">
-          {modes.map((m) => (
-            <span key={m}>
-              <input
-                type="radio"
-                name="workspace"
-                id={`mode-${m}`}
-                value={m}
-                checked={mode === m}
-                onChange={() => setChosen(m)}
-              />
-              <label htmlFor={`mode-${m}`}>{modeLabels[m]}</label>
-            </span>
-          ))}
-        </div>
+        <Segmented
+          aria-label="Workspace"
+          options={modes.map((m) => ({ value: m, label: modeLabels[m] }))}
+          value={mode}
+          onChange={setChosen}
+        />
       ) : (
         <p className="kind">{modeLabels[mode]}</p>
       )}
@@ -83,24 +75,16 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
           <span className="caption" id="environment-caption">
             Environment
           </span>
-          <div className="segmented env" role="radiogroup" aria-labelledby="environment-caption">
-            {environments.map((e) => (
-              <span key={e.name} title={environmentHint(e)}>
-                <input
-                  type="radio"
-                  name="environment"
-                  id={`env-${e.name}`}
-                  value={e.name}
-                  checked={environment === e.name}
-                  onChange={() => {
-                    requestIds.current.changed();
-                    setChosenEnv(e.name);
-                  }}
-                />
-                <label htmlFor={`env-${e.name}`}>{environmentLabel(e)}</label>
-              </span>
-            ))}
-          </div>
+          <Segmented
+            className="env"
+            aria-labelledby="environment-caption"
+            options={environments.map((e) => ({ value: e.name, label: environmentLabel(e), title: environmentHint(e) }))}
+            value={environment}
+            onChange={(name) => {
+              requestIds.current.changed();
+              setChosenEnv(name);
+            }}
+          />
         </div>
       )}
       <div className="fields">
