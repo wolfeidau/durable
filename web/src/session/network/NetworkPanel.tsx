@@ -5,10 +5,10 @@ import { summary } from "../transcript/calls";
 import { coverageNotes, networkSourceLabel, type NetworkState } from "./network";
 import type { CallEntry } from "../transcript/transcript";
 import { eventMs, matches, rowCap, topDenied, type Verdict } from "./networkView";
-import { VerdictFilter } from "./VerdictFilter";
 import { DataTable } from "../../ui/DataTable";
 import { dash } from "../../lib/format";
 import { Tile } from "../../ui/Tile";
+import { Segmented } from "../../ui/Segmented";
 import { useNow } from "../../ui/useNow";
 
 interface Props {
@@ -28,6 +28,12 @@ const clock = (d: Date) => d.toLocaleTimeString([], { hour12: false });
 function fmtTime(d: Date): string {
   return sameDay(d, new Date()) ? clock(d) : `${d.toLocaleDateString()} ${clock(d)}`;
 }
+
+const verdicts: { value: Verdict; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "denied", label: "Denied" },
+  { value: "allowed", label: "Allowed" },
+];
 
 export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, call, onCall, onJump }: Props): ReactElement {
   const [verdict, setVerdict] = useState<Verdict>("all");
@@ -106,7 +112,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
         </section>
       )}
       <div className="net-filters">
-        <VerdictFilter verdict={verdict} onVerdict={setVerdict} />
+        <Segmented className="tabs net-verdicts" aria-label="Verdict" options={verdicts} value={verdict} onChange={setVerdict} />
         <input type="search" value={text} placeholder="Filter by host or path" aria-label="Filter by host or path" onChange={(e) => setText(e.target.value)} />
         {call && (
           <button className="secondary call-filter" title="Show all calls" onClick={() => onCall(undefined)}>

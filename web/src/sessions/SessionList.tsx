@@ -14,9 +14,9 @@ import {
 } from "./newSession";
 import { environmentHint, environmentLabel } from "../lib/environments";
 import { QueryStatus } from "../ui/QueryStatus";
+import { Segmented } from "../ui/Segmented";
 import { errText } from "../lib/rpc";
 import { readStored, store } from "../lib/storage";
-import { Segmented } from "./Segmented";
 import { age, kindText, sorted, where } from "./sessions";
 
 const modeLabels: Record<Mode, string> = { directory: "Directory", empty: "Empty workspace", repo: "Repository" };
@@ -76,7 +76,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
             Environment
           </span>
           <Segmented
-            className="env"
+            className="segmented env"
             aria-labelledby="environment-caption"
             options={environments.map((e) => ({ value: e.name, label: environmentLabel(e), title: environmentHint(e) }))}
             value={environment}

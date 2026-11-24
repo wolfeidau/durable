@@ -16,9 +16,9 @@ interface Props<T extends string> {
   className?: string;
 }
 
-export function Segmented<T extends string>({ options, value, onChange, className, ...name }: Props<T>): ReactElement {
+export function Segmented<T extends string>({ options, value, onChange, className = "segmented", ...name }: Props<T>): ReactElement {
   return (
-    <RadioGroup className={`segmented${className ? ` ${className}` : ""}`} orientation="horizontal" value={value} onChange={(v) => onChange(v as T)} {...name}>
+    <RadioGroup className={className} orientation="horizontal" value={value} onChange={(v) => onChange(v as T)} {...name}>
       {options.map((o) => (
         <Radio key={o.value} value={o.value}>
           <span title={o.title}>{o.label}</span>
