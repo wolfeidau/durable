@@ -45,6 +45,8 @@ var (
 	goEndpoints = []sandbox.GrantEndpoint{
 		{Host: "proxy.golang.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
 		{Host: "sum.golang.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}},
+		// The proxy redirects some module zips to signed URLs in its own bucket.
+		{Host: "storage.googleapis.com", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/proxy-golang-org-prod/**"}}},
 	}
 
 	bunBinaries  = []string{miseInstalls + "/bun/*/bin/bun"}
