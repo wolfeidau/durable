@@ -13,7 +13,6 @@
 .top-denied .badge { margin-left: auto; }
 .net-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .net-filters input { flex: 1 1 12rem; min-width: 0; }
-.net-verdicts button { min-height: 32px; }
 .call-filter { min-height: 32px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .net-table { max-width: 100%; max-height: 70vh; overflow: auto; }
 .net-table th { position: sticky; top: 0; background: var(--surface); text-align: left; z-index: 1; }

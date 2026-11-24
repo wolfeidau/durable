@@ -1,5 +1,4 @@
 import type { ReactElement, ReactNode } from "react";
-import { activate } from "../../lib/a11y";
 import { DataTable, Num } from "../../ui/DataTable";
 import { seconds } from "../../lib/format";
 import { slowestCount, type CallRow, type Overview } from "./overview";
@@ -16,29 +15,29 @@ function CallList({ rows, empty, onJump, failed }: { rows: CallRow[]; empty: Rea
       {rows.map((c) => {
         const jump = () => onJump(`call-${c.id}`);
         return (
-          <li
-            key={c.id}
-            role="button"
-            tabIndex={0}
-            onClick={jump}
-            onKeyDown={activate(jump)}
-            {...tipProps(
-              tip,
-              <>
-                <div className="tip-title">
-                  {c.name} · turn {c.n}
-                </div>
-                {c.preview && <div className="tip-note">{c.preview}</div>}
-                <TipRow label="duration" value={seconds(c.ms)} />
-                {c.error && <div className="tip-note">{c.error}</div>}
-                <div className="tip-note">Opens the call</div>
-              </>,
-            )}
-          >
-            <span className="call-name">{c.name}</span>
-            <span className="calls-preview">{c.preview}</span>
-            <span className="calls-right">{seconds(c.ms)}</span>
-            {failed && <span className="calls-error">{c.error || "(no output)"}</span>}
+          <li key={c.id}>
+            <button
+              type="button"
+              className="row-btn"
+              onClick={jump}
+              {...tipProps(
+                tip,
+                <>
+                  <div className="tip-title">
+                    {c.name} · turn {c.n}
+                  </div>
+                  {c.preview && <div className="tip-note">{c.preview}</div>}
+                  <TipRow label="duration" value={seconds(c.ms)} />
+                  {c.error && <div className="tip-note">{c.error}</div>}
+                  <div className="tip-note">Opens the call</div>
+                </>,
+              )}
+            >
+              <span className="call-name">{c.name}</span>
+              <span className="calls-preview">{c.preview}</span>
+              <span className="calls-right">{seconds(c.ms)}</span>
+              {failed && <span className="calls-error">{c.error || "(no output)"}</span>}
+            </button>
           </li>
         );
       })}

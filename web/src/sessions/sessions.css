@@ -53,35 +53,11 @@
 .new-session h2 { margin-bottom: 0.75rem; }
 .new-session .kind { margin: 0 0 0.75rem; font-size: 0.85rem; color: var(--muted); }
 
-.segmented {
-  display: inline-flex;
-  margin-bottom: 1rem;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  overflow: hidden;
-}
-
 .env-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.6rem; margin-bottom: 1rem; }
 .env-row .caption { font-size: 0.85rem; color: var(--muted); }
 .segmented.env { max-width: 100%; flex-wrap: wrap; margin-bottom: 0; }
 .segmented.env label { overflow-wrap: anywhere; }
 
-.segmented input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-}
-
-.segmented label {
-  padding: 0.35rem 0.9rem;
-  cursor: pointer;
-  color: var(--text);
-  background: var(--surface);
-}
-
-.segmented input:checked + label { background: var(--accent); color: var(--accent-text); }
-.segmented input:focus-visible + label { outline: 2px solid var(--link); outline-offset: -2px; }
 .fields { display: grid; gap: 0.75rem; }
 .form-actions { display: flex; justify-content: flex-end; margin-top: 1rem; }
 .new-session .banner { margin: 1rem 0 0; }

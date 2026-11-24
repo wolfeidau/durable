@@ -8,6 +8,7 @@ import { eventMs, matches, rowCap, topDenied, type Verdict } from "./networkView
 import { DataTable } from "../../ui/DataTable";
 import { dash } from "../../lib/format";
 import { Tile } from "../../ui/Tile";
+import { Segmented } from "../../ui/Segmented";
 import { useNow } from "../../ui/useNow";
 
 interface Props {
@@ -111,13 +112,7 @@ export const NetworkPanel = memo(function NetworkPanel({ state, calls, denied, c
         </section>
       )}
       <div className="net-filters">
-        <div className="tabs net-verdicts" role="group" aria-label="Verdict">
-          {verdicts.map((v) => (
-            <button key={v.value} className="secondary" aria-pressed={verdict === v.value} onClick={() => setVerdict(v.value)}>
-              {v.label}
-            </button>
-          ))}
-        </div>
+        <Segmented className="tabs net-verdicts" aria-label="Verdict" options={verdicts} value={verdict} onChange={setVerdict} />
         <input type="search" value={text} placeholder="Filter by host or path" aria-label="Filter by host or path" onChange={(e) => setText(e.target.value)} />
         {call && (
           <button className="secondary call-filter" title="Show all calls" onClick={() => onCall(undefined)}>

@@ -1,6 +1,5 @@
 import { createContext, memo, useContext, useEffect, useRef, useState, type ReactElement } from "react";
 import { ApprovalStatus, type NetworkEvent } from "../../gen/durable/v1/durable_pb";
-import { activate } from "../../lib/a11y";
 import { plural } from "../../lib/format";
 import { tipProps, useTip } from "../../ui/Tooltip";
 import { useNow } from "../../ui/useNow";
@@ -54,13 +53,11 @@ function DeniedChip({ id, denied, onTab }: { id: string; denied: NetworkEvent[];
     onTab("network", id);
   };
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      className="badge tone-error denied-chip"
+    <button
+      type="button"
+      className="row-btn badge tone-error denied-chip"
       aria-label={`${plural(denied.length, "denied network request")} during this call, ${hostSummary(denied)}`}
       onClick={open}
-      onKeyDown={activate(open)}
       {...tipProps(
         tip,
         <>
@@ -72,7 +69,7 @@ function DeniedChip({ id, denied, onTab }: { id: string; denied: NetworkEvent[];
       )}
     >
       ✕ {denied.length} denied
-    </span>
+    </button>
   );
 }
 

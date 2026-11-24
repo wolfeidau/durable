@@ -18,6 +18,8 @@ import { useDenied } from "./network/useDenied";
 import { useFollowScroll } from "./useFollowScroll";
 import { useNetwork } from "./network/useNetwork";
 import { useWatchEvents } from "./useWatchEvents";
+import { ViewPanel, ViewTabs } from "./ViewTabs";
+import { viewOf } from "./view";
 
 interface Props {
   sessionId: string;
@@ -45,8 +47,9 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
   const turns = useMemo(() => builder.current.update(w.events), [w.events]);
   const stats = useMemo(() => summarize(w.events), [w.events]);
   const report = useMemo(() => buildReport(w.events), [w.events]);
-  const onReport = tab === "report" && !focus;
-  const onNetwork = tab === "network" && !focus;
+  const view = viewOf(tab, focus);
+  const onReport = view === "report";
+  const onNetwork = view === "network";
   const onTranscript = !onReport && !onNetwork;
   const sandboxed = Boolean(meta?.environment);
   const net = useNetwork(transport, sessionId, meta?.createdAt ? timestampDate(meta.createdAt) : undefined, sandboxed);
@@ -126,22 +129,14 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
   );
 
   return (
-    <div className="session-view" ref={root}>
-      <div className="toolbar">
-        <div className="tabs" role="group" aria-label="View">
-          <button className="secondary" aria-pressed={onTranscript} onClick={() => onTab(undefined)}>
-            Transcript
-          </button>
-          <button className="secondary" aria-pressed={onReport} onClick={() => onTab("report")}>
-            Report
-          </button>
-          {sandboxed && (
-            <button className="secondary" aria-pressed={onNetwork} onClick={() => onTab("network")}>
-              Network{deniedCount > 0 && ` · ${deniedCount} denied`}
-            </button>
-          )}
-        </div>
-        {onTranscript && (
+    <ViewTabs
+      ref={root}
+      view={view}
+      onTab={onTab}
+      sandboxed={sandboxed}
+      deniedCount={deniedCount}
+      actions={
+        onTranscript && (
           <div className="tool-actions">
             <button
               className="secondary"
@@ -160,11 +155,12 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
               Expand all
             </button>
           </div>
-        )}
-      </div>
-      {overview && <ReportPanel report={report} overview={overview} stats={stats} onJump={jump} />}
-      {onNetwork &&
-        (meta && !sandboxed ? (
+        )
+      }
+    >
+      <ViewPanel id="report">{overview && <ReportPanel report={report} overview={overview} stats={stats} onJump={jump} />}</ViewPanel>
+      <ViewPanel id="network">
+        {meta && !sandboxed ? (
           <p className="muted">{noSandboxText}</p>
         ) : (
           <NetworkPanel
@@ -175,25 +171,28 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
             onCall={(id) => onTab("network", id)}
             onJump={jump}
           />
-        ))}
-      <TranscriptPane
-        ref={transcript}
-        turns={turns}
-        footers={footers}
-        mine={mine}
-        partialText={w.partialText}
-        toolOutput={w.toolOutput}
-        denied={denied}
-        onTab={onTab}
-        onDecide={decide}
-        onCancel={stop}
-        busy={decideM.isPending}
-        unseen={unseen}
-        loading={loading}
-        calls={calls}
-        focus={focus}
-        hidden={!onTranscript}
-      />
+        )}
+      </ViewPanel>
+      <ViewPanel id="transcript">
+        <TranscriptPane
+          ref={transcript}
+          turns={turns}
+          footers={footers}
+          mine={mine}
+          partialText={w.partialText}
+          toolOutput={w.toolOutput}
+          denied={denied}
+          onTab={onTab}
+          onDecide={decide}
+          onCancel={stop}
+          busy={decideM.isPending}
+          unseen={unseen}
+          loading={loading}
+          calls={calls}
+          focus={focus}
+          hidden={!onTranscript}
+        />
+      </ViewPanel>
       {onTranscript && (
         <>
           {behind && (
@@ -204,6 +203,6 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
           <Composer ref={composer} text={text} onText={setText} onSend={send} note={note} stats={stats} latest={latest} />
         </>
       )}
-    </div>
+    </ViewTabs>
   );
 }

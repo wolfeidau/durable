@@ -14,7 +14,11 @@
 
 .tabs { display: flex; gap: 0.25rem; }
 
-.tabs button {
+.tabs button,
+.tabs [role="tab"],
+.tabs label {
+  display: inline-flex;
+  align-items: center;
   min-height: 32px;
   padding: 0 0.9rem;
   border: none;
@@ -22,9 +26,14 @@
   border-radius: 0;
   background: none;
   color: var(--muted);
+  font: inherit;
+  cursor: pointer;
 }
 
-.tabs button[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--link); }
+.tabs [role="tab"][data-hovered],
+.tabs label[data-hovered] { background: var(--elevated); }
+.tabs label[data-focus-visible] { outline: 2px solid var(--link); outline-offset: -2px; }
+.tabs [data-selected] { color: var(--text); border-bottom-color: var(--link); }
 .tool-actions { display: flex; gap: 0.25rem; }
 .tool-actions button { min-height: 28px; padding: 0 0.6rem; font-size: 0.85rem; }
 

@@ -1,6 +1,5 @@
 import type { ReactElement } from "react";
 import { SubmissionStatus } from "../../gen/durable/v1/durable_pb";
-import { activate } from "../../lib/a11y";
 import { DataTable, Num } from "../../ui/DataTable";
 import { dash, money, plural, seconds } from "../../lib/format";
 import type { Overview, TurnBar } from "./overview";
@@ -83,38 +82,36 @@ export function Timeline({ overview, onJump }: { overview: Overview; onJump: Jum
             {turns.map((t) => {
               const jump = () => onJump(`turn-${t.seq}`);
               return (
-                <div
+                <button
+                  type="button"
                   key={String(t.seq)}
-                  className={`tl-row${t.status === SubmissionStatus.CANCELLED ? " tone-cancelled" : ""}`}
-                  role="button"
-                  tabIndex={0}
+                  className={`row-btn tl-row${t.status === SubmissionStatus.CANCELLED ? " tone-cancelled" : ""}`}
                   aria-label={`Turn ${t.n}: ${t.prompt || "no prompt"}. Open in transcript`}
                   onClick={jump}
-                  onKeyDown={activate(jump)}
                   {...tipProps(tip, <TurnTip t={t} />)}
                 >
-                  <div className="tl-label">
+                  <span className="tl-label">
                     <span className="tl-n">{t.n}</span>
                     <span className="tl-prompt" title={t.prompt}>
                       {t.prompt || <span className="faint">(no prompt)</span>}
                     </span>
                     <TurnFlag t={t} />
-                  </div>
-                  <div className="tl-bar">
+                  </span>
+                  <span className="tl-bar">
                     {t.totalMs > 0 && (
-                      <div className="tl-track bar-fill" style={{ width: `${(t.totalMs / max) * 100}%` }}>
+                      <span className="tl-track bar-fill" style={{ width: `${(t.totalMs / max) * 100}%` }}>
                         <span className="seg" style={{ flexGrow: t.segModel, background: "var(--series-model)" }} />
                         <span className="seg" style={{ flexGrow: t.segTool, background: "var(--series-tool)" }} />
                         <span className="seg" style={{ flexGrow: t.segOther, background: "var(--series-other)" }} />
-                      </div>
+                      </span>
                     )}
                     <span className="tl-dur">{t.wallMs === undefined && t.totalMs === 0 ? dash : seconds(t.totalMs)}</span>
-                  </div>
-                  <div className="tl-meta">
+                  </span>
+                  <span className="tl-meta">
                     {t.cost !== undefined && <span>{money(t.cost, t.estimated)}</span>}
                     <span>{plural(t.calls, "call")}</span>
-                  </div>
-                </div>
+                  </span>
+                </button>
               );
             })}
           </div>
