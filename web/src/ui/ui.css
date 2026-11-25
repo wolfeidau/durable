@@ -30,7 +30,8 @@
 .tip-title { margin-bottom: 0.25rem; font-weight: 600; overflow-wrap: anywhere; }
 .tip-title span { font-weight: 400; color: var(--muted); }
 .tip-row { display: flex; align-items: center; gap: 0.4rem; font-variant-numeric: tabular-nums; }
-.tip-row span:last-child { color: var(--muted); }
+.tip-row .tip-label { color: var(--muted); }
+.tip-row strong { margin-left: auto; padding-left: 0.75rem; text-align: right; }
 .tip-note { margin-top: 0.25rem; color: var(--muted); overflow-wrap: anywhere; }
 
 .segmented {

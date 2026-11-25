@@ -53,8 +53,8 @@ export function TipRow({ color, label, value }: { color?: string; label: string;
   return (
     <div className="tip-row">
       {color ? <Key color={color} /> : <span className="key none" />}
+      <span className="tip-label">{label}</span>
       <strong>{value}</strong>
-      <span>{label}</span>
     </div>
   );
 }

@@ -8,7 +8,16 @@
   font-size: 0.85rem;
 }
 
-.bar-where { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* RTL clips long paths on the left so the trailing directory or branch stays visible. */
+.bar-where {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  direction: rtl;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .bar-env { flex: none; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 
 .bar-id {
@@ -31,6 +40,8 @@
 
 .where {
   overflow: hidden;
+  direction: rtl;
+  text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.85rem;

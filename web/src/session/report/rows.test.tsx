@@ -6,6 +6,7 @@ import { SubmissionStatus } from "../../gen/durable/v1/durable_pb";
 import { TipHost } from "../../ui/Tooltip";
 import { CallLists } from "./CallLists";
 import type { CallRow, Overview, TurnBar } from "./overview";
+import { TipRow } from "./parts";
 import { Timeline } from "./Timeline";
 import { ToolChart } from "./ToolChart";
 import type { Report } from "./usage";
@@ -74,5 +75,12 @@ describe("report rows", () => {
     render(wrap(<ToolChart report={report} overview={overview} onJump={(t) => jumps.push(t)} />));
     expect(screen.getAllByRole("button")).toHaveLength(1);
     await activates(screen.getByRole("button", { name: /^bash/ }), jumps, "call-c1");
+  });
+
+  test("TipRow renders label before value", () => {
+    const { container } = render(<TipRow label="errors" value={1} />);
+    expect(container.querySelector(".tip-row")?.textContent).toBe("errors1");
+    expect(container.querySelector(".tip-label")?.textContent).toBe("errors");
+    expect(container.querySelector("strong")?.textContent).toBe("1");
   });
 });

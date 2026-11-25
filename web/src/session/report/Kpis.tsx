@@ -29,7 +29,7 @@ export function Kpis({ overview, stats, turns }: { overview: Overview; stats: Su
         )}
       </Tile>
       <Tile label="Cache hit">{percent(stats.cacheHit)}</Tile>
-      <Tile label="Context">
+      <Tile label="Context" className="tile-wide">
         <ContextMeter stats={stats} variant="tile" />
       </Tile>
     </div>

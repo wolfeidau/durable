@@ -39,6 +39,10 @@
   .table-wrap.report tr { display: table-row; margin: 0; border: none; border-radius: 0; background: none; }
   .table-wrap.report td { display: table-cell; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
   .table-wrap.report tbody tr:last-child td { border-bottom: none; }
+  .tile-wide { grid-column: 1 / -1; }
+  .tile-wide .meter-tile { flex-direction: row; align-items: center; gap: 0.6rem; }
+  .tile-wide .meter-tile meter { max-width: none; flex: 1; }
+  .chart .axis { font-size: 16px; }
   .msg.user { max-width: 92%; }
 }
 
