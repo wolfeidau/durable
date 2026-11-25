@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { useRoute } from "../lib/route";
 import { setToken } from "../lib/token";
+import { SessionBar } from "../sessions/SessionBar";
 import { SessionList } from "../sessions/SessionList";
 import { SessionView } from "../session/SessionView";
 import type { WatchSummary } from "../session/StatusLine";
@@ -45,16 +46,19 @@ export function App(): ReactElement {
       {needToken && <TokenInput onApply={onToken} />}
       <main className={`page${sessionId ? " page-session" : ""}`}>
         {sessionId ? (
-          <SessionView
-            key={sessionId}
-            sessionId={sessionId}
-            onWatch={setWatch}
-            tab={route.view === "session" ? route.tab : undefined}
-            call={route.view === "session" ? route.call : undefined}
-            onTab={(tab, call) => selectTab(sessionId, tab, call)}
-            focus={route.view === "session" ? route.focus : undefined}
-            onFocus={(target) => selectFocus(sessionId, target)}
-          />
+          <>
+            <SessionBar sessionId={sessionId} />
+            <SessionView
+              key={sessionId}
+              sessionId={sessionId}
+              onWatch={setWatch}
+              tab={route.view === "session" ? route.tab : undefined}
+              call={route.view === "session" ? route.call : undefined}
+              onTab={(tab, call) => selectTab(sessionId, tab, call)}
+              focus={route.view === "session" ? route.focus : undefined}
+              onFocus={(target) => selectFocus(sessionId, target)}
+            />
+          </>
         ) : onServer ? (
           <ServerPage />
         ) : (

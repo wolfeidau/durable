@@ -16,11 +16,13 @@
 
 .crumbs {
   display: flex;
+  flex: 1;
   align-items: baseline;
   gap: 0.5rem;
   min-width: 0;
 }
 
+.crumbs a, .crumbs .sep { flex: none; white-space: nowrap; }
 .crumbs a { color: var(--text); text-decoration: none; }
 .crumbs a:hover { text-decoration: underline; }
 .crumbs .brand { font-weight: 700; font-size: 1.1rem; }
@@ -31,6 +33,7 @@
 .nav-link:hover, .nav-link[aria-current] { color: var(--text); text-decoration: underline; }
 
 .crumb-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

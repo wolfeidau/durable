@@ -6,7 +6,7 @@ import { environmentLabel } from "../lib/environments";
 import { repoHref, where } from "./sessions";
 import { useCopy } from "../ui/useCopy";
 
-// Workspace, environment and id of the open session, shown in the topbar.
+// Workspace, environment and id of the open session, shown above the session view.
 export function SessionBar({ sessionId }: { sessionId: string }): ReactElement | null {
   const sessions = useQuery(listSessions, {});
   const info = useQuery(getServerInfo, {});

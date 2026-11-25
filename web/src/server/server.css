@@ -1,7 +1,6 @@
 /* Server page */
 .server-page h3 { margin: 0 0 0.5rem; font-size: 0.95rem; color: var(--muted); }
 .server-page section { margin-bottom: 0.5rem; }
-.table-wrap.static tbody tr { cursor: default; }
 .table-wrap.static tbody tr:hover { background: none; }
-.table-wrap.static td { overflow-wrap: anywhere; }
+.table-wrap.static td { vertical-align: top; }
 .table-wrap.static .badge { margin: 0 0.3rem 0.2rem 0; }

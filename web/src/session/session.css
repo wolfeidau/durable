@@ -4,12 +4,14 @@
   top: var(--topbar-h);
   z-index: 5;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.25rem 0.5rem;
   margin: 0 0 1rem;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
+  box-shadow: 0 -2px 0 var(--bg);
 }
 
 .tabs { display: flex; gap: 0.25rem; }
@@ -27,6 +29,7 @@
   background: none;
   color: var(--muted);
   font: inherit;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -34,8 +37,8 @@
 .tabs label[data-hovered] { background: var(--elevated); }
 .tabs label[data-focus-visible] { outline: 2px solid var(--link); outline-offset: -2px; }
 .tabs [data-selected] { color: var(--text); border-bottom-color: var(--link); }
-.tool-actions { display: flex; gap: 0.25rem; }
-.tool-actions button { min-height: 28px; padding: 0 0.6rem; font-size: 0.85rem; }
+.tool-actions { display: flex; flex-shrink: 0; gap: 0.25rem; padding: 0.15rem 0; }
+.tool-actions button { min-height: 28px; padding: 0 0.6rem; font-size: 0.85rem; white-space: nowrap; }
 
 .stats { display: flex; flex: 1; flex-wrap: wrap; align-items: center; gap: 0.1rem 1rem; min-width: 0; font-size: 0.85rem; }
 .stats .meter { display: flex; align-items: center; gap: 0.5rem; }
@@ -47,7 +50,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  max-width: 50%;
+  max-width: 16rem;
   padding: 0.1rem 0.6rem;
   border-radius: 999px;
   font-size: 0.8rem;

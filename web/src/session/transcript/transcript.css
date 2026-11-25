@@ -1,4 +1,4 @@
-.turn, .call { scroll-margin-top: calc(var(--topbar-h) + 4rem); }
+.turn, .call { scroll-margin-top: calc(var(--topbar-h) + var(--toolbar-h, 4rem) + 1rem); }
 .transcript { padding-bottom: calc(var(--composer-h, 0px) + 1.5rem); }
 .turn-usage { font-size: 0.8rem; }
 .turn { margin-bottom: 1.5rem; content-visibility: auto; contain-intrinsic-size: auto 400px; }
@@ -12,7 +12,7 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.msg.assistant { position: relative; }
+.msg.assistant { margin-bottom: 0.25rem; }
 .msg.live { opacity: 0.7; }
 .notice { color: var(--faint); font-size: 0.85rem; font-style: italic; }
 
@@ -137,18 +137,23 @@ details[open] > .call-head::before { transform: rotate(90deg); }
 .md th, .md td { padding: 0.4rem 0.8rem; border: 1px solid var(--border); overflow-wrap: normal; word-break: normal; }
 .md th { white-space: nowrap; }
 
+.msg-actions {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 0.2rem;
+}
+
 .copy-btn {
-  position: absolute;
-  top: 0;
-  right: 0;
   min-height: 24px;
   padding: 0 0.5rem;
   font-size: 0.75rem;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 0.15s;
 }
 
-.msg.assistant:hover .copy-btn, .copy-btn:focus-visible { opacity: 1; }
+.msg.assistant:hover .copy-btn,
+.msg.assistant:focus-within .copy-btn,
+.copy-btn:focus-visible { opacity: 1; }
 @media (hover: none) { .copy-btn { opacity: 1; } }
 .md th { background: var(--elevated); }
 .md blockquote { padding-left: 0.8rem; border-left: 3px solid var(--border-strong); color: var(--muted); }

@@ -22,8 +22,8 @@ function Environments({
           {environments.map((e) => (
             <tr key={e.name}>
               <td className="session-name">{e.name}</td>
-              <td className="mono">{e.image}</td>
-              <td>
+              <td className="mono wrap">{e.image}</td>
+              <td className="wrap">
                 {e.grants.length === 0 && <span className="faint">none</span>}
                 {e.grants.map((g) => (
                   <span key={g} className="badge tone-muted" title={summary.get(g)}>
@@ -31,7 +31,7 @@ function Environments({
                   </span>
                 ))}
               </td>
-              <td>{approvalsLabel(e)}</td>
+              <td className="wrap">{approvalsLabel(e)}</td>
               <td>
                 <SourceBadge source={sources.get(`environments.${e.name}`) ?? ""} />
               </td>
@@ -65,7 +65,7 @@ export function ServerPage(): ReactElement {
                 {g.settings.map((s) => (
                   <tr key={s.field}>
                     <td className="mono">{shortField(s.field)}</td>
-                    <td className="mono">{s.value}</td>
+                    <td className="mono wrap">{s.value}</td>
                     <td>
                       <SourceBadge source={s.source} />
                     </td>
@@ -91,7 +91,7 @@ export function ServerPage(): ReactElement {
                 {data.grants.map((g) => (
                   <tr key={g.name}>
                     <td className="session-name">{g.name}</td>
-                    <td className="muted">{g.summary}</td>
+                    <td className="muted wrap">{g.summary}</td>
                     <td className="mono">
                       {g.binaries.map((b) => (
                         <div key={b}>{b}</div>

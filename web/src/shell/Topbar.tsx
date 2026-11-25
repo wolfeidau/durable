@@ -2,7 +2,6 @@ import { useQuery } from "@connectrpc/connect-query";
 import type { ReactElement } from "react";
 import { listSessions } from "../gen/durable/v1/durable-SessionService_connectquery";
 import { serverHref } from "../lib/route";
-import { SessionBar } from "../sessions/SessionBar";
 import { ConnectionPill, type WatchSummary } from "../session/StatusLine";
 
 function Crumb({ sessionId }: { sessionId: string }): ReactElement {
@@ -29,10 +28,10 @@ export function Topbar({ sessionId, onServer, home, openServer, activeWatch, aut
         </a>
         {sessionId && (
           <>
-            <span className="sep" aria-hidden="true">
+            <span className="sep crumb-mid" aria-hidden="true">
               /
             </span>
-            <a href={location.pathname} onClick={home}>
+            <a className="crumb-mid" href={location.pathname} onClick={home}>
               Sessions
             </a>
             <span className="sep" aria-hidden="true">
@@ -52,7 +51,6 @@ export function Topbar({ sessionId, onServer, home, openServer, activeWatch, aut
           </>
         )}
       </nav>
-      {sessionId && <SessionBar sessionId={sessionId} />}
       <div className="topbar-right">
         <a
           className="nav-link"
