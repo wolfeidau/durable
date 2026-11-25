@@ -46,5 +46,5 @@ func TestGetServerInfoReturnsSettingsWarningsAndGrants(t *testing.T) {
 	require.Equal(t, "go-modules", g.Name)
 	require.NotEmpty(t, g.Summary)
 	require.Equal(t, []string{"/usr/local/go/bin/go", "/tmp/mise/data/installs/go/*/bin/go"}, g.Binaries)
-	require.Equal(t, []string{"proxy.golang.org:443", "sum.golang.org:443"}, g.Hosts)
+	require.Equal(t, []string{"proxy.golang.org:443", "sum.golang.org:443", "storage.googleapis.com:443"}, g.Hosts)
 }
