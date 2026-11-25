@@ -7,6 +7,7 @@
 @media (max-width: 640px) {
   .topbar { padding: 0 16px; gap: 0.6rem; }
   .topbar-right { gap: 0.6rem; }
+  .crumb-mid { display: none; }
   .pill { max-width: 9rem; }
   .tabs [role="tab"] { padding: 0 0.65rem; }
   .composer { padding: 0.75rem 16px; }
@@ -16,7 +17,7 @@
   .table-wrap { border: none; background: none; }
   .table-wrap table, .table-wrap tbody, .table-wrap tr, .table-wrap td { display: block; }
   .table-wrap thead, .created { display: none; }
-  .table-wrap.static td.nowrap, .table-wrap.static td.nowrap div { white-space: normal; overflow-wrap: anywhere; }
+  .table-wrap.static td { min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 
   .table-wrap tr {
     margin-bottom: 0.6rem;

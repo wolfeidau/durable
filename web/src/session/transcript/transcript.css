@@ -1,4 +1,4 @@
-.turn, .call { scroll-margin-top: calc(var(--topbar-h) + 4rem); }
+.turn, .call { scroll-margin-top: calc(var(--topbar-h) + var(--toolbar-h, 4rem) + 1rem); }
 .transcript { padding-bottom: calc(var(--composer-h, 0px) + 1.5rem); }
 .turn-usage { font-size: 0.8rem; }
 .turn { margin-bottom: 1.5rem; content-visibility: auto; contain-intrinsic-size: auto 400px; }
@@ -147,7 +147,7 @@ details[open] > .call-head::before { transform: rotate(90deg); }
   min-height: 24px;
   padding: 0 0.5rem;
   font-size: 0.75rem;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 0.15s;
 }
 

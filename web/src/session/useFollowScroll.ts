@@ -68,22 +68,26 @@ export function useFollowScroll({ root, composer, transcript, onTranscript, onRe
     else setBehind(true);
   }, [events, partialText, toolOutput, mine, loading, onTranscript]);
 
-  // The transcript's bottom padding tracks the composer, and content that grows after render (calls settling, markdown) is still followed.
+  // The transcript's bottom padding tracks the composer, its scroll margin tracks the toolbar, and content that grows after render is still followed.
   useLayoutEffect(() => {
     const el = composer.current;
     const host = root.current;
     if (!el || !host) return;
+    const toolbar = host.querySelector<HTMLElement>(".toolbar");
     const measure = () => {
       host.style.setProperty("--composer-h", `${el.offsetHeight}px`);
+      if (toolbar) host.style.setProperty("--toolbar-h", `${toolbar.offsetHeight}px`);
       if (following.current) toBottom();
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
+    if (toolbar) ro.observe(toolbar);
     if (transcript.current) ro.observe(transcript.current);
     return () => {
       ro.disconnect();
       host.style.removeProperty("--composer-h");
+      host.style.removeProperty("--toolbar-h");
     };
   }, [onTranscript]);
 

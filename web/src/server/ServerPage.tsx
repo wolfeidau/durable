@@ -21,9 +21,9 @@ function Environments({
     <DataTable head={["Name", "Image", "Grants", "Approvals", "Source"]} wrapClass="static" numeric={false}>
           {environments.map((e) => (
             <tr key={e.name}>
-              <td className="session-name nowrap">{e.name}</td>
-              <td className="mono nowrap">{e.image}</td>
-              <td>
+              <td className="session-name">{e.name}</td>
+              <td className="mono wrap">{e.image}</td>
+              <td className="wrap">
                 {e.grants.length === 0 && <span className="faint">none</span>}
                 {e.grants.map((g) => (
                   <span key={g} className="badge tone-muted" title={summary.get(g)}>
@@ -31,8 +31,8 @@ function Environments({
                   </span>
                 ))}
               </td>
-              <td>{approvalsLabel(e)}</td>
-              <td className="nowrap">
+              <td className="wrap">{approvalsLabel(e)}</td>
+              <td>
                 <SourceBadge source={sources.get(`environments.${e.name}`) ?? ""} />
               </td>
             </tr>
@@ -64,9 +64,9 @@ export function ServerPage(): ReactElement {
           <DataTable head={["Setting", "Value", "Source"]} wrapClass="static" numeric={false}>
                 {g.settings.map((s) => (
                   <tr key={s.field}>
-                    <td className="mono nowrap">{shortField(s.field)}</td>
-                    <td className="mono">{s.value}</td>
-                    <td className="nowrap">
+                    <td className="mono">{shortField(s.field)}</td>
+                    <td className="mono wrap">{s.value}</td>
+                    <td>
                       <SourceBadge source={s.source} />
                     </td>
                   </tr>
@@ -90,14 +90,14 @@ export function ServerPage(): ReactElement {
           <DataTable head={["Name", "Allows", "Binaries", "Hosts"]} wrapClass="static" numeric={false}>
                 {data.grants.map((g) => (
                   <tr key={g.name}>
-                    <td className="session-name nowrap">{g.name}</td>
-                    <td className="muted">{g.summary}</td>
-                    <td className="mono nowrap">
+                    <td className="session-name">{g.name}</td>
+                    <td className="muted wrap">{g.summary}</td>
+                    <td className="mono">
                       {g.binaries.map((b) => (
                         <div key={b}>{b}</div>
                       ))}
                     </td>
-                    <td className="mono nowrap">
+                    <td className="mono">
                       {g.hosts.map((h) => (
                         <div key={h}>{h}</div>
                       ))}

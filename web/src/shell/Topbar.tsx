@@ -28,10 +28,10 @@ export function Topbar({ sessionId, onServer, home, openServer, activeWatch, aut
         </a>
         {sessionId && (
           <>
-            <span className="sep" aria-hidden="true">
+            <span className="sep crumb-mid" aria-hidden="true">
               /
             </span>
-            <a href={location.pathname} onClick={home}>
+            <a className="crumb-mid" href={location.pathname} onClick={home}>
               Sessions
             </a>
             <span className="sep" aria-hidden="true">
