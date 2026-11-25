@@ -35,7 +35,9 @@ export const TurnView = memo(function TurnView({ turn, usage, localText, partial
           return (
             <div key={i} className="msg assistant">
               <Markdown text={e.text} />
-              <CopyButton text={e.text} />
+              <div className="msg-actions">
+                <CopyButton text={e.text} />
+              </div>
             </div>
           );
         }
