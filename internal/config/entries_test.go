@@ -91,3 +91,19 @@ func TestMalformedFileRefsAreRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestGitHubAppEntriesNeverPrintTheReference(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	file := `{"git": {"hosts": {"github": {"app": {"client_id": "Iv23liABC", "private_key": "op://vault/item/key"}}}}}`
+	s, err := Load(writeHome(t, map[string]string{"config.json": file}))
+	require.NoError(t, err)
+
+	got := map[string]Entry{}
+	for _, e := range s.Entries() {
+		require.NotContains(t, e.Value, "op://")
+		got[e.Field] = e
+	}
+	require.Equal(t, Entry{Field: "git.hosts.github.app.client_id", Value: "Iv23liABC", Source: Source("config.json")}, got["git.hosts.github.app.client_id"])
+	require.Equal(t, Entry{Field: "git.hosts.github.app.installation_id", Value: "auto", Source: SourceDefault}, got["git.hosts.github.app.installation_id"])
+	require.Equal(t, Entry{Field: "git.hosts.github.app.private_key", Value: "1Password", Source: Source("config.json")}, got["git.hosts.github.app.private_key"])
+}

@@ -77,14 +77,23 @@ type GraphQLRule struct {
 	Fields        []string `json:"fields,omitempty"`
 }
 
+// GitAuthModeGitHubApp selects gateway-managed GitHub App installation tokens.
+const GitAuthModeGitHubApp = "github_app"
+
 // GitAccess is a sandbox's access to one repository on a git host, as neutral data a backend turns into policy.
 type GitAccess struct {
 	Kind string `json:"kind"`
+	// AuthMode is empty for a static token, or GitAuthModeGitHubApp for gateway-managed GitHub App installation tokens.
+	AuthMode string `json:"auth_mode,omitempty"`
 	// Provider and ProfileID name the backend's credential holder for the host, and CredentialEnv is the variable the sandbox sees.
-	Provider      string   `json:"provider"`
-	ProfileID     string   `json:"profile_id"`
-	CredentialEnv string   `json:"credential_env"`
-	Endpoint      Endpoint `json:"endpoint"`
+	Provider      string `json:"provider"`
+	ProfileID     string `json:"profile_id"`
+	CredentialEnv string `json:"credential_env"`
+	// InstallationID, RepositoryID and Permissions are set when AuthMode is GitAuthModeGitHubApp.
+	InstallationID int64             `json:"installation_id,omitempty"`
+	RepositoryID   int64             `json:"repository_id,omitempty"`
+	Permissions    map[string]string `json:"permissions,omitempty"`
+	Endpoint       Endpoint          `json:"endpoint"`
 	// Rules are the only requests allowed to Endpoint.
 	Rules    []HTTPRule `json:"rules"`
 	Binaries []string   `json:"binaries"`

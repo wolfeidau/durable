@@ -4,6 +4,8 @@ package openshell
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -16,6 +18,7 @@ import (
 	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
 	"github.com/ai-openshell/sdk-go/openshell/v1/gateway"
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
+	pb "github.com/ai-openshell/sdk-go/proto/openshellv1"
 
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/worker"
@@ -49,17 +52,24 @@ type Config struct {
 	// Tokens returns the current token for a git host kind. It is called whenever a sandbox with repository access is
 	// created or started, so a rotated token takes effect without a restart.
 	Tokens map[string]func(ctx context.Context) (string, error)
+	// Apps returns the current GitHub App credentials for a git host kind.
+	Apps map[string]func(ctx context.Context) (AppCredentials, error)
+	// AppTokenURL overrides the GitHub App installation token URL template, for tests.
+	AppTokenURL string
 }
 
 // Launcher manages worker sandboxes on one gateway.
 type Launcher struct {
-	c      v1.ClientInterface
-	ws     string
-	tokens map[string]func(ctx context.Context) (string, error)
+	c           v1.ClientInterface
+	appRPC      appRefreshClient
+	ws          string
+	tokens      map[string]func(ctx context.Context) (string, error)
+	apps        map[string]func(ctx context.Context) (AppCredentials, error)
+	appTokenURL string
 
 	// mu guards synced and profiled, and serialises provider updates.
 	mu sync.Mutex
-	// synced holds the hash of the token last set per provider, never the token.
+	// synced holds the hash of the credential material last set per provider, never the secret.
 	synced   map[string][sha256.Size]byte
 	profiled map[string]bool
 }
@@ -70,18 +80,26 @@ func New(cfg Config) (*Launcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to load gateway config: %w", err)
 	}
+	tlsCfg := &types.TLSConfig{
+		CertFile: filepath.Join(gw.Dir, "mtls", "tls.crt"),
+		KeyFile:  filepath.Join(gw.Dir, "mtls", "tls.key"),
+		CAFile:   filepath.Join(gw.Dir, "mtls", "ca.crt"),
+	}
 	// The SDK has no mTLS auth mode, so the client certificate goes through the TLS config (gateway.NewClient rejects mTLS gateways).
-	c, err := gateway.NewClient(gw.Name,
-		gateway.WithAuth(v1.NoAuth()),
-		gateway.WithTLS(&types.TLSConfig{
-			CertFile: filepath.Join(gw.Dir, "mtls", "tls.crt"),
-			KeyFile:  filepath.Join(gw.Dir, "mtls", "tls.key"),
-			CAFile:   filepath.Join(gw.Dir, "mtls", "ca.crt"),
-		}))
+	c, err := gateway.NewClient(gw.Name, gateway.WithAuth(v1.NoAuth()), gateway.WithTLS(tlsCfg))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create gateway client: %w", err)
 	}
-	return newWithClient(c, cfg.Workspace, cfg.Tokens), nil
+	appRPC, err := dialAppRefreshClient(gw.Endpoint, tlsCfg)
+	if err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	l := newWithClient(c, cfg.Workspace, cfg.Tokens)
+	l.appRPC = appRPC
+	l.apps = cfg.Apps
+	l.appTokenURL = cfg.AppTokenURL
+	return l, nil
 }
 
 func newWithClient(c v1.ClientInterface, workspace string, tokens map[string]func(ctx context.Context) (string, error)) *Launcher {
@@ -92,7 +110,13 @@ func newWithClient(c v1.ClientInterface, workspace string, tokens map[string]fun
 }
 
 // Close releases the gateway connection.
-func (l *Launcher) Close() error { return l.c.Close() }
+func (l *Launcher) Close() error {
+	err := l.c.Close()
+	if l.appRPC != nil {
+		err = errors.Join(err, l.appRPC.Close())
+	}
+	return err
+}
 
 // Create creates the sandbox and waits until it is ready. A sandbox that never gets ready is deleted, so a failed
 // create leaves nothing behind whose token the caller may not have kept.
@@ -294,8 +318,8 @@ func gitEnv(base map[string]string, access []sandbox.GitAccess) map[string]strin
 	return env
 }
 
-// syncProviders makes sure each provider the sandbox uses has its profile and the host's current token. The gateway
-// is only told when the token's hash differs from the last one this launcher set, so most opens make no update.
+// syncProviders makes sure each provider the sandbox uses has its profile and current credential material. The gateway
+// is only told when the material hash differs from the last one this launcher set, so most opens make no update.
 func (l *Launcher) syncProviders(ctx context.Context, access []sandbox.GitAccess) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -305,6 +329,12 @@ func (l *Launcher) syncProviders(ctx context.Context, access []sandbox.GitAccess
 			continue
 		}
 		done[g.Provider] = true
+		if g.AuthMode == sandbox.GitAuthModeGitHubApp {
+			if err := l.syncAppProvider(ctx, g); err != nil {
+				return err
+			}
+			continue
+		}
 		tokenFn := l.tokens[g.Kind]
 		if tokenFn == nil {
 			return fmt.Errorf("no %s token is configured for this server", g.Kind)
@@ -330,6 +360,105 @@ func (l *Launcher) syncProviders(ctx context.Context, access []sandbox.GitAccess
 		}
 		l.synced[g.Provider] = sum
 	}
+	return nil
+}
+
+// syncAppProvider configures gateway-managed GitHub App token refresh for g and mints immediately on first setup or change.
+func (l *Launcher) syncAppProvider(ctx context.Context, g sandbox.GitAccess) error {
+	appFn := l.apps[g.Kind]
+	if appFn == nil {
+		return fmt.Errorf("no %s app is configured for this server", g.Kind)
+	}
+	if l.appRPC == nil {
+		return errors.New("gateway client does not support GitHub App refresh")
+	}
+	if g.InstallationID <= 0 || g.RepositoryID <= 0 || len(g.Permissions) == 0 {
+		return fmt.Errorf("incomplete %s app scope for provider %q", g.Kind, g.Provider)
+	}
+	if err := l.ensureAppProfile(ctx, g); err != nil {
+		return err
+	}
+	appCreds, err := appFn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get %s app credentials: %w", g.Kind, err)
+	}
+	repoIDsJSON := fmt.Sprintf("[%d]", g.RepositoryID)
+	permsJSON, err := json.Marshal(g.Permissions)
+	if err != nil {
+		return fmt.Errorf("failed to encode %s app permissions: %w", g.Kind, err)
+	}
+	sum := sha256.Sum256(fmt.Appendf(nil, "%s\x00%d\x00%s\x00%s\x00%s\x00%s",
+		appCreds.ClientID, g.InstallationID, appCreds.PrivateKey, repoIDsJSON, permsJSON, l.appTokenURL))
+	if last, ok := l.synced[g.Provider]; ok && last == sum {
+		return nil
+	}
+	hexSum := hex.EncodeToString(sum[:])
+
+	// Reconfiguring withdraws active handles immediately, so after a server restart skip it when the gateway already holds the same healthy config.
+	if existing, err := l.c.Providers().Get(ctx, l.ws, g.Provider); err == nil &&
+		existing.Type == g.ProfileID && existing.Annotations[refreshHashAnnotation] == hexSum {
+		if statuses, serr := l.appRPC.GetRefreshStatus(ctx, l.ws, g.Provider, g.CredentialEnv); serr == nil && isRefreshHealthy(statuses, g.CredentialEnv) {
+			l.synced[g.Provider] = sum
+			return nil
+		}
+	}
+
+	_, err = l.c.Providers().Ensure(ctx, l.ws, &types.Provider{
+		Name:        g.Provider,
+		Type:        g.ProfileID,
+		Annotations: map[string]string{refreshHashAnnotation: hexSum},
+		Spec:        types.ProviderSpec{ProfileWorkspace: l.ws},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set %s app provider: %w", g.Kind, err)
+	}
+	_, err = l.appRPC.ConfigureRefresh(ctx, l.ws, &pb.ConfigureProviderRefreshRequest{
+		Provider:      g.Provider,
+		CredentialKey: g.CredentialEnv,
+		Strategy:      pb.ProviderCredentialRefreshStrategy_PROVIDER_CREDENTIAL_REFRESH_STRATEGY_GITHUB_APP_INSTALLATION,
+		Material: map[string]string{
+			"client_id":       appCreds.ClientID,
+			"installation_id": strconv.FormatInt(g.InstallationID, 10),
+			"private_key":     appCreds.PrivateKey,
+			"repository_ids":  repoIDsJSON,
+			"permissions":     string(permsJSON),
+		},
+		SecretMaterialKeys: []string{"private_key"},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to configure %s app refresh (requires OpenShell gateway >= v0.1.10): %w", g.Kind, err)
+	}
+	st, err := l.appRPC.RotateCredential(ctx, l.ws, g.Provider, g.CredentialEnv)
+	if err != nil {
+		return fmt.Errorf("failed to mint %s app installation token: %w", g.Kind, err)
+	}
+	if st.GetLastError() != "" || st.GetFailureCode() != "" {
+		return fmt.Errorf("failed to mint %s app installation token: %s (%s)", g.Kind, st.GetLastError(), st.GetFailureCode())
+	}
+	l.synced[g.Provider] = sum
+	return nil
+}
+
+func (l *Launcher) ensureAppProfile(ctx context.Context, g sandbox.GitAccess) error {
+	if l.profiled[g.ProfileID] {
+		return nil
+	}
+	item := appProfileItem(g, l.appTokenURL)
+	existing, err := l.appRPC.GetProfile(ctx, l.ws, g.ProfileID)
+	switch {
+	case err == nil && sameAppProfile(existing, item.GetProfile()):
+	case err == nil:
+		if err := l.appRPC.UpdateProfile(ctx, l.ws, g.ProfileID, existing.GetResourceVersion(), item); err != nil {
+			return fmt.Errorf("failed to update %s app profile: %w", g.Kind, err)
+		}
+	case v1.IsNotFound(err):
+		if err := l.appRPC.ImportProfile(ctx, l.ws, item); err != nil {
+			return fmt.Errorf("failed to import %s app profile (requires OpenShell gateway >= v0.1.10): %w", g.Kind, err)
+		}
+	default:
+		return fmt.Errorf("failed to get %s app profile: %w", g.Kind, err)
+	}
+	l.profiled[g.ProfileID] = true
 	return nil
 }
 

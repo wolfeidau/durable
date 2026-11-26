@@ -146,6 +146,15 @@ func TestGitHubAPIGrantNeedsCredentialedGitHubAccess(t *testing.T) {
 	require.Equal(t, "github-api", g.Name)
 	require.Equal(t, []string{"/usr/local/bin/gh"}, g.Binaries)
 	require.Equal(t, github.Provider, g.Provider)
+
+	// GitHub App access carries its own scoped provider name, which github-api must bind.
+	appAccess := githubAccess(t, "octo/hello")
+	appAccess.AuthMode = sandbox.GitAuthModeGitHubApp
+	appAccess.Provider = "durable-gh-123456-deadbeef"
+	appAccess.ProfileID = github.AppProfile
+	gApp, ok := grantCatalog["github-api"].build("", []sandbox.GitAccess{appAccess})
+	require.True(t, ok)
+	require.Equal(t, "durable-gh-123456-deadbeef", gApp.Provider)
 }
 
 func TestGitHubAPIGrantRESTRulesAreScopedToTheRepo(t *testing.T) {

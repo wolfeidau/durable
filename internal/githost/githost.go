@@ -34,6 +34,7 @@ type Host interface {
 
 // Anonymous drops a's credential, so the sandbox may read public repositories only.
 func Anonymous(a sandbox.GitAccess) sandbox.GitAccess {
-	a.Provider, a.ProfileID, a.CredentialEnv, a.GitConfig = "", "", "", nil
+	a.AuthMode, a.Provider, a.ProfileID, a.CredentialEnv = "", "", "", ""
+	a.InstallationID, a.RepositoryID, a.Permissions, a.GitConfig = 0, 0, nil, nil
 	return a
 }

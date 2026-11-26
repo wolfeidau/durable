@@ -103,9 +103,17 @@ type Git struct {
 	Hosts  map[string]GitHost `json:"hosts,omitempty" jsonschema:"Git hosts by kind. A host with a token lets sandboxed sessions clone and push to it."`
 }
 
-// GitHost configures one git host.
+// GitHost configures one git host with either a static token or a GitHub App.
 type GitHost struct {
-	Token string `json:"token" jsonschema:"Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, env:NAME or file:PATH. Never the token itself."`
+	Token string      `json:"token,omitempty" jsonschema:"Where to read a static token: an op:// 1Password reference, gh for the GitHub CLI's token, env:NAME or file:PATH. Never the token itself. Mutually exclusive with app."`
+	App   *GitHostApp `json:"app,omitempty" jsonschema:"GitHub App credentials for gateway-managed short-lived installation tokens. Mutually exclusive with token."`
+}
+
+// GitHostApp configures a GitHub App installation.
+type GitHostApp struct {
+	ClientID       string `json:"client_id" jsonschema:"GitHub App client ID used as the JWT issuer."`
+	InstallationID int64  `json:"installation_id,omitempty" jsonschema:"Positive GitHub App installation ID. Empty discovers the installation per repository."`
+	PrivateKey     string `json:"private_key" jsonschema:"Where to read the GitHub App RSA PEM private key: an op:// 1Password reference, env:NAME or file:PATH. Never the key itself."`
 }
 
 // Environment pairs a worker image with network grants.
@@ -144,8 +152,10 @@ type Settings struct {
 	// APIKey is a secret reference; empty leaves the provider's own credential lookup in charge.
 	APIKey    string
 	GitAuthor string
-	// GitHosts maps a host kind to its token's secret reference.
+	// GitHosts maps a host kind to its static token's secret reference.
 	GitHosts map[string]string
+	// GitHostApps maps a host kind to its GitHub App settings.
+	GitHostApps map[string]GitHostApp
 	// OTel* are the trace exporter settings; an empty endpoint means tracing is off.
 	OTelEndpoint       string
 	OTelProtocol       string
@@ -175,6 +185,7 @@ func defaults() *Settings {
 		Heartbeat:    20 * time.Second,
 		GitAuthor:    DefaultGitAuthor,
 		GitHosts:     map[string]string{},
+		GitHostApps:  map[string]GitHostApp{},
 		OTelHeaders:  map[string]string{},
 		Environments: map[string]commands.Environment{},
 		Sources:      map[string]Source{},
@@ -212,7 +223,7 @@ func Load(home string) (*Settings, error) {
 	if err := s.fromFile(cfg); err != nil {
 		return nil, err
 	}
-	if _, ok := s.GitHosts[github.Kind]; !ok && strings.TrimSpace(os.Getenv(githubTokenEnv)) != "" {
+	if !s.HasGitHost(github.Kind) && strings.TrimSpace(os.Getenv(githubTokenEnv)) != "" {
 		// A variable alone configures GitHub; GITHUB_TOKEN and GH_TOKEN are never read, because they belong to other tools.
 		s.GitHosts[github.Kind] = "env:" + githubTokenEnv
 		s.Sources["git.hosts.github.token"] = SourceDefault
@@ -280,6 +291,17 @@ func (s *Settings) fromFile(c Config) error {
 		}
 	}
 	for kind, h := range c.Git.Hosts {
+		if h.App != nil {
+			s.GitHostApps[kind] = *h.App
+			s.Sources["git.hosts."+kind+".app.client_id"] = s.file
+			if h.App.InstallationID > 0 {
+				s.Sources["git.hosts."+kind+".app.installation_id"] = s.file
+			} else {
+				s.Sources["git.hosts."+kind+".app.installation_id"] = SourceDefault
+			}
+			s.Sources["git.hosts."+kind+".app.private_key"] = s.file
+			continue
+		}
 		s.GitHosts[kind] = h.Token
 		s.Sources["git.hosts."+kind+".token"] = s.file
 	}
@@ -461,6 +483,13 @@ func (s *Settings) applyGitHostFlags(flags []string) {
 			continue
 		}
 		seen[kind] = true
+		if _, hadApp := s.GitHostApps[kind]; hadApp {
+			delete(s.GitHostApps, kind)
+			delete(s.Sources, "git.hosts."+kind+".app.client_id")
+			delete(s.Sources, "git.hosts."+kind+".app.installation_id")
+			delete(s.Sources, "git.hosts."+kind+".app.private_key")
+			s.warn("git.hosts."+kind+".app", fmt.Sprintf("--git-host-token %s overrides git.hosts.%s.app from %s", kind, kind, s.fileLabel))
+		}
 		s.override("git.hosts."+kind+".token", "--git-host-token "+kind)
 		s.GitHosts[kind] = value
 	}
@@ -491,6 +520,14 @@ func (s *Settings) Validate() error {
 	if s.Provider == commands.ProviderOpenRouter && s.Model == "" {
 		errs = append(errs, fmt.Errorf("provider openrouter needs a model; set provider.model in %s or pass --model", s.fileLabel))
 	}
+	errs = append(errs, s.validateGit()...)
+	errs = append(errs, s.validateOTel()...)
+	errs = append(errs, s.validateEnvironments()...)
+	return errors.Join(errs...)
+}
+
+func (s *Settings) validateGit() []error {
+	var errs []error
 	id, err := ParseGitAuthor(s.GitAuthor)
 	if err != nil {
 		errs = append(errs, fmt.Errorf("%s %q %w", s.label("git.author", "--git-author"), s.GitAuthor, err))
@@ -499,25 +536,42 @@ func (s *Settings) Validate() error {
 	if len(s.GitHosts) > 0 && len(s.Environments) == 0 {
 		errs = append(errs, errors.New("a git host token needs --sandbox-image or an environment, because repositories are only reachable from a sandbox"))
 	}
-	errs = append(errs, s.validateOTel()...)
+	if len(s.GitHostApps) > 0 && len(s.Environments) == 0 {
+		errs = append(errs, errors.New("a git host app needs --sandbox-image or an environment, because repositories are only reachable from a sandbox"))
+	}
+	for _, kind := range slices.Sorted(maps.Keys(s.GitHostApps)) {
+		app := s.GitHostApps[kind]
+		if strings.TrimSpace(app.ClientID) == "" {
+			errs = append(errs, fmt.Errorf("git.hosts.%s.app.client_id is required", kind))
+		}
+		if app.InstallationID < 0 {
+			errs = append(errs, fmt.Errorf("git.hosts.%s.app.installation_id must be positive", kind))
+		}
+	}
+	return errs
+}
+
+func (s *Settings) validateEnvironments() []error {
+	var errs []error
 	for _, name := range slices.Sorted(maps.Keys(s.Environments)) {
-		if strings.TrimSpace(s.Environments[name].Image) == "" {
+		e := s.Environments[name]
+		if strings.TrimSpace(e.Image) == "" {
 			errs = append(errs, fmt.Errorf("environment %q: image is required", name))
 		}
-		if g := s.Environments[name].Grants; slices.Contains(g, "mise-resolve") && !slices.Contains(g, "mise") {
+		if slices.Contains(e.Grants, "mise-resolve") && !slices.Contains(e.Grants, "mise") {
 			errs = append(errs, fmt.Errorf("environment %q: grant \"mise-resolve\" needs \"mise\", which downloads what it resolves", name))
 		}
-		if g := s.Environments[name].Grants; slices.Contains(g, "npm-registry") && !slices.Contains(g, "mise") {
+		if slices.Contains(e.Grants, "npm-registry") && !slices.Contains(e.Grants, "mise") {
 			s.warn("environments."+name, fmt.Sprintf("environment %q names the npm-registry grant, which covers bun installed by mise, but not the mise grant that installs it", name))
 		}
-		if _, ok := s.GitHosts[github.Kind]; !ok && slices.Contains(s.Environments[name].Grants, "github-api") {
-			s.warn("environments."+name, fmt.Sprintf("environment %q names the github-api grant, which never applies without a github git host token", name))
+		if !s.HasGitHost(github.Kind) && slices.Contains(e.Grants, "github-api") {
+			s.warn("environments."+name, fmt.Sprintf("environment %q names the github-api grant, which never applies without a github git host token or app", name))
 		}
-		if e := s.Environments[name]; e.Approvals == commands.ApprovalsAuto && slices.Contains(e.Grants, "github-api") {
+		if e.Approvals == commands.ApprovalsAuto && slices.Contains(e.Grants, "github-api") {
 			s.warn("environments."+name, fmt.Sprintf("environment %q auto-approves tool calls and has the github-api grant, so its sessions push, open PRs and comment without approval", name))
 		}
 	}
-	return errors.Join(errs...)
+	return errs
 }
 
 func (s *Settings) validateOTel() []error {
@@ -570,11 +624,40 @@ func (s *Settings) OTel() OTelSettings {
 // GitIdentity is the parsed git author; it is valid after Validate succeeds.
 func (s *Settings) GitIdentity() sandbox.GitIdentity { return s.identity }
 
-// GitHostSources returns each git host's token source.
+// HasGitHost reports whether kind has either a static token or a GitHub App configured.
+func (s *Settings) HasGitHost(kind string) bool {
+	if _, ok := s.GitHosts[kind]; ok {
+		return true
+	}
+	_, ok := s.GitHostApps[kind]
+	return ok
+}
+
+// GitHostAppSource is a resolved GitHub App configuration with its private key secret source.
+type GitHostAppSource struct {
+	ClientID       string
+	InstallationID int64
+	PrivateKey     creds.Source
+}
+
+// GitHostSources returns each git host's static token source.
 func (s *Settings) GitHostSources() map[string]creds.Source {
 	out := make(map[string]creds.Source, len(s.GitHosts))
 	for kind, ref := range s.GitHosts {
 		out[kind] = creds.Source{Flag: s.label("git.hosts."+kind+".token", "--git-host-token "+kind), Value: ref}
+	}
+	return out
+}
+
+// GitHostAppSources returns each git host's GitHub App configuration.
+func (s *Settings) GitHostAppSources() map[string]GitHostAppSource {
+	out := make(map[string]GitHostAppSource, len(s.GitHostApps))
+	for kind, app := range s.GitHostApps {
+		out[kind] = GitHostAppSource{
+			ClientID:       app.ClientID,
+			InstallationID: app.InstallationID,
+			PrivateKey:     creds.Source{Flag: "git.hosts." + kind + ".app.private_key", Value: app.PrivateKey},
+		}
 	}
 	return out
 }

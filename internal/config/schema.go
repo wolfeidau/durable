@@ -46,7 +46,17 @@ func Schema() (*jsonschema.Schema, error) {
 
 	hosts := s.Properties["git"].Properties["hosts"]
 	hosts.PropertyNames = &jsonschema.Schema{Enum: enum(GitHostKinds)}
-	hosts.AdditionalProperties.Properties["token"].Pattern = secretRefPattern
+	host := hosts.AdditionalProperties
+	host.Properties["token"].Pattern = secretRefPattern
+	app := host.Properties["app"]
+	app.Types, app.Type = nil, "object"
+	app.Properties["client_id"].MinLength = new(1)
+	app.Properties["installation_id"].Minimum = new(1.0)
+	app.Properties["private_key"].Pattern = apiKeyRefPattern
+	host.OneOf = []*jsonschema.Schema{
+		{Required: []string{"token"}},
+		{Required: []string{"app"}},
+	}
 
 	otel := s.Properties["otel"]
 	otel.Properties["protocol"].Enum = enum(OTelProtocols)
@@ -181,6 +191,13 @@ func checkSecrets(doc any) error {
 			}
 		}
 	}
+	if err := checkOTelSecrets(root); err != nil {
+		return err
+	}
+	return checkGitHostSecrets(root)
+}
+
+func checkOTelSecrets(root map[string]any) error {
 	o, _ := root["otel"].(map[string]any)
 	headers, _ := o["headers"].(map[string]any)
 	for name, v := range headers {
@@ -189,10 +206,12 @@ func checkSecrets(doc any) error {
 		}
 	}
 	if v, ok := o["headers_from"]; ok {
-		if err := checkRef("otel.headers_from", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
-			return err
-		}
+		return checkRef("otel.headers_from", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH")
 	}
+	return nil
+}
+
+func checkGitHostSecrets(root map[string]any) error {
 	g, _ := root["git"].(map[string]any)
 	hosts, _ := g["hosts"].(map[string]any)
 	for kind, h := range hosts {
@@ -203,6 +222,13 @@ func checkSecrets(doc any) error {
 		if v, ok := host["token"]; ok {
 			if err := checkRef("git.hosts."+kind+".token", v, secretRefRE.MatchString, "an op:// secret reference, gh, env:NAME or file:PATH"); err != nil {
 				return err
+			}
+		}
+		if app, ok := host["app"].(map[string]any); ok {
+			if v, ok := app["private_key"]; ok {
+				if err := checkRef("git.hosts."+kind+".app.private_key", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
+					return err
+				}
 			}
 		}
 	}

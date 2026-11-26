@@ -5,6 +5,7 @@ import (
 	"io"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/wolfeidau/durable/internal/commands"
@@ -65,6 +66,16 @@ func (s *Settings) Entries() []Entry {
 	line("git.author", s.GitAuthor)
 	for _, kind := range slices.Sorted(maps.Keys(s.GitHosts)) {
 		line("git.hosts."+kind+".token", describeRef(s.GitHosts[kind]))
+	}
+	for _, kind := range slices.Sorted(maps.Keys(s.GitHostApps)) {
+		app := s.GitHostApps[kind]
+		line("git.hosts."+kind+".app.client_id", app.ClientID)
+		if app.InstallationID > 0 {
+			line("git.hosts."+kind+".app.installation_id", strconv.FormatInt(app.InstallationID, 10))
+		} else {
+			line("git.hosts."+kind+".app.installation_id", "auto")
+		}
+		line("git.hosts."+kind+".app.private_key", describeRef(app.PrivateKey))
 	}
 	if s.OTelEndpoint == "" {
 		line("otel.endpoint", "off")

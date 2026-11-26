@@ -125,6 +125,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	}
 	warnings = append(warnings, userWarnings...)
 	gitSources := settings.GitHostSources()
+	gitAppSources := settings.GitHostAppSources()
 	environments := settings.Environments
 	gitAuthor := settings.GitIdentity()
 
@@ -146,7 +147,7 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 		}
 	}
 
-	if err := checkGitHosts(ctx, logger, gitSources, c.GitHubAPIURL); err != nil {
+	if err := checkGitHosts(ctx, logger, gitSources, gitAppSources, environments, c.GitHubAPIURL); err != nil {
 		return err
 	}
 
@@ -185,13 +186,18 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	defer os.Remove(infoPath)
 
 	// Closed after the registry, whose sessions stop their sandboxes through it.
-	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources)}
+	var appTokenURL string
+	if c.GitHubAPIURL != "" {
+		appTokenURL = strings.TrimRight(c.GitHubAPIURL, "/") + "/app/installations/{installation_id}/access_tokens"
+	}
+	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources), apps: gitAppFuncs(gitAppSources), appTokenURL: appTokenURL}
 	defer backend.Close()
 	sandboxCfg := &commands.SandboxConfig{Backend: sandbox.Shared(backend), Environments: environments, GitAuthor: gitAuthor}
 	if len(environments) > 0 {
 		sandboxCfg.GitHosts = map[string]githost.Host{github.Kind: github.New(c.GitHubAPIURL)}
 		_, hasToken := gitSources[github.Kind]
 		sandboxCfg.GitTokens = map[string]bool{github.Kind: hasToken}
+		sandboxCfg.GitApps = gitAppAccessFuncs(gitAppSources, c.GitHubAPIURL)
 	}
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
