@@ -25,11 +25,11 @@ export function SessionBar({ sessionId }: { sessionId: string }): ReactElement |
           rel="noopener noreferrer"
           title={place}
         >
-          {place}
+          <bdi dir="ltr">{place}</bdi>
         </a>
       ) : (
         <span className="mono bar-where muted" title={place}>
-          {place}
+          <bdi dir="ltr">{place}</bdi>
         </span>
       )}
       {meta.environment && <span className="badge tone-muted bar-env">{env ? environmentLabel(env) : meta.environment}</span>}

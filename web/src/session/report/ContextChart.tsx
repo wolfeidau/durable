@@ -7,12 +7,30 @@ import { useTip } from "../../ui/Tooltip";
 import type { Summary } from "./usage";
 
 const W = 640;
-const H = 220;
-const padL = 48;
-const padR = 34;
-const padT = 12;
-const padB = 24;
+const H = 230;
+const padL = 58;
+const padR = 44;
+const padT = 22;
+const padB = 28;
+const labelPad = 5;
+// Width reserved for "compacted" at the 16px mobile axis size so neighbouring labels never collide.
+const labelW = 90;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+export function compactionLabels(xs: number[], left: number, right: number): ("start" | "end" | undefined)[] {
+  let prevRight = left;
+  return xs.map((cx) => {
+    if (cx + labelPad + labelW <= right && cx + labelPad >= prevRight) {
+      prevRight = cx + labelPad + labelW;
+      return "start";
+    }
+    if (cx - labelPad - labelW >= prevRight && cx - labelPad <= right) {
+      prevRight = cx - labelPad;
+      return "end";
+    }
+    return undefined;
+  });
+}
 
 export function ContextChart({ overview, stats, onJump }: { overview: Overview; stats: Summary; onJump: Jump }): ReactElement {
   const tip = useTip();
@@ -75,6 +93,8 @@ export function ContextChart({ overview, stats, onJump }: { overview: Overview; 
 
   const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.tokens).toFixed(1)}`).join("");
   const xc = (at: number) => x(clamp(at - 0.5, 0, n - 1));
+  const compactionXs = compactions.map((c) => xc(c.at));
+  const compactionAnchors = compactionLabels(compactionXs, padL, W - padR);
   const lastP = pts[n - 1];
 
   return (
@@ -137,21 +157,26 @@ export function ContextChart({ overview, stats, onJump }: { overview: Overview; 
             </g>
           ))}
           {win && (
-            <text className="axis" x={W - padR} y={fits ? y(win) - 3 : padT - 3} textAnchor="end">
+            <text className="axis" x={W - padR} y={fits ? y(win) - 6 : padT - 6} textAnchor="end">
               {fits ? `window ${compact(win)}` : `peak ${percent(peak / win)} of the ${compact(win)} window`}
             </text>
           )}
           <path d={`${line}L${x(n - 1).toFixed(1)} ${base}L${x(0).toFixed(1)} ${base}Z`} className="area" />
           <path d={line} className="line" />
           {n <= 60 && pts.map((p, i) => <circle key={i} className="dot" cx={x(i)} cy={y(p.tokens)} r={2} />)}
-          {compactions.map((c, i) => (
-            <g key={i}>
-              <line className="compaction" x1={xc(c.at)} x2={xc(c.at)} y1={padT} y2={base} />
-              <text className="axis" x={xc(c.at) + 4} y={padT + 9}>
-                compacted
-              </text>
-            </g>
-          ))}
+          {compactionXs.map((cx, i) => {
+            const anchor = compactionAnchors[i];
+            return (
+              <g key={i}>
+                <line className="compaction" x1={cx} x2={cx} y1={padT} y2={base} />
+                {anchor && (
+                  <text className="axis" x={anchor === "end" ? cx - labelPad : cx + labelPad} y={padT + 16} textAnchor={anchor}>
+                    compacted
+                  </text>
+                )}
+              </g>
+            );
+          })}
           <text className="axis" x={padL} y={H - 6}>
             reply 1
           </text>

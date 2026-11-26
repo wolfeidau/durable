@@ -34,7 +34,9 @@ button {
 }
 
 button:hover:not(:disabled) { filter: brightness(1.1); }
-button:disabled { opacity: 0.5; cursor: default; }
+button:disabled { cursor: default; }
+button:not(.row-btn):disabled { background: var(--elevated); border-color: var(--border-strong); color: var(--faint); }
+button.row-btn:disabled { color: var(--faint); }
 /* :where keeps feature CSS in charge of a row button's layout. */
 button:where(.row-btn) { min-height: 0; padding: 0; border: none; background: none; color: inherit; text-align: left; }
 .row-btn:hover:not(:disabled) { filter: none; }

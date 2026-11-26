@@ -67,7 +67,7 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
           onChange={setChosen}
         />
       ) : (
-        <p className="kind">{modeLabels[mode]}</p>
+        mode !== "directory" && <p className="kind">{modeLabels[mode]}</p>
       )}
       {showEnvironment && environments.length === 1 && <p className="kind">Environment: {environments.map(environmentLabel)}</p>}
       {showEnvironment && environments.length > 1 && environments.length <= 4 && (
@@ -208,7 +208,7 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
                   <td className="workspace">
                     <span className="kind faint">{kindText(s)}</span>
                     <span className="where mono" title={where(s)}>
-                      {where(s)}
+                      <bdi dir="ltr">{where(s)}</bdi>
                     </span>
                   </td>
                   <td>
