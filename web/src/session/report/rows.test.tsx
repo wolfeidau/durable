@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import { SubmissionStatus } from "../../gen/durable/v1/durable_pb";
 import { TipHost } from "../../ui/Tooltip";
 import { CallLists } from "./CallLists";
+import { compactionLabels } from "./ContextChart";
 import type { CallRow, Overview, TurnBar } from "./overview";
 import { TipRow } from "./parts";
 import { Timeline } from "./Timeline";
@@ -82,5 +83,13 @@ describe("report rows", () => {
     expect(container.querySelector(".tip-row")?.textContent).toBe("errors1");
     expect(container.querySelector(".tip-label")?.textContent).toBe("errors");
     expect(container.querySelector("strong")?.textContent).toBe("1");
+  });
+
+  test("compactionLabels flips near the right edge and skips overlapping labels", () => {
+    expect(compactionLabels([530], 58, 596)).toEqual(["end"]);
+    expect(compactionLabels([327, 435], 58, 596)).toEqual(["start", "start"]);
+    expect(compactionLabels([120, 530], 58, 596)).toEqual(["start", "end"]);
+    expect(compactionLabels([460, 530], 58, 596)).toEqual(["start", undefined]);
+    expect(compactionLabels([250, 300], 58, 596)).toEqual(["start", undefined]);
   });
 });

@@ -12,7 +12,25 @@ const padL = 58;
 const padR = 44;
 const padT = 22;
 const padB = 28;
+const labelPad = 5;
+// Width reserved for "compacted" at the 16px mobile axis size so neighbouring labels never collide.
+const labelW = 90;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+export function compactionLabels(xs: number[], left: number, right: number): ("start" | "end" | undefined)[] {
+  let prevRight = left;
+  return xs.map((cx) => {
+    if (cx + labelPad + labelW <= right && cx + labelPad >= prevRight) {
+      prevRight = cx + labelPad + labelW;
+      return "start";
+    }
+    if (cx - labelPad - labelW >= prevRight && cx - labelPad <= right) {
+      prevRight = cx - labelPad;
+      return "end";
+    }
+    return undefined;
+  });
+}
 
 export function ContextChart({ overview, stats, onJump }: { overview: Overview; stats: Summary; onJump: Jump }): ReactElement {
   const tip = useTip();
@@ -75,6 +93,8 @@ export function ContextChart({ overview, stats, onJump }: { overview: Overview; 
 
   const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)} ${y(p.tokens).toFixed(1)}`).join("");
   const xc = (at: number) => x(clamp(at - 0.5, 0, n - 1));
+  const compactionXs = compactions.map((c) => xc(c.at));
+  const compactionAnchors = compactionLabels(compactionXs, padL, W - padR);
   const lastP = pts[n - 1];
 
   return (
@@ -144,15 +164,16 @@ export function ContextChart({ overview, stats, onJump }: { overview: Overview; 
           <path d={`${line}L${x(n - 1).toFixed(1)} ${base}L${x(0).toFixed(1)} ${base}Z`} className="area" />
           <path d={line} className="line" />
           {n <= 60 && pts.map((p, i) => <circle key={i} className="dot" cx={x(i)} cy={y(p.tokens)} r={2} />)}
-          {compactions.map((c, i) => {
-            const cx = xc(c.at);
-            const flip = cx > padL + pw * 0.6;
+          {compactionXs.map((cx, i) => {
+            const anchor = compactionAnchors[i];
             return (
               <g key={i}>
                 <line className="compaction" x1={cx} x2={cx} y1={padT} y2={base} />
-                <text className="axis" x={flip ? cx - 5 : cx + 5} y={padT + 16} textAnchor={flip ? "end" : "start"}>
-                  compacted
-                </text>
+                {anchor && (
+                  <text className="axis" x={anchor === "end" ? cx - labelPad : cx + labelPad} y={padT + 16} textAnchor={anchor}>
+                    compacted
+                  </text>
+                )}
               </g>
             );
           })}
