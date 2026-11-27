@@ -643,6 +643,37 @@ func (l *Launcher) Phase(ctx context.Context, name string) (types.SandboxPhase, 
 	return sb.Status.Phase, nil
 }
 
+// Phases returns the neutral lifecycle phase of every sandbox in the launcher's workspace.
+func (l *Launcher) Phases(ctx context.Context) (map[string]sandbox.Phase, error) {
+	sbs, err := l.c.Sandboxes().ListAll(ctx, l.ws)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list sandboxes: %w", err)
+	}
+	phases := make(map[string]sandbox.Phase, len(sbs))
+	for _, sb := range sbs {
+		phases[sb.Name] = mapPhase(sb.Status.Phase)
+	}
+	return phases, nil
+}
+
+func mapPhase(p types.SandboxPhase) sandbox.Phase {
+	switch p {
+	case types.SandboxReady:
+		return sandbox.PhaseRunning
+	case types.SandboxProvisioning, types.SandboxStarting:
+		return sandbox.PhaseStarting
+	case types.SandboxStopping, types.SandboxSuspending, types.SandboxDeleting:
+		return sandbox.PhaseStopping
+	case types.SandboxStopped, types.SandboxSuspended:
+		return sandbox.PhaseStopped
+	case types.SandboxError, types.SandboxCompleted:
+		return sandbox.PhaseError
+	default:
+		// Preserve Unknown and unrecognized phases so callers distinguish them from a missing sandbox.
+		return sandbox.PhaseUnknown
+	}
+}
+
 func (l *Launcher) get(ctx context.Context, name string) (*types.Sandbox, error) {
 	sb, err := l.c.Sandboxes().Get(ctx, l.ws, name)
 	if err != nil {

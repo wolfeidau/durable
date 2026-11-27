@@ -74,12 +74,16 @@ func Event(e durable.Event, epoch string) *durablev1.Event {
 	}
 }
 
+func SubmissionStatus(s durable.SubmissionStatus) durablev1.SubmissionStatus {
+	return submissionStatuses[s]
+}
+
 func Submission(s durable.Submission) *durablev1.Submission {
 	return &durablev1.Submission{
 		Seq:       s.Seq,
 		RequestId: s.RequestID,
 		Text:      s.Text,
-		Status:    submissionStatuses[s.Status],
+		Status:    SubmissionStatus(s.Status),
 		Result:    s.Result,
 		Error:     s.Error,
 	}

@@ -236,3 +236,88 @@ func TestStartWithExitedWorkerFails(t *testing.T) {
 	require.ErrorContains(t, err, "worker exited")
 	require.False(t, IsUnavailable(err))
 }
+
+func TestPhasesMapsAllSandboxPhases(t *testing.T) {
+	fc := fake.NewClient()
+	cases := []struct {
+		name string
+		raw  types.SandboxPhase
+		want sandbox.Phase
+	}{
+		{name: "sb-ready", raw: types.SandboxReady, want: sandbox.PhaseRunning},
+		{name: "sb-provisioning", raw: types.SandboxProvisioning, want: sandbox.PhaseStarting},
+		{name: "sb-starting", raw: types.SandboxStarting, want: sandbox.PhaseStarting},
+		{name: "sb-stopping", raw: types.SandboxStopping, want: sandbox.PhaseStopping},
+		{name: "sb-suspending", raw: types.SandboxSuspending, want: sandbox.PhaseStopping},
+		{name: "sb-deleting", raw: types.SandboxDeleting, want: sandbox.PhaseStopping},
+		{name: "sb-stopped", raw: types.SandboxStopped, want: sandbox.PhaseStopped},
+		{name: "sb-suspended", raw: types.SandboxSuspended, want: sandbox.PhaseStopped},
+		{name: "sb-error", raw: types.SandboxError, want: sandbox.PhaseError},
+		{name: "sb-completed", raw: types.SandboxCompleted, want: sandbox.PhaseError},
+		{name: "sb-unknown", raw: types.SandboxUnknown, want: sandbox.PhaseUnknown},
+		{name: "sb-future", raw: types.SandboxPhase("Future"), want: sandbox.PhaseUnknown},
+		{name: "sb-empty", raw: types.SandboxPhase(""), want: sandbox.PhaseUnknown},
+	}
+	want := make(map[string]sandbox.Phase, len(cases))
+	for _, tc := range cases {
+		fc.AddSandbox("default", &types.Sandbox{
+			Name:      tc.name,
+			Workspace: "default",
+			Status:    types.SandboxStatus{Phase: tc.raw},
+		})
+		want[tc.name] = tc.want
+	}
+
+	got, err := newWithClient(fc, "", nil).Phases(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, want, got)
+}
+
+func TestPhasesEmptyWorkspace(t *testing.T) {
+	got, err := newWithClient(fake.NewClient(), "", nil).Phases(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Empty(t, got)
+}
+
+func TestPhasesFiltersByWorkspace(t *testing.T) {
+	fc := fake.NewClient()
+	fc.AddSandbox("team", &types.Sandbox{Name: "sb-team", Workspace: "team", Status: types.SandboxStatus{Phase: types.SandboxReady}})
+	fc.AddSandbox("other", &types.Sandbox{Name: "sb-other", Workspace: "other", Status: types.SandboxStatus{Phase: types.SandboxStopped}})
+
+	got, err := newWithClient(fc, "team", nil).Phases(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, map[string]sandbox.Phase{"sb-team": sandbox.PhaseRunning}, got)
+}
+
+type listErrClient struct {
+	*fake.Client
+	err error
+}
+
+func (c listErrClient) Sandboxes() v1.SandboxInterface {
+	return listErrSandboxes{SandboxInterface: c.Client.Sandboxes(), err: c.err}
+}
+
+type listErrSandboxes struct {
+	v1.SandboxInterface
+	err error
+}
+
+func (s listErrSandboxes) ListAll(context.Context, string, ...v1.ListOptions) ([]*types.Sandbox, error) {
+	return nil, s.err
+}
+
+func TestPhasesPropagatesGatewayError(t *testing.T) {
+	fc := fake.NewClient()
+	l := newWithClient(fc, "", nil)
+	require.NoError(t, l.Close())
+
+	_, err := l.Phases(t.Context())
+	require.Error(t, err)
+	require.True(t, IsUnavailable(err))
+
+	boom := errors.New("gateway boom")
+	_, err = newWithClient(listErrClient{Client: fake.NewClient(), err: boom}, "", nil).Phases(t.Context())
+	require.ErrorIs(t, err, boom)
+}

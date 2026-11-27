@@ -93,6 +93,15 @@ func (b *lazyBackend) Decisions(ctx context.Context, name string, since time.Tim
 	return l.Decisions(ctx, name, since)
 }
 
+// Phases shares the backend's connection, so polling sandbox status doesn't dial the gateway on every refresh.
+func (b *lazyBackend) Phases(ctx context.Context) (map[string]sandbox.Phase, error) {
+	l, err := b.launcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to the gateway: %w", err)
+	}
+	return l.Phases(ctx)
+}
+
 func (*lazyBackend) IsUnavailable(err error) bool {
 	var ge errGateway
 	return errors.As(err, &ge) || openshell.IsUnavailable(err)

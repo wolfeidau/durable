@@ -2436,7 +2436,7 @@ func TestReadStatusBesideTheLeaseHolder(t *testing.T) {
 
 	st, err := ReadStatus(ctx, path)
 	require.NoError(t, err)
-	require.Equal(t, Status{PendingApprovals: 1, Unfinished: 2}, st)
+	require.Equal(t, Status{PendingApprovals: 1, Unfinished: 2, LastSubmissionStatus: StatusQueued}, st)
 }
 
 func TestReadStatusEmptySession(t *testing.T) {
@@ -2449,6 +2449,75 @@ func TestReadStatusEmptySession(t *testing.T) {
 	st, err := ReadStatus(ctx, path)
 	require.NoError(t, err)
 	require.Equal(t, Status{}, st)
+}
+
+func TestReadStatusLastSubmissionStatus(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "session.sqlite")
+
+	var failNext atomic.Bool
+	model := modelFunc(func(_ context.Context, hist []Message, _ []ToolSpec) (Message, error) {
+		if failNext.Load() {
+			return Message{}, errors.New("boom")
+		}
+		if lastUserText(hist) == "park" && hist[len(hist)-1].Role == RoleUser {
+			return Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c1", Name: "write_file", Input: json.RawMessage(`{}`)}}}, nil
+		}
+		return Message{Role: RoleAssistant, Text: "ok"}, nil
+	})
+	var gated atomic.Int32
+	h, err := Open(ctx, path, deferOpts(model, askGate(&gated), &fakeTool{name: "write_file"}))
+	require.NoError(t, err)
+	defer func() { _ = h.Close() }()
+
+	// Empty session.
+	st, err := ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{}, st)
+
+	// Queued submission before Run.
+	_, err = h.Submit(ctx, "req-1", "park")
+	require.NoError(t, err)
+	st, err = ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{Unfinished: 1, LastSubmissionStatus: StatusQueued}, st)
+
+	// Running submission paused on approval.
+	require.ErrorIs(t, h.Run(ctx), ErrAwaitingApproval)
+	st, err = ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{PendingApprovals: 1, Unfinished: 1, LastSubmissionStatus: StatusRunning}, st)
+
+	// Decide approval and finish -> done.
+	a, ok, err := h.PendingApproval(ctx)
+	require.NoError(t, err)
+	require.True(t, ok)
+	_, err = h.Decide(ctx, a.Seq, true, "tester")
+	require.NoError(t, err)
+	require.NoError(t, h.Run(ctx))
+	st, err = ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{LastSubmissionStatus: StatusDone}, st)
+
+	// Failed newest submission supersedes prior done.
+	failNext.Store(true)
+	sub, err := h.Prompt(ctx, "req-2", "fail")
+	require.NoError(t, err)
+	require.Equal(t, StatusFailed, sub.Status)
+	st, err = ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{LastSubmissionStatus: StatusFailed}, st)
+
+	// Cancelled newest submission supersedes prior failed.
+	failNext.Store(false)
+	_, err = h.Submit(ctx, "req-3", "cancel-me")
+	require.NoError(t, err)
+	cancelled, err := h.Cancel(ctx, "req-3")
+	require.NoError(t, err)
+	require.Equal(t, StatusCancelled, cancelled.Status)
+	st, err = ReadStatus(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, Status{LastSubmissionStatus: StatusCancelled}, st)
 }
 
 func TestReadStatusMissingDatabase(t *testing.T) {

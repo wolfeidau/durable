@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"embed"
 	"fmt"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/wolfeidau/durable/api/durable/v1/durablev1connect"
 	"github.com/wolfeidau/durable/internal/audit"
+	"github.com/wolfeidau/durable/internal/sandbox"
 )
 
 // all: embeds ui/dist when it exists, which a fresh clone lacks.
@@ -56,6 +58,8 @@ type Config struct {
 	Warnings []string
 	// Gateway reads the sandbox log for network events; nil means the log is never read.
 	Gateway audit.Gateway
+	// SandboxPhases lists sandbox lifecycle phases for ListSessions; nil disables gateway polling.
+	SandboxPhases func(ctx context.Context) (map[string]sandbox.Phase, error)
 }
 
 // Setting is one effective server setting for display.
@@ -65,25 +69,38 @@ type Setting struct {
 
 // Server is the HTTP handler for the API and UI.
 type Server struct {
-	cfg Config
+	cfg          Config
+	sandboxCache *sandboxCache
 }
 
 // New returns a Server.
 func New(cfg Config) *Server {
-	return &Server{cfg: cfg}
+	s := &Server{cfg: cfg}
+	if cfg.SandboxPhases != nil {
+		s.sandboxCache = newSandboxCache(sandboxCacheConfig{
+			fetch:    cfg.SandboxPhases,
+			draining: cfg.Draining,
+			logger:   s.logger(),
+		})
+		if cfg.Registry != nil {
+			cfg.Registry.setOnSandboxChange(s.sandboxCache.Invalidate)
+		}
+	}
+	return s
 }
 
 // sessionService implements the RPCs whose slices have landed; the rest stay Unimplemented.
 type sessionService struct {
 	durablev1connect.UnimplementedSessionServiceHandler
-	reg       *Registry
-	home      string
-	heartbeat time.Duration
-	draining  <-chan struct{}
-	logger    *slog.Logger
-	settings  []Setting
-	warnings  []string
-	gateway   audit.Gateway
+	reg          *Registry
+	home         string
+	heartbeat    time.Duration
+	draining     <-chan struct{}
+	logger       *slog.Logger
+	settings     []Setting
+	warnings     []string
+	gateway      audit.Gateway
+	sandboxCache *sandboxCache
 }
 
 // Handler returns the API and UI behind the token, Host and Origin checks.
@@ -96,7 +113,8 @@ func (s *Server) Handler() http.Handler {
 	path, h := durablev1connect.NewSessionServiceHandler(sessionService{
 		reg: s.cfg.Registry, home: s.cfg.Home, heartbeat: heartbeat, draining: s.cfg.Draining, logger: s.logger(),
 		settings: s.cfg.Settings, warnings: s.cfg.Warnings,
-		gateway: s.cfg.Gateway,
+		gateway:      s.cfg.Gateway,
+		sandboxCache: s.sandboxCache,
 	})
 	mux.Handle(path, s.requireToken(h))
 

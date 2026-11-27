@@ -55,6 +55,14 @@
   align-items: center;
 }
 
+.sandbox-col { width: 11rem; }
+.sandbox-note { margin-left: 0.4rem; font-weight: 400; color: var(--faint); }
+.sandbox .stale { opacity: 0.65; }
+
+@media (min-width: 641px) {
+  .has-sandbox .workspace { width: 34%; }
+}
+
 .created { width: 8rem; font-size: 0.85rem; }
 
 /* New session form */

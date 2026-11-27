@@ -17,6 +17,7 @@ import (
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/githost"
+	"github.com/wolfeidau/durable/internal/sandbox"
 )
 
 // DefaultIdleTimeout is how long an unused session stays open.
@@ -65,17 +66,39 @@ type Registry struct {
 	cancelRun context.CancelFunc
 	janitor   chan struct{}
 
-	mu      sync.Mutex
-	closed  bool
-	entries map[string]*entry
+	mu              sync.Mutex
+	closed          bool
+	entries         map[string]*entry
+	onSandboxChange func()
 }
 
 type entry struct {
-	ready   chan struct{} // closed once s or err is set
-	s       *Session
-	err     error
-	holders int  // guarded by Registry.mu
-	evicted bool // guarded by Registry.mu; the last release closes the session
+	ready     chan struct{} // closed once s or err is set
+	s         *Session
+	err       error
+	sandboxed bool // set by finishOpen before ready closes
+	holders   int  // guarded by Registry.mu
+	evicted   bool // guarded by Registry.mu; the last release closes the session
+}
+
+type closingSession struct {
+	s         *Session
+	sandboxed bool
+}
+
+func (r *Registry) setOnSandboxChange(fn func()) {
+	r.mu.Lock()
+	r.onSandboxChange = fn
+	r.mu.Unlock()
+}
+
+func (r *Registry) notifySandboxChange() {
+	r.mu.Lock()
+	fn := r.onSandboxChange
+	r.mu.Unlock()
+	if fn != nil {
+		fn()
+	}
 }
 
 // NewRegistry returns a Registry whose runs use a context derived from ctx.
@@ -276,7 +299,7 @@ func (r *Registry) acquire(ctx context.Context, id, dir string, spec *createSpec
 
 // finishOpen opens the session for the entry's first caller and wakes the others.
 func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry, spec *createSpec) {
-	s, err := r.open(ctx, dir, spec)
+	s, sandboxed, err := r.open(ctx, dir, spec)
 	r.mu.Lock()
 	// Close can't see an entry with no session, so the opener closes it.
 	lateClose := err == nil && r.closed
@@ -286,6 +309,7 @@ func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry, spe
 	e.err = err
 	if err == nil {
 		e.s = s
+		e.sandboxed = sandboxed
 	} else {
 		delete(r.entries, id)
 	}
@@ -294,6 +318,9 @@ func (r *Registry) finishOpen(ctx context.Context, id, dir string, e *entry, spe
 		s.close()
 	}
 	close(e.ready)
+	if sandboxed {
+		r.notifySandboxChange()
+	}
 }
 
 // evictLocked removes e from the map if it is still the current entry for id.
@@ -318,10 +345,13 @@ func (r *Registry) release(e *entry) {
 	r.mu.Unlock()
 	if closing != nil {
 		closing.close()
+		if e.sandboxed {
+			r.notifySandboxChange()
+		}
 	}
 }
 
-func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Session, error) {
+func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Session, bool, error) {
 	s := newSession(r.logger.With(slog.String("session", filepath.Base(dir))), r.cfg.RetryBase, r.cfg.RetryCap)
 	ac := commands.AssembleConfig{
 		Home:           r.cfg.Home,
@@ -341,7 +371,7 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 	} else {
 		meta, err := commands.ReadSessionMeta(dir)
 		if err != nil {
-			return nil, notFound(err)
+			return nil, false, notFound(err)
 		}
 		// No provider fields: route.matches rejects a flag that differs from the session's pin.
 		ac.CWD, ac.Session, ac.ExistingOnly = meta.CWD, meta.Name, true
@@ -350,17 +380,18 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 		ac.Branch = meta.Branch
 	}
 	asm, err := r.cfg.assemble(ctx, ac)
+	_, sandboxed, _ := sandbox.ReadPin(dir)
 	if err != nil {
 		if spec != nil && ctx.Err() == nil {
-			return nil, fmt.Errorf("%w: %w", errCreate, err)
+			return nil, sandboxed, fmt.Errorf("%w: %w", errCreate, err)
 		}
-		return nil, notFound(err)
+		return nil, sandboxed, notFound(err)
 	}
 	asm.Options.OnDelta = s.onDelta
 	// The cwd and name hash to the directory, so a forged session.json can't point at another session.
 	if filepath.Dir(asm.Path) != dir {
 		asm.Close()
-		return nil, fmt.Errorf("session.json does not match directory %s", filepath.Base(dir))
+		return nil, sandboxed, fmt.Errorf("session.json does not match directory %s", filepath.Base(dir))
 	}
 	// Only the lease wait is bounded: a slow Assemble step must not read as a held session.
 	octx, cancel := context.WithTimeout(ctx, r.cfg.OpenTimeout)
@@ -369,14 +400,14 @@ func (r *Registry) open(ctx context.Context, dir string, spec *createSpec) (*Ses
 	if err != nil {
 		asm.Close()
 		if ctx.Err() == nil && octx.Err() != nil {
-			return nil, connect.NewError(connect.CodeUnavailable, errors.New("session in use"))
+			return nil, sandboxed, connect.NewError(connect.CodeUnavailable, errors.New("session in use"))
 		}
-		return nil, fmt.Errorf("failed to open session: %w", err)
+		return nil, sandboxed, fmt.Errorf("failed to open session: %w", err)
 	}
 	if err := s.start(r.runCtx, h, asm); err != nil {
-		return nil, err
+		return nil, sandboxed, err
 	}
-	return s, nil
+	return s, sandboxed, nil
 }
 
 func notFound(err error) error {
@@ -402,7 +433,7 @@ func (r *Registry) sweepLoop() {
 }
 
 func (r *Registry) sweep() {
-	var idle []*Session
+	var idle []closingSession
 	r.mu.Lock()
 	for id, e := range r.entries {
 		if e.s == nil {
@@ -413,17 +444,20 @@ func (r *Registry) sweep() {
 			// With holders, the last release closes it.
 			r.evictLocked(id, e)
 			if e.holders == 0 {
-				idle = append(idle, e.s)
+				idle = append(idle, closingSession{s: e.s, sandboxed: e.sandboxed})
 			}
 		case e.holders == 0 && e.s.idleFor() >= r.cfg.IdleTimeout:
 			r.evictLocked(id, e)
-			idle = append(idle, e.s)
+			idle = append(idle, closingSession{s: e.s, sandboxed: e.sandboxed})
 		}
 	}
 	r.mu.Unlock()
 	// Closing waits for the driver, so it runs outside the lock.
-	for _, s := range idle {
-		s.close()
+	for _, c := range idle {
+		c.s.close()
+		if c.sandboxed {
+			r.notifySandboxChange()
+		}
 	}
 }
 
@@ -436,11 +470,11 @@ func (r *Registry) Close() {
 		return
 	}
 	r.closed = true
-	var all []*Session
+	var all []closingSession
 	for id, e := range r.entries {
 		// An entry still opening is closed by its opener.
 		if e.s != nil {
-			all = append(all, e.s)
+			all = append(all, closingSession{s: e.s, sandboxed: e.sandboxed})
 			delete(r.entries, id)
 		}
 	}
@@ -448,7 +482,10 @@ func (r *Registry) Close() {
 
 	close(r.janitor)
 	r.cancelRun()
-	for _, s := range all {
-		s.close()
+	for _, c := range all {
+		c.s.close()
+		if c.sandboxed {
+			r.notifySandboxChange()
+		}
 	}
 }

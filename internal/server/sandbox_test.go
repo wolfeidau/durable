@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -65,11 +67,25 @@ func newSandboxEnv(t *testing.T) *sandboxEnv {
 	logger := slog.New(slog.NewTextHandler(log, nil))
 	e.cfg.Logger = logger
 	r := e.registry(t)
+	draining := make(chan struct{})
 	ts := httptest.NewUnstartedServer(nil)
-	ts.Config.Handler = New(Config{Home: e.home, Token: testToken, Addr: ts.Listener.Addr().String(), Registry: r, Logger: logger}).Handler()
+	ts.Config.Handler = New(Config{
+		Home: e.home, Token: testToken, Addr: ts.Listener.Addr().String(), Registry: r, Logger: logger,
+		Draining: draining, SandboxPhases: f.Phases,
+	}).Handler()
 	ts.Start()
 	t.Cleanup(ts.Close)
+	t.Cleanup(func() { close(draining) })
 	return &sandboxEnv{registryEnv: e, fake: f, host: h, reg: r, client: durablev1connect.NewSessionServiceClient(http.DefaultClient, ts.URL), log: log}
+}
+
+func (e *sandboxEnv) listSessions(t *testing.T, refresh bool) *connect.Response[v1.ListSessionsResponse] {
+	t.Helper()
+	req := connect.NewRequest(&v1.ListSessionsRequest{RefreshSandboxStatus: refresh})
+	req.Header().Set("Authorization", "Bearer "+testToken)
+	res, err := e.client.ListSessions(t.Context(), req)
+	require.NoError(t, err)
+	return res
 }
 
 func (e *sandboxEnv) createSession(t *testing.T) (*connect.Response[v1.CreateSessionResponse], error) {
@@ -352,4 +368,279 @@ func TestEmptySessionWithoutPinReopensAsFailedPrecondition(t *testing.T) {
 	var ce *connect.Error
 	require.ErrorAs(t, err, &ce)
 	require.Equal(t, "this session has no sandbox pin: see the server log", ce.Message())
+}
+
+func TestListSessionsSandboxLifecycleAndIdleSweep(t *testing.T) {
+	e := newEnv(t)
+	f := sandboxtest.New(t)
+	h := githosttest.New(t)
+	e.cfg.Sandbox = &commands.SandboxConfig{
+		Backend: f, Environments: map[string]commands.Environment{"default": {Image: "img:1"}},
+		GitHosts: map[string]githost.Host{"github": h}, GitTokens: map[string]bool{"github": true},
+	}
+	e.cfg.IdleTimeout = 100 * time.Millisecond
+	log := &lockedBuffer{}
+	logger := slog.New(slog.NewTextHandler(log, nil))
+	e.cfg.Logger = logger
+	r := e.registry(t)
+
+	// Gate the first Phases call so ColdRefreshing is observed deterministically.
+	firstStarted := make(chan struct{}, 1)
+	releaseFirst := make(chan struct{})
+	var firstDone atomic.Bool
+	phasesFn := func(ctx context.Context) (map[string]sandbox.Phase, error) {
+		if firstDone.CompareAndSwap(false, true) {
+			firstStarted <- struct{}{}
+			select {
+			case <-releaseFirst:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return f.Phases(ctx)
+	}
+
+	draining := make(chan struct{})
+	ts := httptest.NewUnstartedServer(nil)
+	ts.Config.Handler = New(Config{
+		Home: e.home, Token: testToken, Addr: ts.Listener.Addr().String(), Registry: r, Logger: logger,
+		Draining: draining, SandboxPhases: phasesFn,
+	}).Handler()
+	ts.Start()
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { close(draining) })
+	se := &sandboxEnv{registryEnv: e, fake: f, host: h, reg: r, client: durablev1connect.NewSessionServiceClient(http.DefaultClient, ts.URL), log: log}
+
+	created, err := se.createSession(t)
+	require.NoError(t, err)
+	id := created.Msg.Session.Id
+	pin, ok, err := sandbox.ReadPin(filepath.Join(e.home, ".durable", "sessions", id))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Hold the session open while checking cold -> running so idle sweep does not race ahead.
+	_, releaseHold, err := r.Acquire(t.Context(), id)
+	require.NoError(t, err)
+
+	findSession := func(sessions []*v1.SessionInfo, wantID string) *v1.SessionInfo {
+		for _, s := range sessions {
+			if s.Id == wantID {
+				return s
+			}
+		}
+		return nil
+	}
+
+	// Cold first ListSessions returns immediately with UNKNOWN + refreshing: true.
+	cold := se.listSessions(t, false)
+	require.Len(t, cold.Msg.Sessions, 2)
+	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNSPECIFIED, findSession(cold.Msg.Sessions, e.id).SandboxStatus)
+	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN, findSession(cold.Msg.Sessions, id).SandboxStatus)
+	require.NotNil(t, cold.Msg.SandboxSnapshot)
+	require.Nil(t, cold.Msg.SandboxSnapshot.ObservedAt)
+	require.True(t, cold.Msg.SandboxSnapshot.Refreshing)
+	require.True(t, cold.Msg.SandboxSnapshot.Stale)
+	require.Empty(t, cold.Msg.SandboxSnapshot.Error)
+
+	<-firstStarted
+	close(releaseFirst)
+
+	// Once the first refresh finishes, status settles to RUNNING.
+	require.Eventually(t, func() bool {
+		res := se.listSessions(t, false)
+		snap := res.Msg.SandboxSnapshot
+		return snap != nil && snap.ObservedAt != nil && !snap.Refreshing && !snap.Stale &&
+			findSession(res.Msg.Sessions, id).SandboxStatus == v1.SandboxStatus_SANDBOX_STATUS_RUNNING
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Releasing the hold lets the idle sweep stop the sandbox and invalidate the cache.
+	releaseHold()
+	require.Eventually(t, func() bool {
+		res := se.listSessions(t, false)
+		snap := res.Msg.SandboxSnapshot
+		return snap != nil && !snap.Refreshing && !snap.Stale &&
+			findSession(res.Msg.Sessions, id).SandboxStatus == v1.SandboxStatus_SANDBOX_STATUS_STOPPED
+	}, 10*time.Second, 20*time.Millisecond)
+
+	// Verify remaining phase mappings via force refresh.
+	for phase, want := range map[sandbox.Phase]v1.SandboxStatus{
+		sandbox.PhaseStarting: v1.SandboxStatus_SANDBOX_STATUS_STARTING,
+		sandbox.PhaseStopping: v1.SandboxStatus_SANDBOX_STATUS_STOPPING,
+		sandbox.PhaseError:    v1.SandboxStatus_SANDBOX_STATUS_ERROR,
+		sandbox.PhaseUnknown:  v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN,
+	} {
+		f.SetPhase(pin.Name, phase)
+		_ = se.listSessions(t, true)
+		require.Eventually(t, func() bool {
+			res := se.listSessions(t, false)
+			return !res.Msg.SandboxSnapshot.Refreshing && findSession(res.Msg.Sessions, id).SandboxStatus == want
+		}, 5*time.Second, 10*time.Millisecond, "phase %q", phase)
+	}
+
+	// Deleting the sandbox causes an observed snapshot omitting it to report MISSING.
+	f.SetPhase(pin.Name, "")
+	_ = se.listSessions(t, true)
+	require.Eventually(t, func() bool {
+		res := se.listSessions(t, false)
+		snap := res.Msg.SandboxSnapshot
+		return snap != nil && snap.ObservedAt != nil && !snap.Refreshing && !snap.Stale &&
+			findSession(res.Msg.Sessions, id).SandboxStatus == v1.SandboxStatus_SANDBOX_STATUS_MISSING
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestListSessionsSandboxGatewayFailurePreservesCachedAndHidesRawError(t *testing.T) {
+	e := newSandboxEnv(t)
+	created, err := e.createSession(t)
+	require.NoError(t, err)
+	id := created.Msg.Session.Id
+	_, releaseHold, err := e.reg.Acquire(t.Context(), id)
+	require.NoError(t, err)
+	defer releaseHold()
+
+	find := func(sessions []*v1.SessionInfo) *v1.SessionInfo {
+		for _, s := range sessions {
+			if s.Id == id {
+				return s
+			}
+		}
+		return nil
+	}
+
+	require.Eventually(t, func() bool {
+		res := e.listSessions(t, false)
+		snap := res.Msg.SandboxSnapshot
+		return snap != nil && snap.ObservedAt != nil && !snap.Refreshing && !snap.Stale &&
+			find(res.Msg.Sessions).SandboxStatus == v1.SandboxStatus_SANDBOX_STATUS_RUNNING
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Transient gateway error preserves cached RUNNING status and hides the raw cause from clients.
+	e.fake.FailPhases(errors.New("secret-gateway-10.9.8.7 refused"))
+	_ = e.listSessions(t, true)
+	var failed *v1.ListSessionsResponse
+	require.Eventually(t, func() bool {
+		res := e.listSessions(t, false)
+		if !res.Msg.SandboxSnapshot.Refreshing && res.Msg.SandboxSnapshot.Error != "" {
+			failed = res.Msg
+			return true
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+
+	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_RUNNING, find(failed.Sessions).SandboxStatus)
+	require.NotNil(t, failed.SandboxSnapshot.ObservedAt)
+	require.True(t, failed.SandboxSnapshot.Stale)
+	require.Equal(t, "sandbox status could not be refreshed: see the server log", failed.SandboxSnapshot.Error)
+	require.NotContains(t, failed.SandboxSnapshot.Error, "secret-gateway-10.9.8.7")
+	require.Contains(t, e.log.String(), "secret-gateway-10.9.8.7")
+
+	// Clearing the gateway error recovers cleanly on refresh.
+	e.fake.FailPhases(nil)
+	_ = e.listSessions(t, true)
+	require.Eventually(t, func() bool {
+		res := e.listSessions(t, false)
+		snap := res.Msg.SandboxSnapshot
+		return !snap.Refreshing && !snap.Stale && snap.Error == ""
+	}, 5*time.Second, 10*time.Millisecond)
+}
+
+func TestListSessionsSandboxColdFailureReportsGenericUnavailable(t *testing.T) {
+	e := newSandboxEnv(t)
+	e.fake.FailPhases(errors.New("secret-cold-gateway-down"))
+	created, err := e.createSession(t)
+	require.NoError(t, err)
+	id := created.Msg.Session.Id
+
+	_ = e.listSessions(t, false)
+	var failed *v1.ListSessionsResponse
+	require.Eventually(t, func() bool {
+		res := e.listSessions(t, false)
+		snap := res.Msg.SandboxSnapshot
+		if snap != nil && !snap.Refreshing && snap.Error != "" {
+			failed = res.Msg
+			return true
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond)
+
+	var got *v1.SessionInfo
+	for _, s := range failed.Sessions {
+		if s.Id == id {
+			got = s
+		}
+	}
+	require.NotNil(t, got)
+	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN, got.SandboxStatus)
+	require.Nil(t, failed.SandboxSnapshot.ObservedAt)
+	require.True(t, failed.SandboxSnapshot.Stale)
+	require.Equal(t, "sandbox status unavailable: see the server log", failed.SandboxSnapshot.Error)
+	require.NotContains(t, failed.SandboxSnapshot.Error, "secret-cold-gateway-down")
+	require.Contains(t, e.log.String(), "secret-cold-gateway-down")
+}
+
+func TestListSessionsDirectoryOnlySkipsSandboxPhases(t *testing.T) {
+	e := newEnv(t)
+	id := e.id
+	r := e.registry(t)
+
+	var calls atomic.Int64
+	draining := make(chan struct{})
+	ts := httptest.NewUnstartedServer(nil)
+	ts.Config.Handler = New(Config{
+		Home: e.home, Token: testToken, Addr: ts.Listener.Addr().String(), Registry: r,
+		Draining: draining,
+		SandboxPhases: func(context.Context) (map[string]sandbox.Phase, error) {
+			calls.Add(1)
+			return map[string]sandbox.Phase{}, nil
+		},
+	}).Handler()
+	ts.Start()
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { close(draining) })
+	client := durablev1connect.NewSessionServiceClient(http.DefaultClient, ts.URL)
+
+	for _, refresh := range []bool{false, true} {
+		req := connect.NewRequest(&v1.ListSessionsRequest{RefreshSandboxStatus: refresh})
+		req.Header().Set("Authorization", "Bearer "+testToken)
+		res, err := client.ListSessions(t.Context(), req)
+		require.NoError(t, err)
+		require.Empty(t, res.Msg.Warnings)
+		require.Nil(t, res.Msg.SandboxSnapshot)
+		require.Len(t, res.Msg.Sessions, 1)
+		require.Equal(t, id, res.Msg.Sessions[0].Id)
+		require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNSPECIFIED, res.Msg.Sessions[0].SandboxStatus)
+	}
+	require.Zero(t, calls.Load())
+}
+
+func TestListSessionsCorruptSandboxPinWarns(t *testing.T) {
+	e := newEnv(t)
+	id := e.id
+	require.NoError(t, os.WriteFile(filepath.Join(e.home, ".durable", "sessions", id, sandbox.PinFile), []byte("{not-json"), 0o600))
+	r := e.registry(t)
+
+	var calls atomic.Int64
+	draining := make(chan struct{})
+	ts := httptest.NewUnstartedServer(nil)
+	ts.Config.Handler = New(Config{
+		Home: e.home, Token: testToken, Addr: ts.Listener.Addr().String(), Registry: r,
+		Draining: draining,
+		SandboxPhases: func(context.Context) (map[string]sandbox.Phase, error) {
+			calls.Add(1)
+			return map[string]sandbox.Phase{}, nil
+		},
+	}).Handler()
+	ts.Start()
+	t.Cleanup(ts.Close)
+	t.Cleanup(func() { close(draining) })
+	client := durablev1connect.NewSessionServiceClient(http.DefaultClient, ts.URL)
+
+	req := connect.NewRequest(&v1.ListSessionsRequest{})
+	req.Header().Set("Authorization", "Bearer "+testToken)
+	res, err := client.ListSessions(t.Context(), req)
+	require.NoError(t, err)
+	require.Contains(t, res.Msg.Warnings, "sandbox status unavailable for "+id)
+	require.Nil(t, res.Msg.SandboxSnapshot)
+	require.Len(t, res.Msg.Sessions, 1)
+	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNSPECIFIED, res.Msg.Sessions[0].SandboxStatus)
+	require.Zero(t, calls.Load())
 }
