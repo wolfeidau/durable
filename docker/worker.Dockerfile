@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends bash git ca-cer
     && rm -rf /var/lib/apt/lists/*
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=cli/cli
-ARG GH_VERSION=2.104.0
+ARG GH_VERSION=2.105.0
 # Checksums from the release's gh_<version>_checksums.txt; a version bump fails the build until they're updated.
 RUN case "$TARGETARCH" in \
       amd64) sum=98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e ;; \
@@ -26,7 +26,7 @@ RUN case "$TARGETARCH" in \
 # HOME is the workspace, so gh keeps its config in /tmp to stay out of commits.
 ENV GH_CONFIG_DIR=/tmp/gh GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1 GH_SPINNER_DISABLED=1
 # renovate: datasource=github-releases depName=jdx/mise
-ARG MISE_VERSION=2026.11.9
+ARG MISE_VERSION=2026.11.14
 # Checksums from the release's SHASUMS256.txt; a version bump fails the build until they're updated.
 RUN case "$TARGETARCH" in \
       amd64) arch=x64; sum=23ba592fcbc61f057e2b82c1eafd085832712ba0c759b714ca16cd06babca378 ;; \
