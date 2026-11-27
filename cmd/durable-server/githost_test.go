@@ -1,15 +1,29 @@
 package main
 
 import (
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wolfeidau/durable/internal/config"
+	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/githost"
+	"github.com/wolfeidau/durable/internal/githost/github"
 )
 
 const (
@@ -140,4 +154,93 @@ func TestGitHostTokenConfigurationErrors(t *testing.T) {
 			require.NotContains(t, out, gitTestToken)
 		})
 	}
+}
+
+func TestGitHostAppConfigStartsServerAndValidatesPermissions(t *testing.T) {
+	t.Parallel()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+
+	var instBody atomic.Value
+	instBody.Store(`{"id":42,"repository_selection":"selected","account":{"login":"octo-org"},"permissions":{"contents":"write","metadata":"read","pull_requests":"write","issues":"write"}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		parts := strings.Split(bearer, ".")
+		if !ok || len(parts) != 3 {
+			http.Error(w, "bad jwt", http.StatusUnauthorized)
+			return
+		}
+		sig, err := base64.RawURLEncoding.DecodeString(parts[2])
+		if err != nil {
+			http.Error(w, "bad sig", http.StatusUnauthorized)
+			return
+		}
+		sum := sha256.Sum256([]byte(parts[0] + "." + parts[1]))
+		if rsa.VerifyPKCS1v15(&key.PublicKey, crypto.SHA256, sum[:], sig) != nil {
+			http.Error(w, "bad sig", http.StatusUnauthorized)
+			return
+		}
+		switch r.URL.Path {
+		case "/app":
+			_, _ = w.Write([]byte(`{"id":99,"slug":"durable-bot"}`))
+		case "/app/installations/42":
+			_, _ = w.Write([]byte(instBody.Load().(string)))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	home := t.TempDir()
+	keyFile := filepath.Join(home, "app.pem")
+	require.NoError(t, os.WriteFile(keyFile, []byte(keyPEM), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(home, ".durable"), 0o700))
+	cfg := `{
+	  "git": {"hosts": {"github": {"app": {"client_id": "Iv23liTEST", "installation_id": 42, "private_key": "file:` + keyFile + `"}}}},
+	  "environments": {"default": {"image": "durable-worker:dev", "grants": ["github-api"]}}
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".durable", "config.json"), []byte(cfg), 0o600))
+
+	env := []string{"DURABLE_GITHUB_API_URL=" + srv.URL, "DURABLE_GITHUB_TOKEN=", "XDG_CONFIG_HOME=" + t.TempDir()}
+	r := startEnv(t, home, env)
+	r.stop(t)
+
+	out := r.out.String()
+	require.Contains(t, out, "git host ready")
+	require.Contains(t, out, "auth=github-app")
+	require.Contains(t, out, "app=durable-bot")
+	require.Contains(t, out, "installation_id=42")
+	require.Contains(t, out, "account=octo-org")
+	require.NotContains(t, out, "PRIVATE KEY")
+
+	// Missing contents permission fails startup upfront.
+	instBody.Store(`{"id":42,"account":{"login":"octo-org"},"permissions":{"metadata":"read"}}`)
+	failOut := runFailingIn(t, home, env)
+	require.Contains(t, failOut, "missing contents permission")
+	require.NotContains(t, failOut, "PRIVATE KEY")
+}
+
+func TestGitAppAccessFallsBackToAnonymousWhenNotInstalled(t *testing.T) {
+	t.Parallel()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	keyFile := filepath.Join(t.TempDir(), "app.pem")
+	require.NoError(t, os.WriteFile(keyFile, []byte(keyPEM), 0o600))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	funcs := gitAppAccessFuncs(map[string]config.GitHostAppSource{
+		github.Kind: {ClientID: "Iv23liTEST", PrivateKey: creds.Source{Flag: "test", Value: "file:" + keyFile}},
+	}, srv.URL)
+	access, err := funcs[github.Kind](t.Context(), githost.Repo{Host: "github.com", Owner: "octocat", Name: "hello-world"}, []string{"github-api"})
+	require.NoError(t, err)
+	require.Empty(t, access.AuthMode)
+	require.Empty(t, access.Provider)
+	require.Empty(t, access.CredentialEnv)
+	require.Equal(t, "https://github.com/octocat/hello-world.git", access.CloneURL)
 }

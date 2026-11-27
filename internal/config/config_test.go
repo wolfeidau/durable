@@ -102,30 +102,36 @@ func TestSchemaFailuresNameThePathAndNeverEchoASecret(t *testing.T) {
 		body string
 		want string
 	}{
-		"unknown key":       {`{"listen": {"adr": "x"}}`, "adr"},
-		"unknown top key":   {`{"nope": 1}`, "nope"},
-		"bad provider":      {`{"provider": {"name": "gpt"}}`, "provider"},
-		"bad protocol":      {`{"provider": {"protocol": "grpc"}}`, "protocol"},
-		"bad env name":      {`{"environments": {"bad name": {"image": "i"}}}`, "bad name"},
-		"unknown grant":     {`{"environments": {"go": {"image": "i", "grants": ["nope"]}}}`, "grants"},
-		"missing image":     {`{"environments": {"go": {}}}`, "image"},
-		"bad approvals":     {`{"environments": {"go": {"image": "i", "approvals": "` + secret + `"}}}`, "environments.<name>.approvals: must be one of"},
-		"removed telemetry": {`{"telemetry": {"otlp_addr": "127.0.0.1:4318"}}`, "telemetry"},
-		"literal header":    {`{"otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "` + secret + `"}}}`, "otel.headers.authorization"},
-		"bad otel protocol": {`{"otel": {"endpoint": "http://localhost:4318", "protocol": "` + secret + `"}}`, "otel.protocol: must be one of"},
-		"bad duration":      {`{"listen": {"idle_timeout": "soon"}}`, "idle_timeout"},
-		"bad host kind":     {`{"git": {"hosts": {"gitlab": {"token": "gh"}}}}`, "git.hosts: must be one of [github]"},
-		"literal api key":   {`{"provider": {"api_key": "` + secret + `"}}`, "provider.api_key"},
-		"literal git token": {`{"git": {"hosts": {"github": {"token": "` + secret + `"}}}}`, "git.hosts.github.token"},
-		"gh api key":        {`{"provider": {"api_key": "gh"}}`, "provider.api_key"},
-		"object token":      {`{"git": {"hosts": {"github": {"token": {"v": "` + secret + `"}}}}}`, "git.hosts.github.token"},
-		"string provider":   {`{"provider": "` + secret + `"}`, "provider: wrong type"},
-		"string git":        {`{"git": "` + secret + `"}`, "git: wrong type"},
-		"string host":       {`{"git": {"hosts": {"github": "` + secret + `"}}}`, "git.hosts.<name>: wrong type"},
-		"secret host kind":  {`{"git": {"hosts": {"` + secret + `": {"token": "gh"}}}}`, "git.hosts: must be one of"},
-		"secret provider":   {`{"provider": {"name": "` + secret + `"}}`, "provider.name: must be one of"},
-		"secret duration":   {`{"listen": {"heartbeat": "` + secret + `"}}`, "listen.heartbeat: does not match"},
-		"top-level array":   {`["` + secret + `"]`, "wrong type"},
+		"unknown key":           {`{"listen": {"adr": "x"}}`, "adr"},
+		"unknown top key":       {`{"nope": 1}`, "nope"},
+		"bad provider":          {`{"provider": {"name": "gpt"}}`, "provider"},
+		"bad protocol":          {`{"provider": {"protocol": "grpc"}}`, "protocol"},
+		"bad env name":          {`{"environments": {"bad name": {"image": "i"}}}`, "bad name"},
+		"unknown grant":         {`{"environments": {"go": {"image": "i", "grants": ["nope"]}}}`, "grants"},
+		"missing image":         {`{"environments": {"go": {}}}`, "image"},
+		"bad approvals":         {`{"environments": {"go": {"image": "i", "approvals": "` + secret + `"}}}`, "environments.<name>.approvals: must be one of"},
+		"removed telemetry":     {`{"telemetry": {"otlp_addr": "127.0.0.1:4318"}}`, "telemetry"},
+		"literal header":        {`{"otel": {"endpoint": "http://localhost:4318", "headers": {"authorization": "` + secret + `"}}}`, "otel.headers.authorization"},
+		"bad otel protocol":     {`{"otel": {"endpoint": "http://localhost:4318", "protocol": "` + secret + `"}}`, "otel.protocol: must be one of"},
+		"bad duration":          {`{"listen": {"idle_timeout": "soon"}}`, "idle_timeout"},
+		"bad host kind":         {`{"git": {"hosts": {"gitlab": {"token": "gh"}}}}`, "git.hosts: must be one of [github]"},
+		"literal api key":       {`{"provider": {"api_key": "` + secret + `"}}`, "provider.api_key"},
+		"literal git token":     {`{"git": {"hosts": {"github": {"token": "` + secret + `"}}}}`, "git.hosts.github.token"},
+		"gh api key":            {`{"provider": {"api_key": "gh"}}`, "provider.api_key"},
+		"object token":          {`{"git": {"hosts": {"github": {"token": {"v": "` + secret + `"}}}}}`, "git.hosts.github.token"},
+		"string provider":       {`{"provider": "` + secret + `"}`, "provider: wrong type"},
+		"string git":            {`{"git": "` + secret + `"}`, "git: wrong type"},
+		"string host":           {`{"git": {"hosts": {"github": "` + secret + `"}}}`, "git.hosts.<name>: wrong type"},
+		"secret host kind":      {`{"git": {"hosts": {"` + secret + `": {"token": "gh"}}}}`, "git.hosts: must be one of"},
+		"secret provider":       {`{"provider": {"name": "` + secret + `"}}`, "provider.name: must be one of"},
+		"secret duration":       {`{"listen": {"heartbeat": "` + secret + `"}}`, "listen.heartbeat: does not match"},
+		"top-level array":       {`["` + secret + `"]`, "wrong type"},
+		"literal app key":       {`{"git": {"hosts": {"github": {"app": {"client_id": "Iv1.x", "private_key": "` + secret + `"}}}}}`, "git.hosts.github.app.private_key"},
+		"gh app key":            {`{"git": {"hosts": {"github": {"app": {"client_id": "Iv1.x", "private_key": "gh"}}}}}`, "git.hosts.github.app.private_key"},
+		"both token and app":    {`{"git": {"hosts": {"github": {"token": "gh", "app": {"client_id": "Iv1.x", "private_key": "file:/k.pem"}}}}}`, "git.hosts.<name>"},
+		"empty git host":        {`{"git": {"hosts": {"github": {}}}}`, "git.hosts.<name>"},
+		"zero installation_id":  {`{"git": {"hosts": {"github": {"app": {"client_id": "Iv1.x", "installation_id": 0, "private_key": "file:/k.pem"}}}}}`, "git.hosts.<name>.app.installation_id"},
+		"missing app client_id": {`{"git": {"hosts": {"github": {"app": {"private_key": "file:/k.pem"}}}}}`, "client_id"},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -587,4 +593,37 @@ func TestOTelRejectsBadSettings(t *testing.T) {
 			require.ErrorContains(t, err, tt.want)
 		})
 	}
+}
+
+func TestGitHubAppConfigAndFlagOverride(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "should-be-ignored-when-app-is-set")
+	body := `{
+	  "git": {"hosts": {"github": {"app": {"client_id": "Iv23liABC", "installation_id": 42, "private_key": "op://vault/item/key"}}}},
+	  "environments": {"go": {"image": "img", "grants": ["github-api"]}}
+	}`
+	s, err := Load(writeHome(t, map[string]string{"config.json": body}))
+	require.NoError(t, err)
+	require.NoError(t, s.Validate())
+	require.Empty(t, s.GitHosts, "DURABLE_GITHUB_TOKEN must not apply when app is configured")
+	require.Empty(t, s.Warnings, "github-api must not warn when app is configured")
+	require.Equal(t, GitHostApp{ClientID: "Iv23liABC", InstallationID: 42, PrivateKey: "op://vault/item/key"}, s.GitHostApps["github"])
+	require.Equal(t, map[string]GitHostAppSource{
+		"github": {ClientID: "Iv23liABC", InstallationID: 42, PrivateKey: creds.Source{Flag: "git.hosts.github.app.private_key", Value: "op://vault/item/key"}},
+	}, s.GitHostAppSources())
+
+	// --git-host-token overrides git.hosts.github.app with a warning.
+	s.Apply(Overrides{GitHostFlags: []string{"github=gh"}})
+	require.NoError(t, s.Validate())
+	require.Empty(t, s.GitHostApps)
+	require.Equal(t, "gh", s.GitHosts["github"])
+	require.Len(t, s.Warnings, 1)
+	require.Contains(t, s.Warnings[0].Message, "--git-host-token github overrides git.hosts.github.app")
+}
+
+func TestGitHubAppWithoutEnvironmentFailsValidate(t *testing.T) {
+	t.Setenv("DURABLE_GITHUB_TOKEN", "")
+	body := `{"git": {"hosts": {"github": {"app": {"client_id": "Iv23liABC", "private_key": "file:/k.pem"}}}}}`
+	s, err := Load(writeHome(t, map[string]string{"config.json": body}))
+	require.NoError(t, err)
+	require.ErrorContains(t, s.Validate(), "a git host app needs --sandbox-image or an environment")
 }

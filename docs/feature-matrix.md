@@ -95,7 +95,7 @@ writers across processes, and bash orphans are stopped on recovery.
 | Allow, ask, deny rules | No | Ext | Ext | Yes |
 | Workspace path scoping | Part: file tools only | No: cwd isn't a boundary | Ext | Yes |
 | Strips credentials from bash | Part: `ANTHROPIC_*`, `OPENROUTER_*`, `OP_*` | n/d | n/d | n/d |
-| OS sandbox | Server only: a per-session [OpenShell](https://github.com/NVIDIA/OpenShell) sandbox; `durable chat` stays unsandboxed, see #9 | Ext: containers | No | Yes |
+| OS sandbox | Server only: a per-session [OpenShell](https://github.com/ai-openshell/openshell) sandbox; `durable chat` stays unsandboxed, see #9 | Ext: containers | No | Yes |
 
 ## Interfaces and embedding
 

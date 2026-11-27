@@ -49,6 +49,8 @@ type SandboxConfig struct {
 	GitHosts map[string]githost.Host
 	// GitTokens is true for each host kind the server holds a token for; a repo on any other host is cloned anonymously.
 	GitTokens map[string]bool
+	// GitApps resolves app-backed repository access for a host kind at session create.
+	GitApps map[string]func(ctx context.Context, repo githost.Repo, grants []string) (sandbox.GitAccess, error)
 	// GitAuthor is the commit author new sessions pin; unset leaves sandboxes without one.
 	GitAuthor sandbox.GitIdentity
 }
@@ -418,17 +420,17 @@ func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, f
 		return nil, nil, nil, err
 	}
 	if !ok {
+		env, err := ResolveEnvironment(c.Sandbox.Environments, c.Environment)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		var access []sandbox.GitAccess
 		if c.Workspace == WorkspaceRepo {
-			a, err := c.repoAccess()
+			a, err := c.repoAccess(ctx, env.Grants)
 			if err != nil {
 				return nil, nil, nil, err
 			}
 			access = []sandbox.GitAccess{a}
-		}
-		env, err := ResolveEnvironment(c.Sandbox.Environments, c.Environment)
-		if err != nil {
-			return nil, nil, nil, err
 		}
 		// The access and grants are fixed here, so a reopen keeps them even if the tokens or the environments file changed.
 		if pin, err = sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, BuildGrants(env.Grants, c.Workspace, access), c.Sandbox.GitAuthor.Config()); err != nil {

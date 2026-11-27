@@ -17,7 +17,7 @@ For how it compares with Pi, Pi Durable and Claude Code, see the [feature matrix
 - **Embeddable:** a Go library with two interfaces, `Model` and `Tool`, and reusable adapters and tools.
 - **Server and web UI:** `durable-server` serves the sessions over a Connect API and a browser UI on
   loopback: create a session, watch the reply stream, approve tool calls and cancel.
-- **Sandboxed sessions:** with [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell), the server
+- **Sandboxed sessions:** with [OpenShell](https://github.com/ai-openshell/openshell), the server
   runs each session's tools in its own sandbox. The workspace is empty or a clone of a GitHub repo
   and branch, and a repo session loads the clone's `AGENTS.md` and skills.
 
@@ -249,31 +249,46 @@ service. A `telemetry` key in `config.json` now fails startup, so remove it, alo
 `~/.durable/telemetry.db` can be deleted. The `ListNetworkEvents` API call keeps its shape: its
 `coverage` marks the source bounded and not resumable, and it issues no cursor.
 
-#### Git host tokens
+#### Git host credentials
 
-GitHub is the only git host so far.
+GitHub is the only git host so far. Configure either a static token or a GitHub App (mutually exclusive).
 
-- `--git-host-token github=<source>` takes an `op://` reference, `env:NAME`, `file:PATH` or `gh`, which runs
+- Static token: `--git-host-token github=<source>` takes an `op://` reference, `env:NAME`, `file:PATH` or `gh`, which runs
   `gh auth token`. **`gh` is for local dev only:** its token usually reaches every repo your login can. Without it, `git.hosts.github.token` in the config applies, then
   `DURABLE_GITHUB_TOKEN`. `GITHUB_TOKEN` and `GH_TOKEN` are never read.
-- At startup the server checks each token with `GET /user` and logs the login, kind and scopes,
-  never the token. A bad token fails startup. The source is read again on each sandbox create or
-  start, so a rotated token takes effect without a restart.
-- The token stays on the server; the sandbox sees only a placeholder, and each session's policy
-  limits git to its own repo. **Use a fine-grained token** scoped to the repos durable should reach;
-  a classic or `gh` token usually reaches every repo you can. Minimum repository permissions:
+- GitHub App (requires OpenShell gateway `>= v0.1.10`): configure `git.hosts.github.app` in `~/.durable/config.yaml` or `config.json`:
+
+  ```yaml
+  git:
+    hosts:
+      github:
+        app:
+          client_id: Iv23li...
+          installation_id: 12345678 # optional: omit to discover per repository
+          private_key: op://<vault>/<item>/<field> # op://, env:NAME or file:PATH
+  ```
+
+  OpenShell's gateway holds the RSA private key, signs app JWTs, and mints and rotates short-lived installation tokens scoped strictly to each session's single repository ID and grant permissions (so even GraphQL requests cannot cross repositories). At startup the server verifies the key and app with `GET /app` and checks the installation and required permissions when `installation_id` is set.
+- At startup the server checks static tokens with `GET /user` and logs the login, kind and scopes,
+  never the token. Bad credentials fail startup. Sources are read again on each sandbox create or
+  start, so a rotated token or private key takes effect without a restart.
+- Credentials stay on the server and OpenShell gateway; the sandbox sees only a placeholder, and each session's policy
+  limits git to its own repo. When using a static token, **use a fine-grained token** scoped to the repos durable should reach;
+  a classic or `gh` token usually reaches every repo you can. Minimum repository permissions (for both fine-grained tokens and GitHub Apps):
 
   | Permission | Access | Needed for |
   |---|---|---|
   | Metadata | Read | Always (GitHub adds it automatically) |
-  | Contents | Read and write | Clone and push |
+  | Contents | Read and write (or Read for read-only apps) | Clone and push |
   | Pull requests | Read and write | The `github-api` grant: open, edit and comment on PRs |
   | Issues | Read and write | The `github-api` grant: issues, comments and labels |
+  | Checks / Actions | Read (optional) | With a GitHub App + `github-api`, requested automatically when granted for reading CI status |
 
-- With no token, repo sessions clone public repos anonymously and `git push` fails. Repo access is
-  fixed at create, so adding a token later doesn't upgrade an existing session.
-- The server keeps one OpenShell provider and profile, `durable-github`, shared across sessions. To
+- With no token or app, or when a GitHub App is not installed on the target repository, repo sessions clone public repos anonymously (without `github-api`) and `git push` fails. Repo access is
+  fixed at create, so changing credentials later doesn't upgrade an existing session's pin.
+- For static tokens, the server keeps one OpenShell provider and profile, `durable-github`, shared across sessions. To
   remove them: `openshell provider delete durable-github`, then `openshell profile delete durable-github`.
+  For GitHub Apps, the server keeps one profile `durable-github-app` and one provider per repository and permission scope (`durable-gh-<repoID>-<hash>`). Scoped providers are not deleted automatically and each stores a copy of the app private key in OpenShell's credential backend; remove unused ones with `openshell provider delete <name>` (especially after rotating an app key).
 
 #### Environments and grants
 
@@ -293,7 +308,7 @@ servers, and its grants.
 | `mise` | `/usr/local/bin/mise` read-only downloads (GET, plus HEAD on GitHub) from GitHub release assets, `nodejs.org/dist` and `dl.google.com/go`, plus its update check at `mise.jdx.dev/releases.tsv` |
 | `mise-resolve` | `/usr/local/bin/mise` GET lookups of versions and attestations at `mise-versions.jdx.dev` (`/data`, `/api/github/repos/*/*/releases` and `/attestations`), and Sigstore's trust root at `tuf-repo-cdn.sigstore.dev` to verify them, so it can add, upgrade and re-lock tools. Needs `mise`; telemetry stays denied |
 | `npm-registry` | bun installed by mise (`/tmp/mise/data/installs/bun/*/bin/bun`) GET on `registry.npmjs.org`. Read-only, so no publish |
-| `github-api` | `/usr/local/bin/gh` to open and edit PRs and issues, comment, label and read CI status on the session's repo. Repo sessions with a GitHub token only |
+| `github-api` | `/usr/local/bin/gh` to open and edit PRs and issues, comment, label and read CI status on the session's repo. Repo sessions with a GitHub token or GitHub App only |
 
 - **Approvals:** `"approvals": "ask"` (default) or `"auto"`. With `auto`, tool calls in the
   environment's sessions run without asking, as `--yes` does for the CLI; `PreToolUse` hooks can

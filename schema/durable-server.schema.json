@@ -82,14 +82,49 @@
             "properties": {
               "token": {
                 "type": "string",
-                "description": "Where to read the token: an op:// 1Password reference, gh for the GitHub CLI's token, env:NAME or file:PATH. Never the token itself.",
+                "description": "Where to read a static token: an op:// 1Password reference, gh for the GitHub CLI's token, env:NAME or file:PATH. Never the token itself. Mutually exclusive with app.",
                 "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|gh|env:[A-Za-z_][A-Za-z0-9_]*|file:(/|~/).+)$"
+              },
+              "app": {
+                "type": "object",
+                "properties": {
+                  "client_id": {
+                    "type": "string",
+                    "description": "GitHub App client ID used as the JWT issuer.",
+                    "minLength": 1
+                  },
+                  "installation_id": {
+                    "type": "integer",
+                    "description": "Positive GitHub App installation ID. Empty discovers the installation per repository.",
+                    "minimum": 1
+                  },
+                  "private_key": {
+                    "type": "string",
+                    "description": "Where to read the GitHub App RSA PEM private key: an op:// 1Password reference, env:NAME or file:PATH. Never the key itself.",
+                    "pattern": "^(op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\\?.+)?|env:[A-Za-z_][A-Za-z0-9_]*|file:(/|~/).+)$"
+                  }
+                },
+                "description": "GitHub App credentials for gateway-managed short-lived installation tokens. Mutually exclusive with token.",
+                "required": [
+                  "client_id",
+                  "private_key"
+                ],
+                "additionalProperties": false
               }
             },
-            "required": [
-              "token"
-            ],
-            "additionalProperties": false
+            "additionalProperties": false,
+            "oneOf": [
+              {
+                "required": [
+                  "token"
+                ]
+              },
+              {
+                "required": [
+                  "app"
+                ]
+              }
+            ]
           },
           "propertyNames": {
             "enum": [

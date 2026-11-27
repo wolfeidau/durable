@@ -74,12 +74,15 @@ func lastLine(b []byte) string {
 	return ""
 }
 
-// repoAccess returns the sandbox's access to the session's repository: with the host's token when the server has one, else anonymous.
-func (c AssembleConfig) repoAccess() (sandbox.GitAccess, error) {
+// repoAccess returns the sandbox's access to the session's repository: with the host's app or token when the server has one, else anonymous.
+func (c AssembleConfig) repoAccess(ctx context.Context, grants []string) (sandbox.GitAccess, error) {
 	for _, kind := range slices.Sorted(maps.Keys(c.Sandbox.GitHosts)) {
 		h := c.Sandbox.GitHosts[kind]
 		if _, err := h.ParseRepo(c.Repo.String()); err != nil {
 			continue
+		}
+		if appFn := c.Sandbox.GitApps[kind]; appFn != nil {
+			return appFn(ctx, c.Repo, grants)
 		}
 		access := h.Access(c.Repo)
 		if !c.Sandbox.GitTokens[kind] {

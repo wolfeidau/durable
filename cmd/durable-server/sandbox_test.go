@@ -43,12 +43,17 @@ func TestSandboxDeleteRejectsBadSessions(t *testing.T) {
 	}
 }
 
-// sandboxAudit runs durable-server sandbox-audit and returns its combined output.
+// sandboxAudit runs durable-server sandbox-audit with an empty gateway config dir so unit tests never contact a local gateway.
 func sandboxAudit(t *testing.T, home, id string, args ...string) (string, error) {
 	t.Helper()
+	return sandboxAuditEnv(t, home, []string{"XDG_CONFIG_HOME=" + t.TempDir()}, id, args...)
+}
+
+// sandboxAuditEnv runs durable-server sandbox-audit with HOME=home plus extra env overrides.
+func sandboxAuditEnv(t *testing.T, home string, extraEnv []string, id string, args ...string) (string, error) {
+	t.Helper()
 	cmd := exec.CommandContext(t.Context(), binPath, append([]string{"sandbox-audit", id}, args...)...)
-	// An empty gateway config dir makes the gateway fallback fail whatever the developer's machine has.
-	cmd.Env = append(os.Environ(), "HOME="+home, "XDG_CONFIG_HOME="+t.TempDir())
+	cmd.Env = append(append(os.Environ(), "HOME="+home), extraEnv...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }

@@ -1,8 +1,10 @@
 package commands
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -209,4 +211,53 @@ func TestAssembleRepoSessionRetriesAnInterruptedClone(t *testing.T) {
 	require.DirExists(t, filepath.Join(root, ".git"))
 	require.NoDirExists(t, filepath.Join(root, ".durable-clone"))
 	require.NoFileExists(t, filepath.Join(root, "partial"))
+}
+
+func TestAssembleRepoSessionWithGitApp(t *testing.T) {
+	assembleHome(t)
+	f := sandboxtest.New(t)
+	h := githosttest.New(t)
+	cfg := repoCfg(t, f, h, "main", false)
+	cfg.Sandbox.Environments = map[string]Environment{
+		DefaultEnvironment: {Name: DefaultEnvironment, Image: "img:1", Grants: []string{"go-modules", "github-api"}},
+	}
+	var gotGrants []string
+	cfg.Sandbox.GitApps = map[string]func(context.Context, githost.Repo, []string) (sandbox.GitAccess, error){
+		"github": func(_ context.Context, repo githost.Repo, grants []string) (sandbox.GitAccess, error) {
+			gotGrants = grants
+			a := h.Access(repo)
+			a.AuthMode = sandbox.GitAuthModeGitHubApp
+			a.ProfileID = "durable-github-app"
+			a.Provider = "durable-gh-123456-abcd1234"
+			a.InstallationID = 42
+			a.RepositoryID = 123456
+			a.Permissions = map[string]string{"contents": "write", "metadata": "read"}
+			return a, nil
+		},
+	}
+
+	a, err := Assemble(t.Context(), cfg)
+	require.NoError(t, err)
+	defer a.Close()
+
+	require.Equal(t, []string{"go-modules", "github-api"}, gotGrants)
+	pin := repoPin(t, a)
+	require.Len(t, pin.Git, 1)
+	require.Equal(t, sandbox.GitAuthModeGitHubApp, pin.Git[0].AuthMode)
+	require.Equal(t, "durable-gh-123456-abcd1234", pin.Git[0].Provider)
+	require.Equal(t, int64(42), pin.Git[0].InstallationID)
+	require.Equal(t, int64(123456), pin.Git[0].RepositoryID)
+	require.Len(t, pin.Grants, 1)
+	require.Equal(t, "go-modules", pin.Grants[0].Name)
+
+	// An error from GitApps aborts session creation before writing a pin.
+	cfg2 := repoCfg(t, f, h, "feature", false)
+	boom := errors.New("installation suspended")
+	cfg2.Sandbox.GitApps = map[string]func(context.Context, githost.Repo, []string) (sandbox.GitAccess, error){
+		"github": func(context.Context, githost.Repo, []string) (sandbox.GitAccess, error) {
+			return sandbox.GitAccess{}, boom
+		},
+	}
+	_, err = Assemble(t.Context(), cfg2)
+	require.ErrorIs(t, err, boom)
 }

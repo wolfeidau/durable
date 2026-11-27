@@ -195,10 +195,10 @@ func TestGatewaySandboxAuditListsDeniedRequests(t *testing.T) {
 
 	// The supervisor flushes its log asynchronously.
 	require.Eventually(t, func() bool {
-		out, err := sandboxAudit(t, home, id, "--denied")
+		out, err := sandboxAuditEnv(t, home, nil, id, "--denied")
 		return err == nil && regexp.MustCompile(`denied\s+NET\s+\S*curl\s+-\s+example\.com:443`).MatchString(out)
 	}, 20*time.Second, time.Second)
-	out, err := sandboxAudit(t, home, id)
+	out, err := sandboxAuditEnv(t, home, nil, id)
 	require.NoError(t, err, out)
 	require.Regexp(t, `\d+ allowed, [1-9]\d* denied, from \d{4}-\d\d-\d\d \S+ to \d{4}-\d\d-\d\d`, out)
 }

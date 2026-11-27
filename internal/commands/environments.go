@@ -130,17 +130,21 @@ var githubAPIMutations = []string{
 }
 
 // githubAPIGrant lets gh work on the session's GitHub repos without merging. It needs the credentialed access, because
-// the token is what gh authenticates with.
+// the token or app installation token is what gh authenticates with.
 func githubAPIGrant(_ string, access []sandbox.GitAccess) (sandbox.Grant, bool) {
 	rules := []sandbox.HTTPRule{{Method: "GET", Path: "/user"}, {Method: "GET", Path: "/rate_limit"}}
 	baseRules := len(rules)
+	var provider string
 	for _, a := range access {
-		if a.Kind != github.Kind || a.Provider != github.Provider {
+		if a.Kind != github.Kind || a.Provider == "" {
 			continue
 		}
 		repo, err := github.New("").ParseRepo(a.CloneURL)
 		if err != nil {
 			continue
+		}
+		if provider == "" {
+			provider = a.Provider
 		}
 		base := "/repos/" + repo.Owner + "/" + repo.Name
 		for _, m := range []string{"GET", "HEAD"} {
@@ -169,7 +173,7 @@ func githubAPIGrant(_ string, access []sandbox.GitAccess) (sandbox.Grant, bool) 
 	return sandbox.Grant{
 		Name:     "github-api",
 		Binaries: ghBinaries,
-		Provider: github.Provider,
+		Provider: provider,
 		Endpoints: []sandbox.GrantEndpoint{
 			{Host: githubAPIHost, Port: 443, Rules: rules},
 			{Host: githubAPIHost, Port: 443, Path: "/graphql", GraphQL: graphql},
