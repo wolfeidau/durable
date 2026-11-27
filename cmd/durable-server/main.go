@@ -236,7 +236,8 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	api := server.New(server.Config{
 		Home: home, Token: token, Addr: addr, Logger: logger, Registry: registry, Heartbeat: settings.Heartbeat, Draining: draining,
 		Settings: shown, Warnings: warnings,
-		Gateway: backend.Decisions,
+		Gateway:       backend.Decisions,
+		SandboxPhases: backend.Phases,
 	})
 	srv := &http.Server{
 		Handler:           api.Handler(),

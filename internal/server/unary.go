@@ -82,25 +82,91 @@ func (s sessionService) DecideApproval(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&v1.DecideApprovalResponse{Approval: wire.Approval(a)}), nil
 }
 
-func (s sessionService) ListSessions(ctx context.Context, _ *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error) {
+func (s sessionService) ListSessions(ctx context.Context, req *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error) {
 	metas, warnings, err := commands.ListSessions(s.home)
 	if err != nil {
 		return nil, s.internal(ctx, "list sessions", err)
 	}
+	type pinnedSession struct {
+		info *v1.SessionInfo
+		name string
+	}
 	out := &v1.ListSessionsResponse{Warnings: warnings}
+	var pinned []pinnedSession
 	for _, m := range metas {
+		dir := filepath.Join(s.home, ".durable", "sessions", m.ID)
 		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt), Workspace: workspaceOf(m), Repo: m.Repo, Branch: m.Branch, Environment: m.Environment}
-		st, err := durable.ReadStatus(ctx, filepath.Join(s.home, ".durable", "sessions", m.ID, "session.sqlite"))
+		st, err := durable.ReadStatus(ctx, filepath.Join(dir, "session.sqlite"))
 		if err != nil {
 			// The warning is returned to the client, so it isn't logged here.
 			out.Warnings = append(out.Warnings, fmt.Sprintf("status unavailable for %s", m.ID))
 		} else {
 			info.PendingApprovals = int32(st.PendingApprovals) //nolint:gosec // counts of rows in one session
 			info.UnfinishedSubmissions = int32(st.Unfinished)  //nolint:gosec // counts of rows in one session
+			info.LastSubmissionStatus = wire.SubmissionStatus(st.LastSubmissionStatus)
+		}
+		pin, ok, err := sandbox.ReadPin(dir)
+		if err != nil {
+			out.Warnings = append(out.Warnings, fmt.Sprintf("sandbox status unavailable for %s", m.ID))
+		} else if ok {
+			pinned = append(pinned, pinnedSession{info: info, name: pin.Name})
 		}
 		out.Sessions = append(out.Sessions, info)
 	}
+	if len(pinned) > 0 {
+		if s.sandboxCache == nil {
+			for _, p := range pinned {
+				p.info.SandboxStatus = v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
+			}
+		} else {
+			snap := s.sandboxCache.Snapshot(req.Msg.GetRefreshSandboxStatus())
+			for _, p := range pinned {
+				p.info.SandboxStatus = sandboxStatusOf(snap, p.name)
+			}
+			out.SandboxSnapshot = protoSandboxSnapshot(snap)
+		}
+	}
 	return connect.NewResponse(out), nil
+}
+
+func sandboxStatusOf(snap sandboxSnapshot, name string) v1.SandboxStatus {
+	if snap.observedAt.IsZero() {
+		return v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
+	}
+	phase, ok := snap.phases[name]
+	if !ok {
+		return v1.SandboxStatus_SANDBOX_STATUS_MISSING
+	}
+	switch phase {
+	case sandbox.PhaseRunning:
+		return v1.SandboxStatus_SANDBOX_STATUS_RUNNING
+	case sandbox.PhaseStarting:
+		return v1.SandboxStatus_SANDBOX_STATUS_STARTING
+	case sandbox.PhaseStopping:
+		return v1.SandboxStatus_SANDBOX_STATUS_STOPPING
+	case sandbox.PhaseStopped:
+		return v1.SandboxStatus_SANDBOX_STATUS_STOPPED
+	case sandbox.PhaseError:
+		return v1.SandboxStatus_SANDBOX_STATUS_ERROR
+	default:
+		return v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
+	}
+}
+
+func protoSandboxSnapshot(snap sandboxSnapshot) *v1.SandboxSnapshot {
+	out := &v1.SandboxSnapshot{
+		ObservedAt: optTime(snap.observedAt),
+		Refreshing: snap.refreshing,
+		Stale:      snap.stale,
+	}
+	if snap.err != nil {
+		if snap.observedAt.IsZero() {
+			out.Error = "sandbox status unavailable: see the server log"
+		} else {
+			out.Error = "sandbox status could not be refreshed: see the server log"
+		}
+	}
+	return out
 }
 
 // minRequestIDLen keeps a guessable request_id from naming, and so opening, another caller's empty session.

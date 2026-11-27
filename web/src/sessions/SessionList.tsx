@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@connectrpc/connect-query";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { createSession, getServerInfo, listSessions } from "../gen/durable/v1/durable-SessionService_connectquery";
-import { type SessionInfo } from "../gen/durable/v1/durable_pb";
+import { type SandboxSnapshot, type SessionInfo } from "../gen/durable/v1/durable_pb";
 import {
   buildRequest,
   canCreate,
@@ -17,7 +17,18 @@ import { QueryStatus } from "../ui/QueryStatus";
 import { Segmented } from "../ui/Segmented";
 import { errText } from "../lib/rpc";
 import { readStored, store } from "../lib/storage";
-import { age, kindText, sorted, where } from "./sessions";
+import {
+  age,
+  kindText,
+  pollInterval,
+  sandboxHeaderNote,
+  sandboxStatusView,
+  sessionWarnings,
+  showSandboxColumn,
+  sorted,
+  where,
+  workStatus,
+} from "./sessions";
 
 const modeLabels: Record<Mode, string> = { directory: "Directory", empty: "Empty workspace", repo: "Repository" };
 
@@ -140,18 +151,38 @@ function NewSessionForm({ onCreated }: { onCreated: (id: string) => void }): Rea
 }
 
 function Status({ s }: { s: SessionInfo }): ReactElement {
-  if (s.pendingApprovals === 0 && s.unfinishedSubmissions === 0) return <span className="faint">idle</span>;
+  const view = workStatus(s);
+  return <span className={view.className}>{view.text}</span>;
+}
+
+function Sandbox({ s, snapshot }: { s: SessionInfo; snapshot: SandboxSnapshot | undefined }): ReactElement {
+  const view = sandboxStatusView(s.sandboxStatus, snapshot);
   return (
-    <>
-      {s.pendingApprovals > 0 && <span className="badge tone-warn">{s.pendingApprovals} awaiting approval</span>}
-      {s.unfinishedSubmissions > 0 && <span className="badge tone-link pulse">working</span>}
-    </>
+    <span className={view.className} title={view.title}>
+      {view.text}
+    </span>
   );
 }
 
 export function SessionList({ onSelect }: { onSelect: (id: string) => void }): ReactElement {
-  const { data, error, isPending, refetch } = useQuery(listSessions, {}, { refetchInterval: 15_000 });
+  const { data, dataUpdatedAt, error, isPending, refetch } = useQuery(
+    listSessions,
+    {},
+    { refetchInterval: (query) => pollInterval(query.state.data?.sandboxSnapshot) },
+  );
+  const refresh = useMutation(listSessions);
   const sessions = sorted(data?.sessions ?? []);
+  const snapshot = data?.sandboxSnapshot;
+  const hasSandbox = showSandboxColumn(sessions, snapshot);
+  const headerNote = sandboxHeaderNote(snapshot);
+  const observedTitle = snapshot?.observedAt ? `Updated ${timestampDate(snapshot.observedAt).toLocaleString()}` : undefined;
+  const warnings = sessionWarnings(data?.warnings, snapshot);
+  const refreshError = refresh.error && refresh.submittedAt >= dataUpdatedAt ? refresh.error : undefined;
+
+  const onRefresh = async () => {
+    const res = await refresh.mutateAsync({ refreshSandboxStatus: true }).catch(() => undefined);
+    if (res) await refetch();
+  };
 
   const newSession = () => {
     const form = document.getElementById("new-session");
@@ -166,22 +197,27 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
           Sessions {data && <span className="muted count">{sessions.length}</span>}
         </h2>
         <div className="actions">
-          <button className="secondary" onClick={() => void refetch()}>
+          <button className="secondary" disabled={refresh.isPending} onClick={() => void onRefresh()}>
             Refresh
           </button>
           <button onClick={newSession}>New session</button>
         </div>
       </div>
-      <QueryStatus isPending={isPending} error={error} warnings={data?.warnings} />
+      <QueryStatus isPending={isPending} error={error ?? refreshError} warnings={warnings} />
       {data && sessions.length === 0 && <p className="card empty">No sessions yet. Create one below.</p>}
       {sessions.length > 0 && (
         <div className="table-wrap">
-          <table>
+          <table className={hasSandbox ? "has-sandbox" : undefined}>
             <thead>
               <tr>
                 <th>Name</th>
                 <th>Workspace</th>
                 <th>Status</th>
+                {hasSandbox && (
+                  <th className="sandbox-col" title={observedTitle}>
+                    Sandbox{headerNote && <span className="sandbox-note">{headerNote}</span>}
+                  </th>
+                )}
                 <th className="created">Created</th>
               </tr>
             </thead>
@@ -216,6 +252,11 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
                       <Status s={s} />
                     </div>
                   </td>
+                  {hasSandbox && (
+                    <td className="sandbox">
+                      <Sandbox s={s} snapshot={snapshot} />
+                    </td>
+                  )}
                   <td className="created muted" title={s.createdAt ? timestampDate(s.createdAt).toLocaleString() : undefined}>
                     {age(s)}
                   </td>

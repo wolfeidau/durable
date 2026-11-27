@@ -33,17 +33,19 @@ const (
 type Fake struct {
 	t *testing.T
 
-	mu         sync.Mutex
-	phase      map[string]string
-	roots      map[string]string
-	specs      []sandbox.Spec
-	ensures    int
-	stops      int
-	deletes    int
-	ensureErr  error
-	connectErr error
-	stdios     int
-	missing    []string
+	mu          sync.Mutex
+	phase       map[string]string
+	roots       map[string]string
+	specs       []sandbox.Spec
+	ensures     int
+	stops       int
+	deletes     int
+	phasesCalls int
+	ensureErr   error
+	connectErr  error
+	phasesErr   error
+	stdios      int
+	missing     []string
 }
 
 var _ sandbox.Backend = (*Fake)(nil)
@@ -59,6 +61,27 @@ func (f *Fake) FailEnsure(err error) { f.mu.Lock(); f.ensureErr = err; f.mu.Unlo
 
 // FailConnect makes Connect return err until it is called with nil.
 func (f *Fake) FailConnect(err error) { f.mu.Lock(); f.connectErr = err; f.mu.Unlock() }
+
+// FailPhases makes Phases return err until it is called with nil.
+func (f *Fake) FailPhases(err error) { f.mu.Lock(); f.phasesErr = err; f.mu.Unlock() }
+
+// SetPhase sets the sandbox's phase in memory, or removes it when phase is empty.
+func (f *Fake) SetPhase(name string, phase sandbox.Phase) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if phase == "" {
+		delete(f.phase, name)
+		return
+	}
+	f.phase[name] = string(phase)
+}
+
+// PhasesCalls returns how many times Phases was called.
+func (f *Fake) PhasesCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.phasesCalls
+}
 
 // WithoutRPCs makes the worker answer the named RPCs, such as "ReadDir", as a worker built before them would.
 func (f *Fake) WithoutRPCs(names ...string) {
@@ -94,6 +117,28 @@ func (f *Fake) Phase(name string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.phase[name]
+}
+
+// Phases returns a snapshot of every sandbox's neutral lifecycle phase.
+func (f *Fake) Phases(ctx context.Context) (map[string]sandbox.Phase, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.phasesCalls++
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if f.phasesErr != nil {
+		return nil, f.phasesErr
+	}
+	out := make(map[string]sandbox.Phase, len(f.phase))
+	for name, p := range f.phase {
+		if p == Ready {
+			out[name] = sandbox.PhaseRunning
+			continue
+		}
+		out[name] = sandbox.Phase(p)
+	}
+	return out, nil
 }
 
 func (f *Fake) Ensure(_ context.Context, s sandbox.Spec) error {

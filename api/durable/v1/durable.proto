@@ -111,12 +111,46 @@ message CreateSessionResponse {
   bool created = 2;
 }
 
-message ListSessionsRequest {}
+message ListSessionsRequest {
+  // refresh_sandbox_status triggers an immediate non-blocking background refresh of sandbox status even within TTL.
+  bool refresh_sandbox_status = 1;
+}
 
 message ListSessionsResponse {
   repeated SessionInfo sessions = 1;
   // warnings name session.json files that were skipped.
   repeated string warnings = 2;
+  // sandbox_snapshot carries freshness metadata for sandboxed sessions; unset when no session is sandboxed.
+  SandboxSnapshot sandbox_snapshot = 3;
+}
+
+// SandboxStatus is the lifecycle state of a session's pinned sandbox.
+enum SandboxStatus {
+  // UNSPECIFIED means the session is not sandboxed (no sandbox.json pin).
+  SANDBOX_STATUS_UNSPECIFIED = 0;
+  // UNKNOWN is a non-negative initial or unobserved state for a sandboxed session
+  // before any gateway snapshot has succeeded.
+  SANDBOX_STATUS_UNKNOWN = 1;
+  SANDBOX_STATUS_RUNNING = 2;
+  SANDBOX_STATUS_STARTING = 3;
+  SANDBOX_STATUS_STOPPING = 4;
+  SANDBOX_STATUS_STOPPED = 5;
+  SANDBOX_STATUS_ERROR = 6;
+  // MISSING is only set when an observed gateway snapshot omits the pinned sandbox.
+  SANDBOX_STATUS_MISSING = 7;
+}
+
+// SandboxSnapshot reports freshness metadata for the sandbox statuses in ListSessionsResponse.
+message SandboxSnapshot {
+  // observed_at is when the cached snapshot was last fetched; unset before the first successful fetch.
+  google.protobuf.Timestamp observed_at = 1;
+  // refreshing is true while a background refresh is in flight.
+  bool refreshing = 2;
+  // stale is true when observed_at is unset, older than the server's freshness window,
+  // invalidated by a local lifecycle change, or the last refresh failed.
+  bool stale = 3;
+  // error is a generic message when the last refresh failed; previously cached statuses remain populated.
+  string error = 4;
 }
 
 message SessionInfo {
@@ -136,6 +170,10 @@ message SessionInfo {
   string branch = 9;
   // environment is the sandbox environment the session was created with; empty for a directory session or one from before environments.
   string environment = 10;
+  // last_submission_status is the status of the newest submission, or UNSPECIFIED when the session has none.
+  SubmissionStatus last_submission_status = 11;
+  // sandbox_status is the sandbox lifecycle state for a sandboxed session, or UNSPECIFIED for a directory session.
+  SandboxStatus sandbox_status = 12;
 }
 
 message SubmitRequest {

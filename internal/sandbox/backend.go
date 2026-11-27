@@ -115,6 +115,19 @@ type Endpoint struct {
 	Port uint32 `json:"port"`
 }
 
+// Phase is a backend-neutral lifecycle phase of a sandbox.
+type Phase string
+
+const (
+	// PhaseUnknown represents a sandbox reported by the backend with an unknown or unrecognized phase, distinct from absence.
+	PhaseUnknown  Phase = "unknown"
+	PhaseRunning  Phase = "running"
+	PhaseStarting Phase = "starting"
+	PhaseStopping Phase = "stopping"
+	PhaseStopped  Phase = "stopped"
+	PhaseError    Phase = "error"
+)
+
 // Backend runs sandboxes.
 type Backend interface {
 	// Ensure creates the sandbox when it is missing, else starts it, and returns once it is ready.
