@@ -6,7 +6,7 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 go build -o /out/durable-worker ./cmd/durable-worker
 
-FROM debian:13.7-slim
+FROM debian:13.8-slim
 RUN apt-get update && apt-get install -y --no-install-recommends bash git ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 ARG TARGETARCH
