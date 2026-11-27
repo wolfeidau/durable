@@ -131,7 +131,7 @@ export class NetworkPoller {
   }
 
   private interval(): number {
-    return this.snapshot.coverage?.resumable === false ? gatewayIntervalMs : storeIntervalMs;
+    return this.snapshot.coverage?.resumable ? storeIntervalMs : gatewayIntervalMs;
   }
 
   private async run(): Promise<void> {

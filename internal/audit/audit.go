@@ -2,9 +2,15 @@
 package audit
 
 import (
+	"cmp"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/wolfeidau/durable/internal/sandbox/openshell"
@@ -57,21 +63,14 @@ func Read(ctx context.Context, q Query) (Result, error) {
 	if q.After != "" {
 		return Result{}, fmt.Errorf("%w: cursors are not supported by the gateway log", ErrBadCursor)
 	}
-	var res Result
-	q.readGateway(ctx, &res)
-	return res, nil
-}
-
-func (q Query) readGateway(ctx context.Context, res *Result) {
 	if q.Gateway == nil {
-		res.Coverage.GatewayErr = errNoGateway
-		return
+		return Result{Coverage: Coverage{GatewayErr: errNoGateway}}, nil
 	}
 	ds, err := q.Gateway(ctx, q.Sandbox, q.Since)
 	if err != nil {
-		res.Coverage.GatewayErr = err
-		return
+		return Result{Coverage: Coverage{GatewayErr: err}}, nil //nolint:nilerr // gateway failure is reported in Coverage.GatewayErr, not returned
 	}
+	var res Result
 	events := gatewayEvents(ds)
 	if len(events) > 0 && events[0].Time.After(q.Since) {
 		res.Coverage.GatewayStart = events[0].Time
@@ -80,4 +79,28 @@ func (q Query) readGateway(ctx context.Context, res *Result) {
 		events, res.Truncated = events[len(events)-q.Limit:], true
 	}
 	res.Events = events
+	return res, nil
+}
+
+// gatewayEvents gives each log decision an id derived from its content, ordered by (time, id).
+// Identical decisions in the same millisecond get a counter, in log order. The ids let a client dedupe repeated reads;
+// they are not stable once the log drops lines, so there is no cursor.
+func gatewayEvents(ds []openshell.Decision) []Event {
+	seen := map[string]int{}
+	out := make([]Event, len(ds))
+	for i, d := range ds {
+		sum := sha256.Sum256(fmt.Appendf(nil, "%d\x00%t\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s",
+			d.Time.UnixMilli(), d.Allowed, d.Kind, d.Activity, d.Binary, d.Method, d.Host, d.Path, d.Policy, d.Reason))
+		key := hex.EncodeToString(sum[:16])
+		n := seen[key]
+		seen[key]++
+		out[i] = Event{ID: "g-" + key + "-" + strconv.Itoa(n), Decision: d}
+	}
+	slices.SortStableFunc(out, func(a, b Event) int {
+		if c := cmp.Compare(a.Time.UnixMilli(), b.Time.UnixMilli()); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	return out
 }

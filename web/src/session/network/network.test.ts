@@ -245,7 +245,7 @@ describe("NetworkPoller", () => {
     poller.start();
     await tick();
     expect(seen.length).toBe(0);
-    expect(sleeps).toEqual([storeIntervalMs]);
+    expect(sleeps).toEqual([gatewayIntervalMs]);
     hidden = false;
     await next();
     expect(seen.length).toBe(1);

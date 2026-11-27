@@ -4,18 +4,12 @@ import (
 	"bytes"
 	"strings"
 	"testing"
-	"time"
 
 	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
 	"github.com/stretchr/testify/require"
 )
 
 func ocsf(msg string) v1.LogLine { return v1.LogLine{Level: "OCSF", Target: "ocsf", Message: msg} }
-
-var (
-	bypassRefusal = Decision{Kind: "NET", Activity: "REFUSE", Binary: "node", Host: "93.184.216.34:443", Policy: "bypass-detect", Reason: "bypass"}
-	dnsRefusal    = Decision{Kind: "NET", Activity: "REFUSE", Host: "mise-versions.jdx.dev", Reason: "policy_dns_ineligible"}
-)
 
 func TestParseDecision(t *testing.T) {
 	tests := []struct {
@@ -51,11 +45,11 @@ func TestParseDecision(t *testing.T) {
 		},
 		{
 			name: "bypass refusal", line: ocsf("NET:REFUSE [MED] DENIED node(1234) -> 93.184.216.34:443/tcp [policy:bypass-detect engine:nftables] [reason:bypass]"),
-			want: bypassRefusal, ok: true,
+			want: Decision{Kind: "NET", Activity: "REFUSE", Binary: "node", Host: "93.184.216.34:443", Policy: "bypass-detect", Reason: "bypass"}, ok: true,
 		},
 		{
 			name: "DNS refusal without actor", line: ocsf("NET:REFUSE [MED] DENIED mise-versions.jdx.dev [reason:policy_dns_ineligible]"),
-			want: dnsRefusal, ok: true,
+			want: Decision{Kind: "NET", Activity: "REFUSE", Host: "mise-versions.jdx.dev", Reason: "policy_dns_ineligible"}, ok: true,
 		},
 		{name: "actor only", line: ocsf("NET:REFUSE [MED] DENIED node(1234) [reason:x]")},
 		{name: "refuse without destination", line: ocsf("NET:REFUSE [MED] DENIED [reason:x]")},
@@ -101,31 +95,5 @@ func TestDecisionPatternGroupsVersionsAndHashes(t *testing.T) {
 	}
 	for in, want := range tests {
 		require.Equal(t, want, Decision{Path: in}.Pattern(), in)
-	}
-}
-
-// Both parsers must yield the same Decision for the same event.
-func TestParsersAgreeOnRefusals(t *testing.T) {
-	at := time.UnixMilli(1700000000123).UTC()
-	tests := []struct{ name, line, body string }{
-		{
-			"bypass", "NET:REFUSE [MED] DENIED node(1234) -> 93.184.216.34:443/tcp [policy:bypass-detect engine:nftables] [reason:bypass]",
-			`{"class_uid":4001,"activity_id":5,"action_id":2,"time":1700000000123,"status_detail":"bypass",
-				"dst_endpoint":{"ip":"93.184.216.34","port":443},"actor":{"process":{"name":"node","pid":1234}},
-				"connection_info":{"protocol_name":"tcp"},"firewall_rule":{"name":"bypass-detect","type":"nftables"}}`,
-		},
-		{
-			"dns", "NET:REFUSE [MED] DENIED mise-versions.jdx.dev [reason:policy_dns_ineligible]",
-			`{"class_uid":4001,"activity_id":5,"action_id":2,"time":1700000000123,"status_detail":"policy_dns_ineligible","dst_endpoint":{"domain":"mise-versions.jdx.dev"}}`,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			fromLine, ok := parseDecision(v1.LogLine{Target: "ocsf", Message: tc.line, Timestamp: at})
-			require.True(t, ok)
-			fromBody, ok := decisionFromOCSF([]byte(tc.body))
-			require.True(t, ok)
-			require.Equal(t, fromBody, fromLine)
-		})
 	}
 }

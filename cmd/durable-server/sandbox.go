@@ -160,10 +160,9 @@ func (c *sandboxDeleteCmd) Run(ctx context.Context) error {
 }
 
 type sandboxAuditCmd struct {
-	Session string `arg:"" help:"Session id, as shown in the session directory name."`
-	// Zero means the default, so the command can tell an explicit --since.
-	Since  time.Duration `help:"How far back to read the network decisions (default 24h)."`
-	Denied bool          `help:"List only denied requests."`
+	Session string        `arg:"" help:"Session id, as shown in the session directory name."`
+	Since   time.Duration `help:"How far back to read the network decisions (default 24h)."`
+	Denied  bool          `help:"List only denied requests."`
 }
 
 const defaultAuditSince = 24 * time.Hour
