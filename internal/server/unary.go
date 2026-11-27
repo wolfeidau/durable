@@ -113,12 +113,18 @@ func (s sessionService) ListSessions(ctx context.Context, req *connect.Request[v
 		}
 		out.Sessions = append(out.Sessions, info)
 	}
-	if len(pinned) > 0 && s.sandboxCache != nil {
-		snap := s.sandboxCache.Snapshot(req.Msg.GetRefreshSandboxStatus())
-		for _, p := range pinned {
-			p.info.SandboxStatus = sandboxStatusOf(snap, p.name)
+	if len(pinned) > 0 {
+		if s.sandboxCache == nil {
+			for _, p := range pinned {
+				p.info.SandboxStatus = v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
+			}
+		} else {
+			snap := s.sandboxCache.Snapshot(req.Msg.GetRefreshSandboxStatus())
+			for _, p := range pinned {
+				p.info.SandboxStatus = sandboxStatusOf(snap, p.name)
+			}
+			out.SandboxSnapshot = protoSandboxSnapshot(snap)
 		}
-		out.SandboxSnapshot = protoSandboxSnapshot(snap)
 	}
 	return connect.NewResponse(out), nil
 }
@@ -142,8 +148,6 @@ func sandboxStatusOf(snap sandboxSnapshot, name string) v1.SandboxStatus {
 		return v1.SandboxStatus_SANDBOX_STATUS_STOPPED
 	case sandbox.PhaseError:
 		return v1.SandboxStatus_SANDBOX_STATUS_ERROR
-	case sandbox.PhaseUnknown:
-		return v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
 	default:
 		return v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
 	}

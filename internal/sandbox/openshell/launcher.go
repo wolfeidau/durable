@@ -667,6 +667,7 @@ func mapPhase(p types.SandboxPhase) sandbox.Phase {
 	case types.SandboxStopped, types.SandboxSuspended:
 		return sandbox.PhaseStopped
 	case types.SandboxError, types.SandboxCompleted:
+		// Completed means the long-running worker exited unexpectedly and Start refuses it.
 		return sandbox.PhaseError
 	default:
 		// Preserve Unknown and unrecognized phases so callers distinguish them from a missing sandbox.

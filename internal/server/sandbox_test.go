@@ -644,3 +644,33 @@ func TestListSessionsCorruptSandboxPinWarns(t *testing.T) {
 	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNSPECIFIED, res.Msg.Sessions[0].SandboxStatus)
 	require.Zero(t, calls.Load())
 }
+
+func TestListSessionsPinnedSessionWithNilSandboxPhasesReportsUnknown(t *testing.T) {
+	e := newEnv(t)
+	f := sandboxtest.New(t)
+	h := githosttest.New(t)
+	e.cfg.Sandbox = &commands.SandboxConfig{
+		Backend: f, Environments: map[string]commands.Environment{"default": {Image: "img:1"}},
+		GitHosts: map[string]githost.Host{"github": h}, GitTokens: map[string]bool{"github": true},
+	}
+	r := e.registry(t)
+	ts := httptest.NewUnstartedServer(nil)
+	ts.Config.Handler = New(Config{
+		Home: e.home, Token: testToken, Addr: ts.Listener.Addr().String(), Registry: r,
+	}).Handler()
+	ts.Start()
+	t.Cleanup(ts.Close)
+	se := &sandboxEnv{registryEnv: e, fake: f, host: h, reg: r, client: durablev1connect.NewSessionServiceClient(http.DefaultClient, ts.URL)}
+
+	created, err := se.createSession(t)
+	require.NoError(t, err)
+	res := se.listSessions(t, false)
+	require.Nil(t, res.Msg.SandboxSnapshot)
+	require.Len(t, res.Msg.Sessions, 2)
+	byID := map[string]*v1.SessionInfo{}
+	for _, s := range res.Msg.Sessions {
+		byID[s.Id] = s
+	}
+	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNSPECIFIED, byID[e.id].SandboxStatus)
+	require.Equal(t, v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN, byID[created.Msg.Session.Id].SandboxStatus)
+}

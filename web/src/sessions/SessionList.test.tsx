@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { timestampDate, timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { createRouterTransport } from "@connectrpc/connect";
+import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 import { TransportProvider } from "@connectrpc/connect-query";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
@@ -283,11 +283,13 @@ describe("SessionList work and sandbox status", () => {
   test("Refresh button sends refreshSandboxStatus: true without changing regular poll requests", async () => {
     const user = userEvent.setup();
     const calls: boolean[] = [];
+    let refreshed = false;
     const { qc } = renderList({
       workspaces: [Workspace.EMPTY],
       listSessions: (req) => {
         calls.push(req.refreshSandboxStatus);
-        if (req.refreshSandboxStatus) {
+        if (req.refreshSandboxStatus) refreshed = true;
+        if (refreshed) {
           return {
             warnings: [],
             sandboxSnapshot: create(SandboxSnapshotSchema, {
@@ -331,11 +333,43 @@ describe("SessionList work and sandbox status", () => {
 
     await waitFor(() => expect(within(sessionRow("sb-one")).getByText("running")).toBeTruthy());
     expect(screen.getByText("updating...")).toBeTruthy();
-    expect(calls).toEqual([false, true]);
+    expect(calls).toEqual([false, true, false]);
 
     // Triggering a regular query refetch still uses refreshSandboxStatus: false.
+    refreshed = false;
     await qc.refetchQueries();
     await waitFor(() => expect(within(sessionRow("sb-one")).getByText("stopped")).toBeTruthy());
-    expect(calls).toEqual([false, true, false]);
+    expect(calls).toEqual([false, true, false, false]);
+  });
+
+  test("Refresh button surfaces RPC failures cleanly without leaving the button disabled", async () => {
+    const user = userEvent.setup();
+    renderList({
+      workspaces: [Workspace.EMPTY],
+      listSessions: (req) => {
+        if (req.refreshSandboxStatus) {
+          throw new ConnectError("server busy", Code.Unavailable);
+        }
+        return {
+          warnings: [],
+          sessions: [
+            create(SessionInfoSchema, {
+              id: "s1",
+              name: "sb-one",
+              workspace: Workspace.EMPTY,
+              sandboxStatus: SandboxStatus.RUNNING,
+            }),
+          ],
+        };
+      },
+    });
+
+    await waitFor(() => expect(within(sessionRow("sb-one")).getByText("running")).toBeTruthy());
+
+    const btn = screen.getByRole("button", { name: "Refresh" }) as HTMLButtonElement;
+    await user.click(btn);
+
+    await waitFor(() => expect(screen.getByText(/server busy/).className).toBe("banner tone-error"));
+    expect(btn.disabled).toBe(false);
   });
 });

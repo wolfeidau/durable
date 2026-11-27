@@ -1,10 +1,8 @@
-import { createClient } from "@connectrpc/connect";
-import { createConnectQueryKey, useMutation, useQuery, useTransport } from "@connectrpc/connect-query";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@connectrpc/connect-query";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import { useRef, useState, type FormEvent, type ReactElement } from "react";
 import { createSession, getServerInfo, listSessions } from "../gen/durable/v1/durable-SessionService_connectquery";
-import { SessionService, type SandboxSnapshot, type SessionInfo } from "../gen/durable/v1/durable_pb";
+import { type SandboxSnapshot, type SessionInfo } from "../gen/durable/v1/durable_pb";
 import {
   buildRequest,
   canCreate,
@@ -167,33 +165,23 @@ function Sandbox({ s, snapshot }: { s: SessionInfo; snapshot: SandboxSnapshot | 
 }
 
 export function SessionList({ onSelect }: { onSelect: (id: string) => void }): ReactElement {
-  const transport = useTransport();
-  const queryClient = useQueryClient();
   const { data, dataUpdatedAt, error, isPending, refetch } = useQuery(
     listSessions,
     {},
     { refetchInterval: (query) => pollInterval(query.state.data?.sandboxSnapshot) },
   );
-  const [refreshErr, setRefreshErr] = useState<{ at: number; err: unknown }>();
+  const refresh = useMutation(listSessions);
   const sessions = sorted(data?.sessions ?? []);
   const snapshot = data?.sandboxSnapshot;
   const hasSandbox = showSandboxColumn(sessions, snapshot);
   const headerNote = sandboxHeaderNote(snapshot);
   const observedTitle = snapshot?.observedAt ? `Updated ${timestampDate(snapshot.observedAt).toLocaleString()}` : undefined;
   const warnings = sessionWarnings(data?.warnings, snapshot);
-  const activeRefreshErr = refreshErr && refreshErr.at === dataUpdatedAt ? refreshErr.err : undefined;
+  const refreshError = refresh.error && refresh.submittedAt >= dataUpdatedAt ? refresh.error : undefined;
 
-  const refresh = async () => {
-    setRefreshErr(undefined);
-    try {
-      const res = await createClient(SessionService, transport).listSessions({ refreshSandboxStatus: true });
-      queryClient.setQueryData(
-        createConnectQueryKey({ schema: listSessions, input: {}, transport, cardinality: "finite" }),
-        res,
-      );
-    } catch (err) {
-      setRefreshErr({ at: dataUpdatedAt, err });
-    }
+  const onRefresh = async () => {
+    const res = await refresh.mutateAsync({ refreshSandboxStatus: true }).catch(() => undefined);
+    if (res) await refetch();
   };
 
   const newSession = () => {
@@ -209,13 +197,13 @@ export function SessionList({ onSelect }: { onSelect: (id: string) => void }): R
           Sessions {data && <span className="muted count">{sessions.length}</span>}
         </h2>
         <div className="actions">
-          <button className="secondary" onClick={() => void refresh()}>
+          <button className="secondary" disabled={refresh.isPending} onClick={() => void onRefresh()}>
             Refresh
           </button>
           <button onClick={newSession}>New session</button>
         </div>
       </div>
-      <QueryStatus isPending={isPending} error={error ?? activeRefreshErr} warnings={warnings} />
+      <QueryStatus isPending={isPending} error={error ?? refreshError} warnings={warnings} />
       {data && sessions.length === 0 && <p className="card empty">No sessions yet. Create one below.</p>}
       {sessions.length > 0 && (
         <div className="table-wrap">

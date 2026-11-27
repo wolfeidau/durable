@@ -185,6 +185,53 @@ func TestSandboxCacheTTLExpiryAndForceRefresh(t *testing.T) {
 	require.Equal(t, sandbox.PhaseRunning, settled.phases["ds-1"])
 }
 
+func TestSandboxCacheForceRefreshDuringInFlightTriggersFollowUp(t *testing.T) {
+	t.Parallel()
+	clk := newFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
+	f := newControlledFetcher()
+	draining := make(chan struct{})
+	t.Cleanup(func() { close(draining) })
+
+	c := newSandboxCache(sandboxCacheConfig{
+		fetch:        f.fetch,
+		ttl:          15 * time.Second,
+		retryBackoff: 5 * time.Second,
+		draining:     draining,
+		now:          clk.now,
+	})
+
+	// Start fetch #1.
+	_ = c.Snapshot(false)
+	<-f.started
+	require.EqualValues(t, 1, f.calls.Load())
+
+	// Manual force refresh while fetch #1 is in flight does not start a concurrent fetch,
+	// but marks a follow-up needed once fetch #1 finishes.
+	forced := c.Snapshot(true)
+	require.True(t, forced.refreshing)
+	require.True(t, forced.stale)
+	require.EqualValues(t, 1, f.calls.Load())
+
+	// Completing fetch #1 triggers follow-up fetch #2 automatically.
+	f.results <- fetchResult{phases: map[string]sandbox.Phase{"ds-1": sandbox.PhaseStarting}}
+	<-f.started
+	require.EqualValues(t, 2, f.calls.Load())
+
+	mid := c.Snapshot(false)
+	require.True(t, mid.refreshing)
+	require.True(t, mid.stale)
+	require.Equal(t, sandbox.PhaseStarting, mid.phases["ds-1"])
+
+	f.results <- fetchResult{phases: map[string]sandbox.Phase{"ds-1": sandbox.PhaseRunning}}
+	waitFor(t, func() bool { return !c.Snapshot(false).refreshing })
+
+	final := c.Snapshot(false)
+	require.False(t, final.stale)
+	require.False(t, final.refreshing)
+	require.Equal(t, sandbox.PhaseRunning, final.phases["ds-1"])
+	require.EqualValues(t, 2, f.calls.Load())
+}
+
 func TestSandboxCacheColdFailureRetryBackoffAndRecovery(t *testing.T) {
 	t.Parallel()
 	clk := newFakeClock(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))

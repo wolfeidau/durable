@@ -91,6 +91,7 @@ func (c *sandboxCache) Snapshot(forceRefresh bool) sandboxSnapshot {
 	now := c.now()
 	draining := c.isDraining()
 	if forceRefresh && !draining {
+		c.gen++
 		c.dirty = true
 	}
 	stale := c.isStaleLocked(now)
@@ -165,7 +166,7 @@ func (c *sandboxCache) runRefresh(startedGen uint64) {
 	c.observedAt = now
 	c.err = nil
 	if c.gen != startedGen && c.queried && !c.isDraining() {
-		// Invalidate ran while this fetch was in flight; fetch once more so local changes are not missed.
+		// Invalidate or a forced refresh arrived while this fetch was in flight; fetch once more.
 		c.dirty = true
 		c.startRefreshLocked()
 		c.mu.Unlock()
