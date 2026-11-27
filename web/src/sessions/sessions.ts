@@ -14,7 +14,7 @@ export function pollInterval(snapshot: SandboxSnapshot | undefined): number {
   return snapshot?.refreshing ? fastPollMs : normalPollMs;
 }
 
-export function relativeAge(ts: Timestamp | undefined, now: number = Date.now()): string {
+function relativeAge(ts: Timestamp | undefined, now: number = Date.now()): string {
   if (!ts) return "";
   const secs = Math.max(0, Math.round((now - timestampDate(ts).getTime()) / 1000));
   if (secs < 60) return "just now";
@@ -99,7 +99,7 @@ export function sessionWarnings(warnings: readonly string[] | undefined, snapsho
   return out;
 }
 
-export const created = (s: SessionInfo) => (s.createdAt ? timestampDate(s.createdAt).getTime() : 0);
+const created = (s: SessionInfo) => (s.createdAt ? timestampDate(s.createdAt).getTime() : 0);
 
 // Sessions waiting on a person come first, then the newest.
 export function sorted(sessions: SessionInfo[]): SessionInfo[] {

@@ -4,6 +4,7 @@ import { plural } from "../../lib/format";
 import { tipProps, useTip } from "../../ui/Tooltip";
 import { useNow } from "../../ui/useNow";
 import { hostSummary } from "../network/networkView";
+import type { OpenTab } from "../view";
 import { chip, defaultOpen, isRunning, summary } from "./calls";
 import type { CallEntry } from "./transcript";
 
@@ -25,8 +26,6 @@ export const OpenCalls = createContext<{ open: boolean; version: number }>({ ope
 
 // The element id a link into the transcript is aiming at, until it has been scrolled to.
 export const FocusTarget = createContext<string | undefined>(undefined);
-
-export type OpenTab = (tab: "report" | "network" | undefined, call?: string) => void;
 
 interface CallProps {
   call: CallEntry;

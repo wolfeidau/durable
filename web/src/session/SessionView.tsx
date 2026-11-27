@@ -10,7 +10,7 @@ import { ReportPanel } from "./report/ReportPanel";
 import { buildOverview } from "./report/overview";
 import { TranscriptBuilder } from "./transcript/transcript";
 import { TranscriptPane } from "./transcript/TranscriptPane";
-import type { OpenTab } from "./transcript/Call";
+import type { Tab } from "../lib/route";
 import { randomId } from "../lib/id";
 import { errText } from "../lib/rpc";
 import { getToken } from "../lib/token";
@@ -20,12 +20,12 @@ import { useFollowScroll } from "./useFollowScroll";
 import { useNetwork } from "./network/useNetwork";
 import { useWatchEvents } from "./useWatchEvents";
 import { ViewPanel, ViewTabs } from "./ViewTabs";
-import { viewOf } from "./view";
+import { viewOf, type OpenTab } from "./view";
 
 interface Props {
   sessionId: string;
   onWatch: (w: WatchSummary | undefined) => void;
-  tab?: "report" | "network";
+  tab?: Tab;
   call?: string;
   onTab: OpenTab;
   focus?: string;

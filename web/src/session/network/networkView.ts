@@ -11,8 +11,8 @@ export interface Filter {
 }
 
 export const rowCap = 500;
-export const topLimit = 8;
-export const chipHostLimit = 5;
+const topLimit = 8;
+const chipHostLimit = 5;
 
 export const eventMs = (e: NetworkEvent): number => (e.time ? timestampDate(e.time).getTime() : 0);
 

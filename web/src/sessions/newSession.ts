@@ -3,7 +3,7 @@ import { randomId } from "../lib/id";
 
 export type Mode = "directory" | "empty" | "repo";
 
-export interface NewSessionForm {
+interface NewSessionFields {
   mode: Mode;
   cwd: string;
   name: string;
@@ -35,7 +35,7 @@ export function modesFor(offered: readonly Workspace[]): Mode[] {
   return kinds.filter(([w]) => offered.includes(w)).map(([, m]) => m);
 }
 
-export function canCreate(form: NewSessionForm): boolean {
+export function canCreate(form: NewSessionFields): boolean {
   switch (form.mode) {
     case "empty":
       return true;
@@ -53,7 +53,7 @@ export function pickEnvironment(names: readonly string[], chosen?: string): stri
 }
 
 // The caller keeps requestId across failed attempts so a retry is the same create. Only an empty session uses it.
-export function buildRequest(form: NewSessionForm, requestId: string): NewSessionRequest {
+export function buildRequest(form: NewSessionFields, requestId: string): NewSessionRequest {
   const name = form.name.trim();
   const none = { cwd: "", requestId: "", repo: "", branch: "", environment: "" };
   const environment = form.environment;
