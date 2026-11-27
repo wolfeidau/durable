@@ -188,22 +188,31 @@ func streamCall(ctx context.Context, stream *connect.ServerStream[workerv1.Execu
 				return err
 			}
 		case <-c.done:
-			// The tool's sends happen before done closes, so draining the buffer is complete.
-			for drained := deltas == nil; !drained; {
-				select {
-				case d := <-deltas:
-					if err := sendDelta(stream, d); err != nil {
-						return err
-					}
-				default:
-					drained = true
-				}
+			if err := drainDeltas(stream, deltas); err != nil {
+				return err
 			}
 			return stream.Send(&workerv1.ExecuteResponse{Event: &workerv1.ExecuteResponse_Result{
 				Result: &workerv1.ExecuteResult{Output: c.output, IsError: c.isErr},
 			}})
 		case <-ctx.Done():
 			return connect.NewError(connect.CodeCanceled, ctx.Err())
+		}
+	}
+}
+
+// drainDeltas flushes any buffered deltas sent before done closed.
+func drainDeltas(stream *connect.ServerStream[workerv1.ExecuteResponse], deltas chan string) error {
+	if deltas == nil {
+		return nil
+	}
+	for {
+		select {
+		case d := <-deltas:
+			if err := sendDelta(stream, d); err != nil {
+				return err
+			}
+		default:
+			return nil
 		}
 	}
 }

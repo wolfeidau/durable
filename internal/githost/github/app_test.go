@@ -79,15 +79,15 @@ func TestParsePrivateKeyAndSignAppJWT(t *testing.T) {
 		"pkcs8": {pkcs8, "Iv23liPKCS8"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			parsed, err := ParsePrivateKey(tc.raw)
+			parsed, err := parsePrivateKey(tc.raw)
 			require.NoError(t, err)
-			tok, err := SignAppJWT(tc.iss, parsed, time.Now())
+			tok, err := signAppJWT(tc.iss, parsed, time.Now())
 			require.NoError(t, err)
 			require.NoError(t, verifyJWT(tok, &key.PublicKey, tc.iss))
 		})
 	}
 
-	_, err := ParsePrivateKey("not-a-pem-secret-marker")
+	_, err := parsePrivateKey("not-a-pem-secret-marker")
 	require.Error(t, err)
 	require.NotContains(t, err.Error(), "secret-marker")
 
@@ -96,7 +96,7 @@ func TestParsePrivateKeyAndSignAppJWT(t *testing.T) {
 	ecDER, err := x509.MarshalPKCS8PrivateKey(ecKey)
 	require.NoError(t, err)
 	ecPEM := string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: ecDER}))
-	_, err = ParsePrivateKey(ecPEM)
+	_, err = parsePrivateKey(ecPEM)
 	require.ErrorContains(t, err, "RSA")
 }
 

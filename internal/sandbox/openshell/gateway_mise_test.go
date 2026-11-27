@@ -40,7 +40,7 @@ func miseSession(t *testing.T, grants []string) miseBox {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token, Grants: commands.BuildGrants(grants, "", nil)}))
+	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token, Grants: commands.BuildGrants(grants, nil)}))
 	bash := bashTool(t, dialWorker(t, l, name, token))
 	n := 0
 	return miseBox{l: l, name: name, run: func(command string) string {

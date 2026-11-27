@@ -47,20 +47,15 @@ func (s *shared) Ensure(ctx context.Context, spec Spec) error {
 }
 
 func (s *shared) Stop(ctx context.Context, name string) error {
-	n := s.entry(name)
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.users > 0 {
-		n.users--
-	}
-	if n.users > 0 {
-		return nil
-	}
-	return s.Backend.Stop(ctx, name)
+	return s.release(ctx, name, s.Backend.Stop)
 }
 
 // Delete drops the caller's use and deletes the sandbox only when no other user holds it, like Stop.
 func (s *shared) Delete(ctx context.Context, name string) error {
+	return s.release(ctx, name, s.Backend.Delete)
+}
+
+func (s *shared) release(ctx context.Context, name string, fn func(context.Context, string) error) error {
 	n := s.entry(name)
 	n.mu.Lock()
 	defer n.mu.Unlock()
@@ -70,5 +65,5 @@ func (s *shared) Delete(ctx context.Context, name string) error {
 	if n.users > 0 {
 		return nil
 	}
-	return s.Backend.Delete(ctx, name)
+	return fn(ctx, name)
 }

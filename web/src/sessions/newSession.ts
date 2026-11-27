@@ -1,4 +1,5 @@
 import { Workspace } from "../gen/durable/v1/durable_pb";
+import { randomId } from "../lib/id";
 
 export type Mode = "directory" | "empty" | "repo";
 
@@ -64,11 +65,6 @@ export function buildRequest(form: NewSessionForm, requestId: string): NewSessio
     default:
       return { ...none, name, workspace: Workspace.DIRECTORY, cwd: form.cwd.trim() };
   }
-}
-
-// crypto.randomUUID exists only in secure contexts, and the server may be reached over plain HTTP on a LAN address.
-function randomId(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 // Reuses the ID until a create succeeds, so a failed attempt retries as the same create.

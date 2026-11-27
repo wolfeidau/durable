@@ -192,7 +192,7 @@ func defaults() *Settings {
 		file:         "config.json",
 		fileLabel:    "~/.durable/config.json",
 	}
-	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key", "git.author", "otel.endpoint"} {
+	for _, f := range []string{"listen.addr", "listen.idle_timeout", "listen.open_timeout", "listen.heartbeat", "provider.name", "provider.protocol", "provider.model", "provider.effort", "provider.api_key", "git.author", "otel.endpoint", "otel.protocol", "otel.capture_content"} {
 		s.Sources[f] = SourceDefault
 	}
 	return s

@@ -50,7 +50,7 @@ func New(apiBase string) *Host {
 func (*Host) Kind() string { return Kind }
 
 // ParseRepo returns the repository in lower case. Errors never quote raw, whose user info may hold a token.
-func (*Host) ParseRepo(raw string) (githost.Repo, error) {
+func ParseRepo(raw string) (githost.Repo, error) {
 	path, ok := repoPath(strings.TrimSpace(raw))
 	if !ok {
 		return githost.Repo{}, fmt.Errorf("not a %s repository URL", hostname)
@@ -62,6 +62,9 @@ func (*Host) ParseRepo(raw string) (githost.Repo, error) {
 	}
 	return githost.Repo{Host: hostname, Owner: strings.ToLower(owner), Name: strings.ToLower(name)}, nil
 }
+
+// ParseRepo implements githost.Host.
+func (*Host) ParseRepo(raw string) (githost.Repo, error) { return ParseRepo(raw) }
 
 // repoPath returns the owner/name part of raw when it is on GitHub.
 func repoPath(raw string) (string, bool) {

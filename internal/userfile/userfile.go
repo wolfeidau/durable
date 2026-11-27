@@ -147,21 +147,28 @@ func mergeInto(out map[string]any, merges []*yaml.Node, path string) error {
 			srcs = m.Content
 		}
 		for _, src := range srcs {
-			if src.Kind == yaml.AliasNode {
-				src = src.Alias
-			}
-			if src.Kind != yaml.MappingNode {
-				return fmt.Errorf("%s: merge key << needs a mapping", pathOrRoot(path))
-			}
-			v, err := convertMap(src, path)
-			if err != nil {
+			if err := mergeSource(out, src, path); err != nil {
 				return err
 			}
-			for k, c := range v {
-				if _, ok := out[k]; !ok {
-					out[k] = c
-				}
-			}
+		}
+	}
+	return nil
+}
+
+func mergeSource(out map[string]any, src *yaml.Node, path string) error {
+	if src.Kind == yaml.AliasNode {
+		src = src.Alias
+	}
+	if src.Kind != yaml.MappingNode {
+		return fmt.Errorf("%s: merge key << needs a mapping", pathOrRoot(path))
+	}
+	v, err := convertMap(src, path)
+	if err != nil {
+		return err
+	}
+	for k, c := range v {
+		if _, ok := out[k]; !ok {
+			out[k] = c
 		}
 	}
 	return nil

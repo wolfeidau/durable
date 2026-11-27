@@ -433,7 +433,7 @@ func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, f
 			access = []sandbox.GitAccess{a}
 		}
 		// The access and grants are fixed here, so a reopen keeps them even if the tokens or the environments file changed.
-		if pin, err = sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, BuildGrants(env.Grants, c.Workspace, access), c.Sandbox.GitAuthor.Config()); err != nil {
+		if pin, err = sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, BuildGrants(env.Grants, access), c.Sandbox.GitAuthor.Config()); err != nil {
 			return nil, nil, nil, err
 		}
 	}
