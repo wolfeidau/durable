@@ -55,7 +55,7 @@ func newGitSandbox(t *testing.T, l *Launcher, repo string, grantNames ...string)
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token, Git: access, Grants: commands.BuildGrants(grantNames, "", access)}))
+	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token, Git: access, Grants: commands.BuildGrants(grantNames, access)}))
 	return name, token
 }
 

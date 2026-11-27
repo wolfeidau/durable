@@ -221,7 +221,7 @@ func TestGatewayGitHubAppLiveReadsRepo(t *testing.T) {
 	require.NoError(t, l.Create(ctx, sandbox.Spec{
 		Name: name, Image: testImage(), Token: token,
 		Git:    []sandbox.GitAccess{access},
-		Grants: commands.BuildGrants([]string{"github-api"}, "", []sandbox.GitAccess{access}),
+		Grants: commands.BuildGrants([]string{"github-api"}, []sandbox.GitAccess{access}),
 	}))
 	bash := bashTool(t, dialWorker(t, l, name, token))
 	n := 0
@@ -310,7 +310,7 @@ func TestGatewayGitHubAppLivePushesAndQueriesAPI(t *testing.T) {
 	require.NoError(t, l.Create(ctx, sandbox.Spec{
 		Name: name, Image: testImage(), Token: token,
 		Git:    []sandbox.GitAccess{access},
-		Grants: commands.BuildGrants([]string{"github-api"}, "", []sandbox.GitAccess{access}),
+		Grants: commands.BuildGrants([]string{"github-api"}, []sandbox.GitAccess{access}),
 	}))
 	bash := bashTool(t, dialWorker(t, l, name, token))
 	branch := "durable-app-test-" + randHex(t, 4)

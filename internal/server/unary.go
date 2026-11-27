@@ -241,7 +241,7 @@ func (s sessionService) emptySpec(msg *v1.CreateSessionRequest, name string) (cr
 		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("request_id must be at least 16 characters; use a random value"))
 	}
 	if !s.reg.Sandboxed() {
-		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/environments.json"))
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("empty sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/config.json or config.yaml"))
 	}
 	id := commands.EmptySessionID(msg.GetRequestId())
 	env, err := s.environment(id, msg.GetEnvironment())
@@ -254,7 +254,7 @@ func (s sessionService) emptySpec(msg *v1.CreateSessionRequest, name string) (cr
 // repoSpec validates a repo create. Its errors are fixed text, because the input may hold a credential.
 func (s sessionService) repoSpec(msg *v1.CreateSessionRequest) (createSpec, error) {
 	if !s.reg.Sandboxed() {
-		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("repo sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/environments.json"))
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("repo sessions need a sandbox: start the server with --sandbox-image or an environment in ~/.durable/config.json or config.yaml"))
 	}
 	if msg.GetCwd() != "" || msg.GetRequestId() != "" {
 		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("a repo workspace takes no cwd or request_id"))

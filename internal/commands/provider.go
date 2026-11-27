@@ -92,19 +92,10 @@ func CheckProtocol(provider, protocol string) error {
 	return err
 }
 
-func providerNames() string {
-	names := make([]string, 0, len(providers))
-	for n := range providers {
-		names = append(names, n)
-	}
-	slices.Sort(names)
-	return strings.Join(names, ", ")
-}
-
 func (r route) spec() (providerSpec, error) {
 	s, ok := providers[r.Provider]
 	if !ok {
-		return providerSpec{}, fmt.Errorf("unknown provider %q (use one of: %s)", r.Provider, providerNames())
+		return providerSpec{}, fmt.Errorf("unknown provider %q (use one of: %s)", r.Provider, strings.Join(ProviderNames(), ", "))
 	}
 	if !slices.Contains(s.Allowed, r.Protocol) {
 		return providerSpec{}, fmt.Errorf("provider %s does not support protocol %q (use one of: %s)", r.Provider, r.Protocol, strings.Join(s.Allowed, ", "))
@@ -119,7 +110,7 @@ func newRoute(f routeFlags) (route, error) {
 	}
 	s, ok := providers[r.Provider]
 	if !ok {
-		return route{}, fmt.Errorf("unknown provider %q (use one of: %s)", r.Provider, providerNames())
+		return route{}, fmt.Errorf("unknown provider %q (use one of: %s)", r.Provider, strings.Join(ProviderNames(), ", "))
 	}
 	if r.Protocol == "" {
 		r.Protocol = s.Default

@@ -62,8 +62,8 @@ type AppRepoScope struct {
 	Permissions    map[string]string
 }
 
-// ParsePrivateKey parses a PKCS#1 or PKCS#8 RSA PEM private key without echoing key material in errors.
-func ParsePrivateKey(pemText string) (*rsa.PrivateKey, error) {
+// parsePrivateKey parses a PKCS#1 or PKCS#8 RSA PEM private key without echoing key material in errors.
+func parsePrivateKey(pemText string) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode([]byte(strings.TrimSpace(pemText)))
 	if block == nil {
 		return nil, errors.New("GitHub App private key is not valid PEM")
@@ -82,8 +82,8 @@ func ParsePrivateKey(pemText string) (*rsa.PrivateKey, error) {
 	return key, nil
 }
 
-// SignAppJWT signs a short-lived RS256 GitHub App JWT with clientID as issuer.
-func SignAppJWT(clientID string, key *rsa.PrivateKey, now time.Time) (string, error) {
+// signAppJWT signs a short-lived RS256 GitHub App JWT with clientID as issuer.
+func signAppJWT(clientID string, key *rsa.PrivateKey, now time.Time) (string, error) {
 	if strings.TrimSpace(clientID) == "" {
 		return "", errors.New("GitHub App client_id is required")
 	}
@@ -129,11 +129,11 @@ type installationResponse struct {
 }
 
 func (h *Host) appJWT(creds AppCredentials) (string, error) {
-	key, err := ParsePrivateKey(creds.PrivateKeyPEM)
+	key, err := parsePrivateKey(creds.PrivateKeyPEM)
 	if err != nil {
 		return "", err
 	}
-	return SignAppJWT(creds.ClientID, key, time.Now())
+	return signAppJWT(creds.ClientID, key, time.Now())
 }
 
 func (h *Host) doJSON(ctx context.Context, method, path, bearer string, body any, out any) (int, error) {
@@ -220,7 +220,7 @@ func (h *Host) CheckApp(ctx context.Context, creds AppCredentials, withAPI bool)
 		if inst.SuspendedAt != nil {
 			return AppInfo{}, fmt.Errorf("GitHub App installation %d is suspended", creds.InstallationID)
 		}
-		if err := checkInstallationPermissions(inst.Permissions, withAPI); err != nil {
+		if _, err := scopedPermissions(inst.Permissions, withAPI); err != nil {
 			return AppInfo{}, fmt.Errorf("GitHub App installation %d: %w", creds.InstallationID, err)
 		}
 		info.AccountLogin = inst.Account.Login
@@ -313,11 +313,6 @@ func AppProviderName(installationID, repoID int64, perms map[string]string) stri
 	permsJSON, _ := json.Marshal(perms)
 	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%d:%s", installationID, repoID, permsJSON))
 	return fmt.Sprintf("%s%d-%s", AppProviderPrefix, repoID, hex.EncodeToString(sum[:4]))
-}
-
-func checkInstallationPermissions(granted map[string]string, withAPI bool) error {
-	_, err := scopedPermissions(granted, withAPI)
-	return err
 }
 
 func capPermission(granted map[string]string, name, want string) (string, bool) {

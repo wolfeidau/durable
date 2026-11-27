@@ -11,6 +11,7 @@ import { buildOverview } from "./report/overview";
 import { TranscriptBuilder } from "./transcript/transcript";
 import { TranscriptPane } from "./transcript/TranscriptPane";
 import type { OpenTab } from "./transcript/Call";
+import { randomId } from "../lib/id";
 import { errText } from "../lib/rpc";
 import { getToken } from "../lib/token";
 import { buildReport, summarize, turnFooter } from "./report/usage";
@@ -95,7 +96,7 @@ export function SessionView({ sessionId, onWatch, tab, call, onTab, focus, onFoc
     const prompt = text.trim();
     if (!prompt) return;
     following.current = true;
-    const requestId = crypto.randomUUID();
+    const requestId = randomId();
     setMine((m) => new Map(m).set(requestId, prompt));
     setText("");
     setNote("");

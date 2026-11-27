@@ -256,36 +256,36 @@ func appProfileItem(g sandbox.GitAccess, tokenURL string) *pb.ProviderProfileImp
 }
 
 func sameAppProfile(got, want *pb.ProviderProfile) bool {
-	if got == nil || want == nil || len(got.GetCredentials()) != len(want.GetCredentials()) {
+	if got == nil || want == nil {
 		return false
 	}
-	for i := range want.GetCredentials() {
-		a, b := got.GetCredentials()[i], want.GetCredentials()[i]
-		if a.GetName() != b.GetName() || !slices.Equal(a.GetEnvVars(), b.GetEnvVars()) ||
-			a.GetRequired() != b.GetRequired() || a.GetAuthStyle() != b.GetAuthStyle() ||
-			a.GetHeaderName() != b.GetHeaderName() {
-			return false
-		}
-		ar, br := a.GetRefresh(), b.GetRefresh()
-		if ar == nil || br == nil {
-			return false
-		}
-		if ar.GetStrategy() != br.GetStrategy() || ar.GetTokenUrl() != br.GetTokenUrl() ||
-			ar.GetRefreshBefore().AsDuration() != br.GetRefreshBefore().AsDuration() ||
-			ar.GetMaxLifetime().AsDuration() != br.GetMaxLifetime().AsDuration() {
-			return false
-		}
-		if len(ar.GetMaterial()) != len(br.GetMaterial()) {
-			return false
-		}
-		for j := range br.GetMaterial() {
-			am, bm := ar.GetMaterial()[j], br.GetMaterial()[j]
-			if am.GetName() != bm.GetName() || am.GetRequired() != bm.GetRequired() || am.GetSecret() != bm.GetSecret() {
-				return false
-			}
-		}
+	return slices.EqualFunc(got.GetCredentials(), want.GetCredentials(), sameAppCredential)
+}
+
+func sameAppCredential(a, b *pb.ProviderProfileCredential) bool {
+	return a.GetName() == b.GetName() &&
+		slices.Equal(a.GetEnvVars(), b.GetEnvVars()) &&
+		a.GetRequired() == b.GetRequired() &&
+		a.GetAuthStyle() == b.GetAuthStyle() &&
+		a.GetHeaderName() == b.GetHeaderName() &&
+		sameAppRefresh(a.GetRefresh(), b.GetRefresh())
+}
+
+func sameAppRefresh(a, b *pb.ProviderCredentialRefresh) bool {
+	if a == nil || b == nil {
+		return false
 	}
-	return true
+	return a.GetStrategy() == b.GetStrategy() &&
+		a.GetTokenUrl() == b.GetTokenUrl() &&
+		a.GetRefreshBefore().AsDuration() == b.GetRefreshBefore().AsDuration() &&
+		a.GetMaxLifetime().AsDuration() == b.GetMaxLifetime().AsDuration() &&
+		slices.EqualFunc(a.GetMaterial(), b.GetMaterial(), sameRefreshMaterial)
+}
+
+func sameRefreshMaterial(a, b *pb.ProviderCredentialRefreshMaterial) bool {
+	return a.GetName() == b.GetName() &&
+		a.GetRequired() == b.GetRequired() &&
+		a.GetSecret() == b.GetSecret()
 }
 
 func isRefreshHealthy(statuses []*pb.ProviderCredentialRefreshStatus, credentialKey string) bool {

@@ -132,16 +132,16 @@ func githubAccess(t *testing.T, repo string) sandbox.GitAccess {
 }
 
 func TestGitHubAPIGrantNeedsCredentialedGitHubAccess(t *testing.T) {
-	_, ok := grantCatalog["github-api"].build("", nil)
+	_, ok := grantCatalog["github-api"].build(nil)
 	require.False(t, ok)
 
-	_, ok = grantCatalog["github-api"].build("", []sandbox.GitAccess{githost.Anonymous(githubAccess(t, "octo/hello"))})
+	_, ok = grantCatalog["github-api"].build([]sandbox.GitAccess{githost.Anonymous(githubAccess(t, "octo/hello"))})
 	require.False(t, ok, "an anonymous clone has no token for gh")
 
-	_, ok = grantCatalog["github-api"].build("", []sandbox.GitAccess{{Kind: "gitlab", Provider: github.Provider, CloneURL: "https://github.com/octo/hello.git"}})
+	_, ok = grantCatalog["github-api"].build([]sandbox.GitAccess{{Kind: "gitlab", Provider: github.Provider, CloneURL: "https://github.com/octo/hello.git"}})
 	require.False(t, ok)
 
-	g, ok := grantCatalog["github-api"].build("", []sandbox.GitAccess{githubAccess(t, "octo/hello")})
+	g, ok := grantCatalog["github-api"].build([]sandbox.GitAccess{githubAccess(t, "octo/hello")})
 	require.True(t, ok)
 	require.Equal(t, "github-api", g.Name)
 	require.Equal(t, []string{"/usr/local/bin/gh"}, g.Binaries)
@@ -152,13 +152,13 @@ func TestGitHubAPIGrantNeedsCredentialedGitHubAccess(t *testing.T) {
 	appAccess.AuthMode = sandbox.GitAuthModeGitHubApp
 	appAccess.Provider = "durable-gh-123456-deadbeef"
 	appAccess.ProfileID = github.AppProfile
-	gApp, ok := grantCatalog["github-api"].build("", []sandbox.GitAccess{appAccess})
+	gApp, ok := grantCatalog["github-api"].build([]sandbox.GitAccess{appAccess})
 	require.True(t, ok)
 	require.Equal(t, "durable-gh-123456-deadbeef", gApp.Provider)
 }
 
 func TestGitHubAPIGrantRESTRulesAreScopedToTheRepo(t *testing.T) {
-	g, _ := grantCatalog["github-api"].build("", []sandbox.GitAccess{githubAccess(t, "octo/hello")})
+	g, _ := grantCatalog["github-api"].build([]sandbox.GitAccess{githubAccess(t, "octo/hello")})
 
 	require.Len(t, g.Endpoints, 2)
 	rest := g.Endpoints[0]
@@ -188,7 +188,7 @@ func TestGitHubAPIGrantRESTRulesAreScopedToTheRepo(t *testing.T) {
 }
 
 func TestGitHubAPIGrantHasOneRuleSetPerRepo(t *testing.T) {
-	g, _ := grantCatalog["github-api"].build("", []sandbox.GitAccess{githubAccess(t, "octo/hello"), githubAccess(t, "octo/world")})
+	g, _ := grantCatalog["github-api"].build([]sandbox.GitAccess{githubAccess(t, "octo/hello"), githubAccess(t, "octo/world")})
 
 	paths := ""
 	for _, r := range g.Endpoints[0].Rules {
@@ -199,7 +199,7 @@ func TestGitHubAPIGrantHasOneRuleSetPerRepo(t *testing.T) {
 }
 
 func TestGitHubAPIGrantGraphQLQueriesAndNamedMutationsOnly(t *testing.T) {
-	g, _ := grantCatalog["github-api"].build("", []sandbox.GitAccess{githubAccess(t, "octo/hello")})
+	g, _ := grantCatalog["github-api"].build([]sandbox.GitAccess{githubAccess(t, "octo/hello")})
 
 	gql := g.Endpoints[1]
 	require.Equal(t, "api.github.com", gql.Host)
@@ -225,8 +225,8 @@ func TestGitHubAPIGrantGraphQLQueriesAndNamedMutationsOnly(t *testing.T) {
 }
 
 func TestBuildGrantsSkipsGitHubAPIWithoutGitHubAccess(t *testing.T) {
-	require.Empty(t, BuildGrants([]string{"github-api"}, "", nil))
-	got := BuildGrants([]string{"go-modules", "github-api"}, "", []sandbox.GitAccess{githubAccess(t, "octo/hello")})
+	require.Empty(t, BuildGrants([]string{"github-api", "unknown-grant"}, nil))
+	got := BuildGrants([]string{"go-modules", "github-api"}, []sandbox.GitAccess{githubAccess(t, "octo/hello")})
 	require.Len(t, got, 2)
 	require.Equal(t, "github-api", got[1].Name)
 }
@@ -319,8 +319,9 @@ func TestGrantCatalogShowsTheGitHubAPIPaths(t *testing.T) {
 }
 
 func TestMiseGrantIsGetOnlyDownloads(t *testing.T) {
-	g, ok := grantCatalog["mise"].build("", nil)
-	require.True(t, ok)
+	grants := BuildGrants([]string{"mise"}, nil)
+	require.Len(t, grants, 1)
+	g := grants[0]
 	require.Equal(t, "mise", g.Name)
 	require.Equal(t, []string{"/usr/local/bin/mise"}, g.Binaries)
 	require.Empty(t, g.Provider)
@@ -351,8 +352,9 @@ func TestGrantCatalogShowsMise(t *testing.T) {
 }
 
 func TestMiseResolveGrantIsGetOnlyLookups(t *testing.T) {
-	g, ok := grantCatalog["mise-resolve"].build("", nil)
-	require.True(t, ok)
+	grants := BuildGrants([]string{"mise-resolve"}, nil)
+	require.Len(t, grants, 1)
+	g := grants[0]
 	require.Equal(t, "mise-resolve", g.Name)
 	require.Equal(t, []string{"/usr/local/bin/mise"}, g.Binaries)
 	require.Len(t, g.Endpoints, 2)
@@ -369,8 +371,9 @@ func TestMiseResolveGrantIsGetOnlyLookups(t *testing.T) {
 }
 
 func TestNPMRegistryGrantIsGetOnlyForMiseBun(t *testing.T) {
-	g, ok := grantCatalog["npm-registry"].build("", nil)
-	require.True(t, ok)
+	grants := BuildGrants([]string{"npm-registry"}, nil)
+	require.Len(t, grants, 1)
+	g := grants[0]
 	require.Equal(t, "npm-registry", g.Name)
 	require.Equal(t, []string{"/tmp/mise/data/installs/bun/*/bin/bun"}, g.Binaries)
 	require.Equal(t, []sandbox.GrantEndpoint{{Host: "registry.npmjs.org", Port: 443, Rules: []sandbox.HTTPRule{{Method: "GET", Path: "/**"}}}}, g.Endpoints)

@@ -71,7 +71,7 @@ func TestGrantOnAGitHostTakesTheGitBinding(t *testing.T) {
 	l := newWithClient(rec, "", tokenFn(&token))
 	access := []sandbox.GitAccess{repoAccess(t, "github.com/octo/hello")}
 
-	require.NoError(t, l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: access, Grants: commands.BuildGrants([]string{"mise"}, "", access)}))
+	require.NoError(t, l.Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: access, Grants: commands.BuildGrants([]string{"mise"}, access)}))
 
 	sb, err := rec.Sandboxes().Get(t.Context(), "default", "dt-a")
 	require.NoError(t, err)

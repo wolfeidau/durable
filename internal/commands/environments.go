@@ -25,9 +25,9 @@ const EnvironmentNamePattern = `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`
 var environmentNameRE = regexp.MustCompile(EnvironmentNamePattern)
 
 // grantFunc builds a grant for a session; false means the grant doesn't apply to it.
-type grantFunc func(workspace string, access []sandbox.GitAccess) (sandbox.Grant, bool)
+type grantFunc func(access []sandbox.GitAccess) (sandbox.Grant, bool)
 
-// grantSpec is a catalog grant: build makes it for a session, the rest is shown to operators.
+// grantSpec is a catalog grant: build makes it for a session (nil means a static grant from binaries/hosts), the rest is shown to operators.
 type grantSpec struct {
 	build    grantFunc
 	summary  string
@@ -81,33 +81,21 @@ var (
 // grantCatalog is the grants an environment can name. The hosts are fixed here, not in the file, so a file can't widen egress.
 var grantCatalog = map[string]grantSpec{
 	"go-modules": {
-		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
-			return sandbox.Grant{Name: "go-modules", Binaries: goBinaries, Endpoints: goEndpoints}, true
-		},
 		summary:  "go may download modules from the Go module proxy and checksum database",
 		binaries: goBinaries,
 		hosts:    goEndpoints,
 	},
 	"mise": {
-		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
-			return sandbox.Grant{Name: "mise", Binaries: miseBinaries, Endpoints: miseEndpoints}, true
-		},
 		summary:  "mise, and what it runs, may download release assets from GitHub, nodejs.org/dist and dl.google.com/go, and check mise.jdx.dev for its own updates; the image installs from mise.lock by default",
 		binaries: miseBinaries,
 		hosts:    miseEndpoints,
 	},
 	"mise-resolve": {
-		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
-			return sandbox.Grant{Name: "mise-resolve", Binaries: miseBinaries, Endpoints: miseResolveEndpoints}, true
-		},
 		summary:  "mise may look up versions and attestations on mise-versions.jdx.dev, and Sigstore's trust root, so the model can add, upgrade and re-lock tools; needs mise for the downloads",
 		binaries: miseBinaries,
 		hosts:    miseResolveEndpoints,
 	},
 	"npm-registry": {
-		build: func(string, []sandbox.GitAccess) (sandbox.Grant, bool) {
-			return sandbox.Grant{Name: "npm-registry", Binaries: bunBinaries, Endpoints: npmEndpoints}, true
-		},
 		summary:  "bun installed by mise may GET packages from the npm registry; read-only, so no publish",
 		binaries: bunBinaries,
 		hosts:    npmEndpoints,
@@ -131,7 +119,7 @@ var githubAPIMutations = []string{
 
 // githubAPIGrant lets gh work on the session's GitHub repos without merging. It needs the credentialed access, because
 // the token or app installation token is what gh authenticates with.
-func githubAPIGrant(_ string, access []sandbox.GitAccess) (sandbox.Grant, bool) {
+func githubAPIGrant(access []sandbox.GitAccess) (sandbox.Grant, bool) {
 	rules := []sandbox.HTTPRule{{Method: "GET", Path: "/user"}, {Method: "GET", Path: "/rate_limit"}}
 	baseRules := len(rules)
 	var provider string
@@ -139,7 +127,7 @@ func githubAPIGrant(_ string, access []sandbox.GitAccess) (sandbox.Grant, bool) 
 		if a.Kind != github.Kind || a.Provider == "" {
 			continue
 		}
-		repo, err := github.New("").ParseRepo(a.CloneURL)
+		repo, err := github.ParseRepo(a.CloneURL)
 		if err != nil {
 			continue
 		}
@@ -289,10 +277,18 @@ func environmentNames(envs map[string]Environment) string {
 }
 
 // BuildGrants returns the catalog grants the environment names that apply to the session, in the environment's order.
-func BuildGrants(names []string, workspace string, access []sandbox.GitAccess) []sandbox.Grant {
+func BuildGrants(names []string, access []sandbox.GitAccess) []sandbox.Grant {
 	var out []sandbox.Grant
 	for _, n := range names {
-		if g, ok := grantCatalog[n].build(workspace, access); ok {
+		spec, ok := grantCatalog[n]
+		if !ok {
+			continue
+		}
+		if spec.build == nil {
+			out = append(out, sandbox.Grant{Name: n, Binaries: spec.binaries, Endpoints: spec.hosts})
+			continue
+		}
+		if g, ok := spec.build(access); ok {
 			out = append(out, g)
 		}
 	}

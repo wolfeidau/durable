@@ -51,8 +51,8 @@ func TestOTelEntriesNeverPrintTheReference(t *testing.T) {
 
 	require.Equal(t, "http://localhost:4318", got["otel.endpoint"].Value)
 	require.Equal(t, Source("config.json"), got["otel.endpoint"].Source)
-	require.Equal(t, "http/protobuf", got["otel.protocol"].Value)
-	require.Equal(t, "false", got["otel.capture_content"].Value)
+	require.Equal(t, Entry{Field: "otel.protocol", Value: "http/protobuf", Source: SourceDefault}, got["otel.protocol"])
+	require.Equal(t, Entry{Field: "otel.capture_content", Value: "false", Source: SourceDefault}, got["otel.capture_content"])
 	require.Equal(t, "1Password", got["otel.headers.authorization"].Value)
 	require.Equal(t, "env TEAM", got["otel.headers.x-team"].Value)
 	require.Equal(t, "file /run/secrets/list", got["otel.headers_from"].Value)
