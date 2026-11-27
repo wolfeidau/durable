@@ -1,39 +1,84 @@
+# yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
 project_name: durable
 
 before:
   hooks:
-    - go mod tidy -diff
+    - mise run web:build
 
+# mattn/go-sqlite3 needs CGO, so each runner builds only its own target and uploads it for publish.
 builds:
-  - id: durable
-    main: ./cmd/durable
-    binary: durable
-    # mattn/go-sqlite3 needs cgo, so cross-compiling needs a C toolchain;
-    # build each target on a matching host (goreleaser --split) or add zig/cross-cc.
-    env:
+  - id: durable_darwin_arm64
+    skip: '{{ not (and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "arm64")) }}'
+    goos: [darwin]
+    goarch: [arm64]
+    main: &durable_main ./cmd/durable
+    binary: &durable_binary durable
+    env: &env
       - CGO_ENABLED=1
-    goos: [linux, darwin]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags:
+    flags: &flags
+      - -trimpath
+    ldflags: &ldflags
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+  - id: durable_linux_amd64
+    skip: '{{ not (and (eq .Runtime.Goos "linux") (eq .Runtime.Goarch "amd64")) }}'
+    goos: [linux]
+    goarch: [amd64]
+    main: *durable_main
+    binary: *durable_binary
+    env: *env
+    flags: *flags
+    ldflags: *ldflags
+  - id: durable_linux_arm64
+    skip: '{{ not (and (eq .Runtime.Goos "linux") (eq .Runtime.Goarch "arm64")) }}'
+    goos: [linux]
+    goarch: [arm64]
+    main: *durable_main
+    binary: *durable_binary
+    env: *env
+    flags: *flags
+    ldflags: *ldflags
+  - id: durable_server_darwin_arm64
+    skip: '{{ not (and (eq .Runtime.Goos "darwin") (eq .Runtime.Goarch "arm64")) }}'
+    goos: [darwin]
+    goarch: [arm64]
+    main: &server_main ./cmd/durable-server
+    binary: &server_binary durable-server
+    env: *env
+    flags: *flags
+    ldflags: *ldflags
+  - id: durable_server_linux_amd64
+    skip: '{{ not (and (eq .Runtime.Goos "linux") (eq .Runtime.Goarch "amd64")) }}'
+    goos: [linux]
+    goarch: [amd64]
+    main: *server_main
+    binary: *server_binary
+    env: *env
+    flags: *flags
+    ldflags: *ldflags
+  - id: durable_server_linux_arm64
+    skip: '{{ not (and (eq .Runtime.Goos "linux") (eq .Runtime.Goarch "arm64")) }}'
+    goos: [linux]
+    goarch: [arm64]
+    main: *server_main
+    binary: *server_binary
+    env: *env
+    flags: *flags
+    ldflags: *ldflags
 
 archives:
   - formats: [tar.gz]
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # No version in the name, so install.sh can use releases/latest/download.
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
     files: [LICENSE, README.md, docs/*.md]
 
+# One .sha256 per archive and SBOM, because each runner builds separately and assets are gathered at publish.
 checksum:
-  name_template: checksums.txt
+  split: true
+
+sboms:
+  - artifacts: archive
 
 changelog:
-  sort: asc
-  filters:
-    exclude: ["^docs:", "^test:", "^chore:"]
-
-release:
-  github:
-    owner: wolfeidau
-    name: durable
+  disable: true

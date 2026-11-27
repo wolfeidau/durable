@@ -53,7 +53,23 @@ type serveCmd struct {
 	GitHubAPIURL          string        `name:"github-api-url" env:"DURABLE_GITHUB_API_URL" hidden:"" help:"GitHub API base URL, for tests."`
 }
 
+// goreleaser sets these through -ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
+// resolveVersion falls back to the module version, because go install sets no -ldflags.
+func resolveVersion(linked string, info *debug.BuildInfo) string {
+	if linked != "dev" || info == nil || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return linked
+	}
+	return info.Main.Version
+}
+
 type cli struct {
+	Version      kong.VersionFlag `help:"Print the version and exit."`
 	Serve        serveCmd         `cmd:"" default:"withargs" help:"Run the server."`
 	Config       configCmd        `cmd:"" help:"Check the server config."`
 	URL          urlCmd           `cmd:"" name:"url" help:"Print the browser link for the running server."`
@@ -303,10 +319,8 @@ func startTracing(ctx context.Context, logger *slog.Logger, cfg config.OTelSetti
 }
 
 func buildVersion() string {
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
-		return info.Main.Version
-	}
-	return "unknown"
+	info, _ := debug.ReadBuildInfo()
+	return resolveVersion(version, info)
 }
 
 // shutdownServe drains the API, then closes the registry.
@@ -469,12 +483,14 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 
+	info, _ := debug.ReadBuildInfo()
 	var c cli
 	k := kong.Parse(&c,
 		kong.Name("durable-server"),
 		kong.Description("Serve the durable API and web UI."),
 		kong.BindTo(ctx, (*context.Context)(nil)),
 		kong.Bind(logger),
+		kong.Vars{"version": fmt.Sprintf("%s (%s, %s)", resolveVersion(version, info), commit, date)},
 	)
 	err := k.Run()
 	stop()

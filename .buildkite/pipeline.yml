@@ -13,6 +13,7 @@ steps:
           - mise run check:api
           - mise run check:schema
           - golangci-lint run --verbose --timeout 3m
+          - shellcheck install.sh .buildkite/plugins/*/hooks/*
         plugins:
           - ./.buildkite/plugins/mise-cache: ~
           - ./.buildkite/plugins/go-cache:
@@ -47,6 +48,26 @@ steps:
         command: mise run check:web
         plugins:
           - ./.buildkite/plugins/mise-cache: ~
+
+  - group: ":package: build"
+    key: build
+    steps:
+      - label: ":goreleaser: build {{matrix}}"
+        agents:
+          queue: "{{matrix}}"
+        matrix:
+          - macos-medium
+          - linux-small
+          - linux-arm64-small
+        retry:
+          automatic:
+            - exit_status: 75
+              limit: 2
+        command: goreleaser release --snapshot --clean
+        plugins:
+          - ./.buildkite/plugins/mise-cache: ~
+          - ./.buildkite/plugins/go-cache:
+              name: go_build
 
   # Builds the worker images, which nothing else in CI does, so Renovate bumps to them fail here, not on a host.
   - label: ":docker: worker images"

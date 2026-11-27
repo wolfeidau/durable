@@ -8,19 +8,24 @@ echo "~~~ :recycle: Restoring mise cache"
 buildkite-agent cache restore --name mise
 
 if [[ "$(mise --version 2>/dev/null | cut -d' ' -f1)" != "${MISE_VERSION}" ]]; then
-  case "$(uname -m)" in
-    x86_64) arch="x64" sha="ff81b3a813edbb1e884a0a68b0c1f1aa726f15f6c4e47606f83359fb12beb009" ;;
-    aarch64 | arm64) arch="arm64" sha="d2b1f015317baff1e3a1486ff323a1a3c571e6b7233778318dd39d5349d42062" ;;
-    *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) asset="macos-arm64" sha="d37c01389b0918a19bbf763ee8ed339e533eebdb281be4911e9ad71d00b51477" ;;
+    Linux-x86_64) asset="linux-x64-musl" sha="ff81b3a813edbb1e884a0a68b0c1f1aa726f15f6c4e47606f83359fb12beb009" ;;
+    Linux-aarch64 | Linux-arm64) asset="linux-arm64-musl" sha="d2b1f015317baff1e3a1486ff323a1a3c571e6b7233778318dd39d5349d42062" ;;
+    *) echo "Unsupported platform: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
   esac
   echo "~~~ :toolbox: Installing mise ${MISE_VERSION}"
   tmp="$(mktemp -d)"
   trap 'rm -rf "${tmp}"' EXIT
   # GitHub hangs about 2m before a 504, so cap each attempt.
   curl -fsSL --connect-timeout 10 --max-time 60 --retry 3 -o "${tmp}/mise.tar.gz" \
-    "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-linux-${arch}-musl.tar.gz" ||
+    "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/mise-v${MISE_VERSION}-${asset}.tar.gz" ||
     exit "${retry_exit}"
-  echo "${sha}  ${tmp}/mise.tar.gz" | sha256sum -c -
+  if command -v sha256sum >/dev/null 2>&1; then
+    echo "${sha}  ${tmp}/mise.tar.gz" | sha256sum -c -
+  else
+    echo "${sha}  ${tmp}/mise.tar.gz" | shasum -a 256 -c -
+  fi
   mkdir -p "${MISE_DATA_DIR}/bin"
   tar -xzf "${tmp}/mise.tar.gz" -C "${MISE_DATA_DIR}/bin" --strip-components=2 mise/bin/mise
 fi
