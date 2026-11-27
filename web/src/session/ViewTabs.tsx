@@ -1,7 +1,7 @@
 import type { ReactElement, ReactNode, Ref } from "react";
 import { Tab, TabList, TabPanel, Tabs } from "react-aria-components";
-import type { OpenTab } from "./transcript/Call";
-import type { View } from "./view";
+import type { Tab as RouteTab } from "../lib/route";
+import type { OpenTab, View } from "./view";
 
 
 interface Props {
@@ -23,7 +23,7 @@ export function ViewTabs({ view, onTab, sandboxed, deniedCount, actions, childre
       selectedKey={view}
       // Manual: Report builds its overview and Network fetches, so arrowing past them shouldn't open them.
       keyboardActivation="manual"
-      onSelectionChange={(key) => onTab(key === "transcript" ? undefined : (key as "report" | "network"))}
+      onSelectionChange={(key) => onTab(key === "transcript" ? undefined : (key as RouteTab))}
     >
       <div className="toolbar">
         <TabList className="tabs" aria-label="View">

@@ -36,8 +36,8 @@ export interface WatchOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
-export const initialBackoffMs = 1000;
-export const maxBackoffMs = 10_000;
+const initialBackoffMs = 1000;
+const maxBackoffMs = 10_000;
 
 function without<K, V>(m: ReadonlyMap<K, V>, key: K): ReadonlyMap<K, V> {
   if (!m.has(key)) return m;

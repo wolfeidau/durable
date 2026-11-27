@@ -2,7 +2,8 @@ import { memo, type ReactElement } from "react";
 import type { NetworkEvent } from "../../gen/durable/v1/durable_pb";
 import { CopyButton } from "../../ui/CopyButton";
 import { isActive, statusText, statusTone } from "../../lib/status";
-import { Call, type OpenTab } from "./Call";
+import type { OpenTab } from "../view";
+import { Call } from "./Call";
 import { Markdown } from "./markdown";
 import type { Turn } from "./transcript";
 

@@ -1,7 +1,8 @@
 import type { ReactElement, Ref } from "react";
 import type { NetworkEvent } from "../../gen/durable/v1/durable_pb";
 import { TipHost } from "../../ui/Tooltip";
-import { FocusTarget, OpenCalls, type OpenTab } from "./Call";
+import type { OpenTab } from "../view";
+import { FocusTarget, OpenCalls } from "./Call";
 import { liveOutput, PendingTurn, TurnView } from "./Turn";
 import type { Turn } from "./transcript";
 
