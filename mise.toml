@@ -3,6 +3,8 @@ experimental = true
 lockfile = true
 
 [tools]
+cosign = "3.1.4"
+gh = "2.105.0"
 go = "1.27.4"
 golangci-lint = "2.15.0"
 goreleaser = "2.20.3"
@@ -11,6 +13,8 @@ buf = "1.75.0"
 "go:google.golang.org/protobuf/cmd/protoc-gen-go" = "1.36.12"
 "go:connectrpc.com/connect/cmd/protoc-gen-connect-go" = "1.21.1"
 bun = "1.4.5"
+shellcheck = "0.11.0"
+syft = "1.57.2"
 "go:golang.org/x/tools/gopls" = "0.24.0"
 
 [tasks."check:tidy"]
@@ -39,7 +43,7 @@ run = "go generate ./internal/config"
 run = "go test -count=1 -run TestGeneratedSchemaMatchesTheCommittedFile ./internal/config"
 
 [tasks."check:lint"]
-run = "golangci-lint run --timeout 3m"
+run = ["golangci-lint run --timeout 3m", "shellcheck install.sh .buildkite/plugins/*/hooks/*"]
 
 [tasks."test:e2e"]
 run = """

@@ -26,15 +26,49 @@ See the [feature matrix](docs/feature-matrix.md).
 
 ## Quick start
 
-You need Go 1.27, plus cgo and a C toolchain because of `mattn/go-sqlite3`. Releases are source
-only, with no prebuilt binaries for now, so install with Go:
+Install prebuilt `durable` and `durable-server` binaries (macOS arm64, glibc Linux amd64/arm64, with the web UI embedded in `durable-server`) using [install.sh](install.sh). The script verifies SHA-256 checksums, plus GitHub Release attestations when `gh` is authenticated and keyless SLSA v1 provenance when `cosign` is available. Musl-based Linux distros (such as Alpine) should build from source.
 
 ```sh
-go install github.com/wolfeidau/durable/cmd/durable@latest
+curl -fsSL https://raw.githubusercontent.com/wolfeidau/durable/main/install.sh | sh
 durable --api-token-from-1password 'op://<vault>/<item>/<field>'
 ```
 
+<details>
+<summary>Pin a release, install with Go, or verify release assets manually</summary>
+
+Pin a specific version or install prefix:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/wolfeidau/durable/main/install.sh | sh -s -- --version v0.1.0 --prefix ~/.local
+```
+
+Or install from source with Go 1.27+, cgo, and a C toolchain (for `mattn/go-sqlite3`):
+
+```sh
+go install github.com/wolfeidau/durable/cmd/durable@latest
+```
+
 To build a checkout instead, run `go build -o durable ./cmd/durable`.
+
+Verify a downloaded release archive manually (each release publishes `.tar.gz`, `.sha256`, `.sbom.json`, and `.sigstore.json` signed by `https://buildkite.com/wolfeidauci/durable-release`):
+
+```sh
+# 1. Verify SHA-256 checksum (use shasum -a 256 -c - on macOS)
+echo "$(cat durable_linux_amd64.tar.gz.sha256)  durable_linux_amd64.tar.gz" | sha256sum -c -
+
+# 2. Verify immutable GitHub Release asset attestation
+gh release verify-asset v0.1.0 durable_linux_amd64.tar.gz --repo wolfeidau/durable
+
+# 3. Verify keyless SLSA v1 provenance via Sigstore/Cosign
+cosign verify-blob-attestation \
+  --bundle durable_linux_amd64.tar.gz.sigstore.json \
+  --type slsaprovenance1 \
+  --certificate-oidc-issuer https://agent.buildkite.com \
+  --certificate-identity https://buildkite.com/wolfeidauci/durable-release \
+  durable_linux_amd64.tar.gz
+```
+
+</details>
 
 To resume after a crash or a quit, run the agent again in the same directory. Unfinished work
 continues before the first prompt.
@@ -81,8 +115,8 @@ durable-server serve --api-token-from-1password 'op://<vault>/<item>/<field>'
 durable-server url   # prints the browser link, with the token in the URL fragment
 ```
 
-- **Web UI:** a `go install` build serves a placeholder page. To embed the UI, build from a checkout
-  with `mise run web:build` first, then `go build ./cmd/durable-server`.
+- **Web UI:** prebuilt release binaries embed the web UI. A `go install` build serves a placeholder
+  page; to embed the UI from a checkout, run `mise run web:build` first, then `go build ./cmd/durable-server`.
 - **Models:** `provider` in the config, or `--provider`, `--protocol` and `--model`, set the route for new
   sessions, as in `durable chat`. Existing sessions keep their pin.
 - **Sessions:** without a sandbox, a session is a directory on your machine, typed as an absolute
