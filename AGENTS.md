@@ -26,6 +26,8 @@ After changing `web/` or `api/`, also run this, which needs Bun from `mise insta
 mise run check:web
 ```
 
+`mise run check:api` and `mise run check:web` assert clean `git status` on `api/` and `web/src/gen/`, so run them after committing (before committing, check `mise exec -- buf lint`, `bunx --bun tsc --noEmit`, `bun test`, `mise run check:web:layout`, and `mise run web:build`). `web:build` recreates `internal/server/ui/dist`, which `internal/server` embeds with `//go:embed all:ui`, so do not run `web:build` concurrently with `go test`.
+
 CI also race-checks the real binary, which `go test -race` alone doesn't. Run this after changing concurrency in `cmd/durable` or anything it calls:
 
 ```sh
@@ -47,6 +49,8 @@ mise run test:e2e
 ## Guiding principles
 
 - Validate upfront. Anything that can be checked before a session starts, such as config, MCP and hook files or provider settings, is checked when `durable-server` starts and by `durable-server config check`, and the server exits before listening when a check fails. A user should find a config problem at startup, not when opening a session. Sessions still re-check files that can change while the server runs.
+- Treat unobserved external state as neutral, not negative, and prefer eventual consistency over blocking read RPCs on external systems (such as the OpenShell gateway). Surface freshness (`observed_at`, `refreshing`, `stale`) in both API and UI, keep "not yet known" distinct from "absent" or "error", and preserve last-known cached values across transient failures.
+- Sketch state diagrams when designing caches or multi-state lifecycles so edge cases (such as error persistence across retries) are caught before coding.
 
 ## Durability invariants
 
