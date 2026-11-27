@@ -58,31 +58,8 @@ func (s *service) Stdio(ctx context.Context, stream *connect.BidiStream[workerv1
 
 	// The request side ending, or the client going away, is the end of the stream.
 	ended := make(chan struct{})
-	go func() {
-		defer close(ended)
-		skip := false
-		for {
-			req, err := stream.Receive()
-			if err != nil {
-				return
-			}
-			if in := req.GetStdin(); in != nil && !skip {
-				_, werr := stdin.Write(in)
-				skip = werr != nil
-			}
-		}
-	}()
-	go func() {
-		select {
-		case <-ended:
-		case <-ctx.Done():
-		case <-exited:
-			return
-		}
-		// Closing also frees a write blocked on a process that does not read.
-		_ = stdin.Close()
-		terminate(exited, signalGroup)
-	}()
+	go pumpStdin(stream, stdin, ended)
+	go watchStdioShutdown(ctx, ended, exited, stdin, signalGroup)
 
 	var sendMu sync.Mutex
 	send := func(r *workerv1.StdioResponse) error {
@@ -91,26 +68,11 @@ func (s *service) Stdio(ctx context.Context, stream *connect.BidiStream[workerv1
 		return stream.Send(r)
 	}
 	var wg sync.WaitGroup
-	pump := func(f *os.File, wrap func([]byte) *workerv1.StdioResponse) {
-		defer wg.Done()
-		buf := make([]byte, stdioChunk)
-		var sendErr error
-		for {
-			n, err := f.Read(buf)
-			// After a failed send the stream is gone; keep draining so the process does not block on a full pipe.
-			if n > 0 && sendErr == nil {
-				sendErr = send(wrap(append([]byte(nil), buf[:n]...)))
-			}
-			if err != nil {
-				return
-			}
-		}
-	}
 	wg.Add(2)
-	go pump(outR, func(b []byte) *workerv1.StdioResponse {
+	go pumpOutput(&wg, outR, send, func(b []byte) *workerv1.StdioResponse {
 		return &workerv1.StdioResponse{Event: &workerv1.StdioResponse_Stdout{Stdout: b}}
 	})
-	go pump(errR, func(b []byte) *workerv1.StdioResponse {
+	go pumpOutput(&wg, errR, send, func(b []byte) *workerv1.StdioResponse {
 		return &workerv1.StdioResponse{Event: &workerv1.StdioResponse_Stderr{Stderr: b}}
 	})
 
@@ -122,6 +84,49 @@ func (s *service) Stdio(ctx context.Context, stream *connect.BidiStream[workerv1
 	wg.Wait()
 	_ = send(&workerv1.StdioResponse{Event: &workerv1.StdioResponse_ExitCode{ExitCode: int32(code)}}) //nolint:gosec // exit codes are small
 	return nil
+}
+
+func pumpStdin(stream *connect.BidiStream[workerv1.StdioRequest, workerv1.StdioResponse], stdin io.Writer, ended chan<- struct{}) {
+	defer close(ended)
+	skip := false
+	for {
+		req, err := stream.Receive()
+		if err != nil {
+			return
+		}
+		if in := req.GetStdin(); in != nil && !skip {
+			_, werr := stdin.Write(in)
+			skip = werr != nil
+		}
+	}
+}
+
+func watchStdioShutdown(ctx context.Context, ended, exited <-chan struct{}, stdin io.Closer, signalGroup func(syscall.Signal)) {
+	select {
+	case <-ended:
+	case <-ctx.Done():
+	case <-exited:
+		return
+	}
+	// Closing also frees a write blocked on a process that does not read.
+	_ = stdin.Close()
+	terminate(exited, signalGroup)
+}
+
+func pumpOutput(wg *sync.WaitGroup, f *os.File, send func(*workerv1.StdioResponse) error, wrap func([]byte) *workerv1.StdioResponse) {
+	defer wg.Done()
+	buf := make([]byte, stdioChunk)
+	var sendErr error
+	for {
+		n, err := f.Read(buf)
+		// After a failed send the stream is gone; keep draining so the process does not block on a full pipe.
+		if n > 0 && sendErr == nil {
+			sendErr = send(wrap(append([]byte(nil), buf[:n]...)))
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // terminate stops the process group in steps unless it exits first.

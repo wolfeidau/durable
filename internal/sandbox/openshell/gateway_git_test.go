@@ -3,10 +3,8 @@ package openshell
 import (
 	"context"
 	"os"
-	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -22,22 +20,9 @@ const (
 	publicRepo       = "octocat/hello-world"
 )
 
-// cleanupProvider deletes the shared provider and profile once the sandboxes using them are gone. Deletion is
-// asynchronous, and the provider can't be deleted while a sandbox is attached to it.
 func cleanupProvider(t *testing.T, l *Launcher) {
 	t.Helper()
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.Eventually(t, func() bool {
-			_, err := l.c.Providers().Delete(ctx, l.ws, github.Provider)
-			return err == nil
-		}, time.Minute, 2*time.Second, "provider %s was not deleted", github.Provider)
-		require.Eventually(t, func() bool {
-			_, err := l.c.Providers().Profiles().Delete(ctx, l.ws, github.Provider)
-			return err == nil
-		}, time.Minute, 2*time.Second, "profile %s was not deleted", github.Provider)
-	})
+	cleanupProviderProfile(t, l, github.Provider, github.Provider)
 }
 
 func newGitSandbox(t *testing.T, l *Launcher, repo string, grantNames ...string) (name, token string) {
@@ -46,17 +31,9 @@ func newGitSandbox(t *testing.T, l *Launcher, repo string, grantNames ...string)
 	r, err := h.ParseRepo(repo)
 	require.NoError(t, err)
 	access := []sandbox.GitAccess{h.Access(r)}
-	name, token = "dt-"+randHex(t, 6), randHex(t, 16)
 	cleanupProvider(t, l)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.NoError(t, l.Delete(ctx, name))
-	})
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
-	defer cancel()
-	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token, Git: access, Grants: commands.BuildGrants(grantNames, access)}))
-	return name, token
+	spec := newSandboxWith(t, l, sandbox.Spec{Git: access, Grants: commands.BuildGrants(grantNames, access)})
+	return spec.Name, spec.Token
 }
 
 func TestGatewayGitReachesOnlyTheGrantedRepo(t *testing.T) {
@@ -155,13 +132,7 @@ func TestGatewayGitHubAPIGrantAllowsTheRepoAndDeniesMerge(t *testing.T) {
 	l := gatewayLauncherWith(t, Config{Tokens: map[string]func(context.Context) (string, error){"github": ghToken}})
 	name, token := newGitSandbox(t, l, "github.com/"+repo, "github-api")
 	bash := bashTool(t, dialWorker(t, l, name, token))
-	n := 0
-	run := func(command string) string {
-		n++
-		out := runBash(t.Context(), t, bash, "a"+strconv.Itoa(n), command+" 2>&1; echo rc=$?")
-		require.NotContains(t, out, realToken)
-		return out
-	}
+	run := newBashRunner(t, bash, "a", realToken)
 
 	out := run("gh api repos/" + repo + " --jq .full_name")
 	require.Contains(t, out, "rc=0", out)

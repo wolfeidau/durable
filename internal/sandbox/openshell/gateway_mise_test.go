@@ -1,7 +1,6 @@
 package openshell
 
 import (
-	"context"
 	_ "embed"
 	"encoding/base64"
 	"testing"
@@ -32,21 +31,9 @@ type miseBox struct {
 func miseSession(t *testing.T, grants []string) miseBox {
 	t.Helper()
 	l := gatewayLauncher(t)
-	name, token := "dt-"+randHex(t, 6), randHex(t, 16)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.NoError(t, l.Delete(ctx, name))
-	})
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
-	defer cancel()
-	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token, Grants: commands.BuildGrants(grants, nil)}))
-	bash := bashTool(t, dialWorker(t, l, name, token))
-	n := 0
-	return miseBox{l: l, name: name, run: func(command string) string {
-		n++
-		return runBash(t.Context(), t, bash, "r"+string(rune('a'+n)), command+" 2>&1; echo rc=$?")
-	}}
+	spec := newSandboxWith(t, l, sandbox.Spec{Grants: commands.BuildGrants(grants, nil)})
+	bash := bashTool(t, dialWorker(t, l, spec.Name, spec.Token))
+	return miseBox{l: l, name: spec.Name, run: newBashRunner(t, bash, "r")}
 }
 
 func TestGatewayMiseGrantInstallsFromTheLockfileOnly(t *testing.T) {
