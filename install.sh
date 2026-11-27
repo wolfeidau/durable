@@ -44,7 +44,12 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
 bundle="${tmp}/${asset}.sigstore.json"
-if command -v gh >/dev/null 2>&1; then
+use_gh=0
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  use_gh=1
+fi
+
+if [ "${use_gh}" -eq 1 ]; then
   if [ "${version}" = "latest" ]; then
     tag="$(gh release view --repo "${repo}" --json tagName --jq .tagName)"
   else
@@ -76,7 +81,7 @@ fi
 verified="checksum"
 
 # GitHub signs immutable releases itself, so this proves the archive was published in that release.
-if command -v gh >/dev/null 2>&1 && gh release verify-asset --help >/dev/null 2>&1 &&
+if [ "${use_gh}" -eq 1 ] && gh release verify-asset --help >/dev/null 2>&1 &&
   [ "$(gh release view "${tag}" --repo "${repo}" --json isImmutable --jq .isImmutable)" = "true" ]; then
   if ! gh release verify-asset "${tag}" "${tmp}/${asset}" --repo "${repo}" >/dev/null; then
     echo "release attestation check failed for ${asset}" >&2

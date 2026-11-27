@@ -6,6 +6,8 @@ project_name: durable
 before:
   hooks:
     - mise run web:build
+    # Pre-warm GOCACHE sequentially so parallel durable and durable-server builds don't compile anthropic-sdk-go twice and OOM 4 GB runners.
+    - sh -c 'CGO_ENABLED=1 go build -trimpath -p=1 ./cmd/durable ./cmd/durable-server'
 
 # mattn/go-sqlite3 needs CGO, so each runner builds only its own target and uploads it for publish.
 builds:
@@ -19,6 +21,7 @@ builds:
       - CGO_ENABLED=1
     flags: &flags
       - -trimpath
+      - -p=1
     ldflags: &ldflags
       - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
   - id: durable_linux_amd64

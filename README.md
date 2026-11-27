@@ -26,7 +26,7 @@ See the [feature matrix](docs/feature-matrix.md).
 
 ## Quick start
 
-Install prebuilt `durable` and `durable-server` binaries (macOS arm64, Linux amd64/arm64, with the web UI embedded in `durable-server`) using [install.sh](install.sh). The script verifies SHA-256 checksums, plus GitHub Release attestations when `gh` is available and keyless SLSA v1 provenance when `cosign` is available:
+Install prebuilt `durable` and `durable-server` binaries (macOS arm64, glibc Linux amd64/arm64, with the web UI embedded in `durable-server`) using [install.sh](install.sh). The script verifies SHA-256 checksums, plus GitHub Release attestations when `gh` is authenticated and keyless SLSA v1 provenance when `cosign` is available. Musl-based Linux distros (such as Alpine) should build from source.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wolfeidau/durable/main/install.sh | sh
@@ -53,8 +53,8 @@ To build a checkout instead, run `go build -o durable ./cmd/durable`.
 Verify a downloaded release archive manually (each release publishes `.tar.gz`, `.sha256`, `.sbom.json`, and `.sigstore.json` signed by `https://buildkite.com/wolfeidauci/durable-release`):
 
 ```sh
-# 1. Verify SHA-256 checksum (use shasum -a 256 on macOS)
-diff -u <(sha256sum durable_linux_amd64.tar.gz | cut -d' ' -f1) durable_linux_amd64.tar.gz.sha256
+# 1. Verify SHA-256 checksum (use shasum -a 256 -c - on macOS)
+echo "$(cat durable_linux_amd64.tar.gz.sha256)  durable_linux_amd64.tar.gz" | sha256sum -c -
 
 # 2. Verify immutable GitHub Release asset attestation
 gh release verify-asset v0.1.0 durable_linux_amd64.tar.gz --repo wolfeidau/durable
