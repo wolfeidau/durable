@@ -20,10 +20,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/wolfeidau/durable/internal/githost"
 	"github.com/wolfeidau/durable/internal/sandbox"
 )
+
+// ErrAppNotInstalled reports that the GitHub App is not installed on the target repository.
+var ErrAppNotInstalled = errors.New("GitHub App is not installed on")
 
 const (
 	// AppProfile is the OpenShell profile ID for GitHub App installation tokens.
@@ -157,6 +161,9 @@ func (h *Host) doJSON(ctx context.Context, method, path, bearer string, body any
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if msg := githubErrorMessage(resp.Body); msg != "" {
+			return resp.StatusCode, fmt.Errorf("GitHub returned %s: %s", resp.Status, msg)
+		}
 		return resp.StatusCode, fmt.Errorf("GitHub returned %s", resp.Status)
 	}
 	if out != nil {
@@ -165,6 +172,30 @@ func (h *Host) doJSON(ctx context.Context, method, path, bearer string, body any
 		}
 	}
 	return resp.StatusCode, nil
+}
+
+const (
+	maxGitHubErrorBody    = 4096
+	maxGitHubErrorMessage = 200
+)
+
+func githubErrorMessage(body io.Reader) string {
+	var e struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(io.LimitReader(body, maxGitHubErrorBody)).Decode(&e); err != nil {
+		return ""
+	}
+	msg := strings.TrimSpace(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, e.Message))
+	if len(msg) > maxGitHubErrorMessage {
+		msg = strings.ToValidUTF8(msg[:maxGitHubErrorMessage], "")
+	}
+	return msg
 }
 
 // CheckApp verifies the GitHub App credentials and its installation, failing startup on bad keys, unknown apps, or missing permissions.
@@ -217,7 +248,7 @@ func (h *Host) ResolveAppRepo(ctx context.Context, creds AppCredentials, repo gi
 	status, err := h.doJSON(ctx, http.MethodGet, "/repos/"+repo.Owner+"/"+repo.Name+"/installation", jwt, nil, &inst)
 	if err != nil {
 		if status == http.StatusNotFound {
-			return AppRepoScope{}, fmt.Errorf("GitHub App is not installed on %s/%s", repo.Owner, repo.Name)
+			return AppRepoScope{}, fmt.Errorf("%w %s/%s", ErrAppNotInstalled, repo.Owner, repo.Name)
 		}
 		return AppRepoScope{}, fmt.Errorf("failed to look up GitHub App installation for %s/%s: %w", repo.Owner, repo.Name, err)
 	}

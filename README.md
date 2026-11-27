@@ -284,11 +284,11 @@ GitHub is the only git host so far. Configure either a static token or a GitHub 
   | Issues | Read and write | The `github-api` grant: issues, comments and labels |
   | Checks / Actions | Read (optional) | With a GitHub App + `github-api`, requested automatically when granted for reading CI status |
 
-- With no token or app, repo sessions clone public repos anonymously and `git push` fails. Repo access is
+- With no token or app, or when a GitHub App is not installed on the target repository, repo sessions clone public repos anonymously (without `github-api`) and `git push` fails. Repo access is
   fixed at create, so changing credentials later doesn't upgrade an existing session's pin.
 - For static tokens, the server keeps one OpenShell provider and profile, `durable-github`, shared across sessions. To
   remove them: `openshell provider delete durable-github`, then `openshell profile delete durable-github`.
-  For GitHub Apps, the server keeps one profile `durable-github-app` and one provider per repository and permission scope (`durable-gh-<repoID>-<hash>`).
+  For GitHub Apps, the server keeps one profile `durable-github-app` and one provider per repository and permission scope (`durable-gh-<repoID>-<hash>`). Scoped providers are not deleted automatically and each stores a copy of the app private key in OpenShell's credential backend; remove unused ones with `openshell provider delete <name>` (especially after rotating an app key).
 
 #### Environments and grants
 

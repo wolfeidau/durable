@@ -19,6 +19,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wolfeidau/durable/internal/config"
+	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/githost"
+	"github.com/wolfeidau/durable/internal/githost/github"
 )
 
 const (
@@ -214,4 +219,28 @@ func TestGitHostAppConfigStartsServerAndValidatesPermissions(t *testing.T) {
 	failOut := runFailingIn(t, home, env)
 	require.Contains(t, failOut, "missing contents permission")
 	require.NotContains(t, failOut, "PRIVATE KEY")
+}
+
+func TestGitAppAccessFallsBackToAnonymousWhenNotInstalled(t *testing.T) {
+	t.Parallel()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	keyPEM := string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}))
+	keyFile := filepath.Join(t.TempDir(), "app.pem")
+	require.NoError(t, os.WriteFile(keyFile, []byte(keyPEM), 0o600))
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+	}))
+	t.Cleanup(srv.Close)
+
+	funcs := gitAppAccessFuncs(map[string]config.GitHostAppSource{
+		github.Kind: {ClientID: "Iv23liTEST", PrivateKey: creds.Source{Flag: "test", Value: "file:" + keyFile}},
+	}, srv.URL)
+	access, err := funcs[github.Kind](t.Context(), githost.Repo{Host: "github.com", Owner: "octocat", Name: "hello-world"}, []string{"github-api"})
+	require.NoError(t, err)
+	require.Empty(t, access.AuthMode)
+	require.Empty(t, access.Provider)
+	require.Empty(t, access.CredentialEnv)
+	require.Equal(t, "https://github.com/octocat/hello-world.git", access.CloneURL)
 }

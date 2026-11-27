@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -107,6 +108,10 @@ func gitAppAccessFuncs(sources map[string]config.GitHostAppSource, apiURL string
 				PrivateKeyPEM:  keyPEM,
 			}, repo, slices.Contains(grants, "github-api"))
 			if err != nil {
+				// Fall back to anonymous read-only cloning for repos outside the installation, matching PAT and unauthenticated behavior on public repos.
+				if errors.Is(err, github.ErrAppNotInstalled) {
+					return githost.Anonymous(host.Access(repo)), nil
+				}
 				return sandbox.GitAccess{}, err
 			}
 			return host.AppAccess(repo, scope), nil

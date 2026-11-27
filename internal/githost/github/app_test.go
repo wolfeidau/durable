@@ -122,6 +122,10 @@ func TestCheckApp(t *testing.T) {
 		switch r.URL.Path {
 		case "/app":
 			w.WriteHeader(int(appStatus.Load()))
+			if appStatus.Load() == http.StatusUnauthorized {
+				_, _ = w.Write([]byte(`{"message":"'Expiration time' claim ('exp') is too far in the future"}`))
+				return
+			}
 			_, _ = w.Write([]byte(`{"id":99,"slug":"durable-bot"}`))
 		case "/app/installations/42":
 			w.WriteHeader(int(instStatus.Load()))
@@ -168,6 +172,7 @@ func TestCheckApp(t *testing.T) {
 	appStatus.Store(http.StatusUnauthorized)
 	_, err = h.CheckApp(t.Context(), AppCredentials{ClientID: "Iv23liTEST", PrivateKeyPEM: pkcs1}, false)
 	require.ErrorContains(t, err, "401")
+	require.ErrorContains(t, err, "too far in the future")
 	require.NotContains(t, err.Error(), "PRIVATE KEY")
 }
 
@@ -247,9 +252,17 @@ func TestResolveAppRepoAndAppAccess(t *testing.T) {
 	_, err = h.ResolveAppRepo(t.Context(), AppCredentials{ClientID: "Iv23liTEST", InstallationID: 99, PrivateKeyPEM: pkcs1}, repo, false)
 	require.ErrorContains(t, err, "belongs to GitHub App installation 42, not configured installation 99")
 
-	// Missing repo in installation returns a clear error.
+	// Missing repo in installation returns ErrAppNotInstalled.
 	otherRepo, err := h.ParseRepo("github.com/octo/missing")
 	require.NoError(t, err)
 	_, err = h.ResolveAppRepo(t.Context(), AppCredentials{ClientID: "Iv23liTEST", PrivateKeyPEM: pkcs1}, otherRepo, false)
-	require.ErrorContains(t, err, "not installed on octo/missing")
+	require.ErrorIs(t, err, ErrAppNotInstalled)
+	require.ErrorContains(t, err, "octo/missing")
+}
+
+func TestGitHubErrorMessageIsCappedAndSanitised(t *testing.T) {
+	require.Empty(t, githubErrorMessage(strings.NewReader("not json")))
+	require.Equal(t, "Bad credentials", githubErrorMessage(strings.NewReader(`{"message":"Bad\ncredentials\r"}`)))
+	long := githubErrorMessage(strings.NewReader(`{"message":"` + strings.Repeat("x", 500) + `"}`))
+	require.Len(t, long, maxGitHubErrorMessage)
 }

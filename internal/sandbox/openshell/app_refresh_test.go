@@ -100,12 +100,12 @@ func (f *fakeAppRefresh) RotateCredential(_ context.Context, ws, provider, credK
 
 func (*fakeAppRefresh) Close() error { return nil }
 
-func appRepoAccess(t *testing.T, raw string, instID, repoID int64, perms map[string]string) sandbox.GitAccess {
+func appRepoAccess(t *testing.T) sandbox.GitAccess {
 	t.Helper()
 	h := github.New("")
-	repo, err := h.ParseRepo(raw)
+	repo, err := h.ParseRepo("github.com/octo/hello")
 	require.NoError(t, err)
-	return h.AppAccess(repo, github.AppRepoScope{InstallationID: instID, RepositoryID: repoID, Permissions: perms})
+	return h.AppAccess(repo, github.AppRepoScope{InstallationID: 42, RepositoryID: 123456, Permissions: map[string]string{"contents": "write", "metadata": "read"}})
 }
 
 func newAppLauncher(fc *fake.Client, rpc appRefreshClient, creds *AppCredentials) *Launcher {
@@ -124,7 +124,7 @@ func TestCreateWithGitHubAppConfiguresProfileProviderAndRefresh(t *testing.T) {
 	rpc := newFakeAppRefresh()
 	creds := AppCredentials{ClientID: "Iv23liTEST", PrivateKey: "PEM-ONE"}
 	l := newAppLauncher(fc, rpc, &creds)
-	access := appRepoAccess(t, "github.com/octo/hello", 42, 123456, map[string]string{"contents": "write", "metadata": "read"})
+	access := appRepoAccess(t)
 	spec := sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: []sandbox.GitAccess{access}}
 
 	require.NoError(t, l.Create(t.Context(), spec))
@@ -191,7 +191,7 @@ func TestGitHubAppStaleProfileIsUpdated(t *testing.T) {
 		Credentials: []*pb.ProviderProfileCredential{{Name: "GITHUB_TOKEN", AuthStyle: "basic"}},
 	}
 	creds := AppCredentials{ClientID: "Iv23liTEST", PrivateKey: "PEM"}
-	access := appRepoAccess(t, "github.com/octo/hello", 42, 123456, map[string]string{"contents": "write", "metadata": "read"})
+	access := appRepoAccess(t)
 
 	require.NoError(t, newAppLauncher(fc, rpc, &creds).Create(t.Context(), sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: []sandbox.GitAccess{access}}))
 	require.Zero(t, rpc.imports)
@@ -200,7 +200,7 @@ func TestGitHubAppStaleProfileIsUpdated(t *testing.T) {
 }
 
 func TestGitHubAppFailuresCreateNothing(t *testing.T) {
-	access := appRepoAccess(t, "github.com/octo/hello", 42, 123456, map[string]string{"contents": "write", "metadata": "read"})
+	access := appRepoAccess(t)
 	spec := sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: []sandbox.GitAccess{access}}
 
 	t.Run("missing app config", func(t *testing.T) {
@@ -236,4 +236,80 @@ func TestGitHubAppFailuresCreateNothing(t *testing.T) {
 		_, perr := fc.Sandboxes().Get(t.Context(), "default", "dt-a")
 		require.Error(t, perr)
 	})
+}
+
+func TestSyncAppProviderRestartFastPath(t *testing.T) {
+	creds := AppCredentials{ClientID: "Iv23liTEST", PrivateKey: "PEM-ONE"}
+	access := appRepoAccess(t)
+	spec := sandbox.Spec{Name: "dt-a", Image: "img", Token: "wt", Git: []sandbox.GitAccess{access}}
+
+	setup := func(t *testing.T, status *pb.ProviderCredentialRefreshStatus, overrideHash string) (*fake.Client, *fakeAppRefresh) {
+		t.Helper()
+		fc := fake.NewClient()
+		rpc := newFakeAppRefresh()
+		// Seed initial state through a first launcher, then reset counters to test a brand-new launcher (empty synced map).
+		require.NoError(t, newAppLauncher(fc, rpc, &creds).Create(t.Context(), spec))
+		rpc.configures, rpc.rotates = 0, 0
+		if overrideHash != "" {
+			prov, err := fc.Providers().Get(t.Context(), "default", access.Provider)
+			require.NoError(t, err)
+			prov.Annotations[refreshHashAnnotation] = overrideHash
+			_, err = fc.Providers().Update(t.Context(), "default", prov)
+			require.NoError(t, err)
+		}
+		if status != nil {
+			rpc.statuses["default/"+access.Provider+"/GITHUB_TOKEN"] = []*pb.ProviderCredentialRefreshStatus{status}
+		}
+		return fc, rpc
+	}
+
+	t.Run("matching hash and healthy status skips reconfigure", func(t *testing.T) {
+		fc, rpc := setup(t, nil, "")
+		require.NoError(t, newAppLauncher(fc, rpc, &creds).Ensure(t.Context(), spec))
+		require.Zero(t, rpc.configures)
+		require.Zero(t, rpc.rotates)
+	})
+
+	t.Run("expired token reconfigures", func(t *testing.T) {
+		fc, rpc := setup(t, &pb.ProviderCredentialRefreshStatus{
+			Provider: access.Provider, CredentialKey: "GITHUB_TOKEN",
+			Strategy:       pb.ProviderCredentialRefreshStrategy_PROVIDER_CREDENTIAL_REFRESH_STRATEGY_GITHUB_APP_INSTALLATION,
+			ExpirationTime: timestamppb.New(time.Now().Add(-time.Minute)),
+		}, "")
+		require.NoError(t, newAppLauncher(fc, rpc, &creds).Ensure(t.Context(), spec))
+		require.Equal(t, 1, rpc.configures)
+		require.Equal(t, 1, rpc.rotates)
+	})
+
+	t.Run("mismatched annotation reconfigures", func(t *testing.T) {
+		fc, rpc := setup(t, nil, "stale-hash")
+		require.NoError(t, newAppLauncher(fc, rpc, &creds).Ensure(t.Context(), spec))
+		require.Equal(t, 1, rpc.configures)
+		require.Equal(t, 1, rpc.rotates)
+	})
+}
+
+func TestIsRefreshHealthy(t *testing.T) {
+	future := timestamppb.New(time.Now().Add(time.Hour))
+	past := timestamppb.New(time.Now().Add(-time.Minute))
+	ghStrategy := pb.ProviderCredentialRefreshStrategy_PROVIDER_CREDENTIAL_REFRESH_STRATEGY_GITHUB_APP_INSTALLATION
+
+	tests := map[string]struct {
+		statuses []*pb.ProviderCredentialRefreshStatus
+		want     bool
+	}{
+		"empty":          {nil, false},
+		"healthy":        {[]*pb.ProviderCredentialRefreshStatus{{CredentialKey: "GITHUB_TOKEN", Strategy: ghStrategy, ExpirationTime: future}}, true},
+		"wrong key":      {[]*pb.ProviderCredentialRefreshStatus{{CredentialKey: "GH_TOKEN", Strategy: ghStrategy, ExpirationTime: future}}, false},
+		"wrong strategy": {[]*pb.ProviderCredentialRefreshStatus{{CredentialKey: "GITHUB_TOKEN", Strategy: pb.ProviderCredentialRefreshStrategy_PROVIDER_CREDENTIAL_REFRESH_STRATEGY_STATIC, ExpirationTime: future}}, false},
+		"nil expiry":     {[]*pb.ProviderCredentialRefreshStatus{{CredentialKey: "GITHUB_TOKEN", Strategy: ghStrategy}}, false},
+		"expired":        {[]*pb.ProviderCredentialRefreshStatus{{CredentialKey: "GITHUB_TOKEN", Strategy: ghStrategy, ExpirationTime: past}}, false},
+		"last error":     {[]*pb.ProviderCredentialRefreshStatus{{CredentialKey: "GITHUB_TOKEN", Strategy: ghStrategy, ExpirationTime: future, LastError: "boom"}}, false},
+		"failure code":   {[]*pb.ProviderCredentialRefreshStatus{{CredentialKey: "GITHUB_TOKEN", Strategy: ghStrategy, ExpirationTime: future, FailureCode: "github_auth_failed"}}, false},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tc.want, isRefreshHealthy(tc.statuses, "GITHUB_TOKEN"))
+		})
+	}
 }
