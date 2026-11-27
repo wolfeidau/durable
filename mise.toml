@@ -3,7 +3,7 @@ experimental = true
 lockfile = true
 
 [tools]
-cosign = "3.1.4"
+cosign = "3.1.5"
 gh = "2.105.0"
 go = "1.27.4"
 golangci-lint = "2.15.0"
