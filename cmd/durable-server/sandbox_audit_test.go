@@ -43,6 +43,7 @@ func TestAuditRejectsBadFlags(t *testing.T) {
 		want string
 	}{
 		{"negative since", []string{"--since=-1h"}, "--since must be positive"},
+		{"zero since", []string{"--since=0"}, "--since must be positive"},
 		{"removed daily flag", []string{"--daily"}, "unknown flag"},
 		{"removed raw flag", []string{"--raw"}, "unknown flag"},
 	}

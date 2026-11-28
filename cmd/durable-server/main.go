@@ -27,9 +27,6 @@ import (
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/config"
 	"github.com/wolfeidau/durable/internal/creds"
-	"github.com/wolfeidau/durable/internal/githost"
-	"github.com/wolfeidau/durable/internal/githost/github"
-	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/server"
 	"github.com/wolfeidau/durable/internal/tracing"
 )
@@ -111,39 +108,12 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	}
 
 	// Every config problem exits here, before the server locks the home or listens.
-	settings, err := config.Load(home)
+	settings, shown, warnings, err := c.loadConfig(home, logger)
 	if err != nil {
 		return err
 	}
-	settings.Apply(c.overrides())
-	err = settings.Validate()
-	for _, w := range settings.Warnings {
-		logger.Warn(w.Message, slog.String("field", w.Field))
-	}
-	if err != nil {
-		return err
-	}
-	var shown []server.Setting
-	for _, e := range settings.Entries() {
-		shown = append(shown, server.Setting{Field: e.Field, Value: e.Value, Source: string(e.Source)})
-	}
-	var warnings []string
-	for _, w := range settings.Warnings {
-		warnings = append(warnings, w.Message)
-	}
-	// Sessions read these files again when they start, but a mistake should show now rather than when a session opens.
-	userWarnings, err := commands.CheckUserConfig(home)
-	for _, w := range userWarnings {
-		logger.Warn(w)
-	}
-	if err != nil {
-		return err
-	}
-	warnings = append(warnings, userWarnings...)
 	gitSources := settings.GitHostSources()
 	gitAppSources := settings.GitHostAppSources()
-	environments := settings.Environments
-	gitAuthor := settings.GitIdentity()
 
 	// Only the lock holder writes and removes server.json, so a second server can't break discovery.
 	lock, err := lockHome(filepath.Join(home, ".durable"))
@@ -152,18 +122,12 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer lock.Close()
 
-	// Resolved once so a 1Password reference isn't read on every session open.
-	apiToken, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
+	apiToken, err := c.resolveProviderToken(ctx, settings)
 	if err != nil {
-		return fmt.Errorf("failed to resolve API token: %w", err)
-	}
-	if apiToken == "" && settings.APIKey != "" {
-		if apiToken, err = creds.Resolve(ctx, settings.APIKeySource()); err != nil {
-			return fmt.Errorf("failed to resolve API token: %w", err)
-		}
+		return err
 	}
 
-	if err := checkGitHosts(ctx, logger, gitSources, gitAppSources, environments, c.GitHubAPIURL); err != nil {
+	if err := checkGitHosts(ctx, logger, gitSources, gitAppSources, settings.Environments, c.GitHubAPIURL); err != nil {
 		return err
 	}
 
@@ -202,19 +166,8 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	defer os.Remove(infoPath)
 
 	// Closed after the registry, whose sessions stop their sandboxes through it.
-	var appTokenURL string
-	if c.GitHubAPIURL != "" {
-		appTokenURL = strings.TrimRight(c.GitHubAPIURL, "/") + "/app/installations/{installation_id}/access_tokens"
-	}
-	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources), apps: gitAppFuncs(gitAppSources), appTokenURL: appTokenURL}
+	backend, sandboxCfg := newSandboxWiring(settings, gitSources, gitAppSources, c.GitHubAPIURL)
 	defer backend.Close()
-	sandboxCfg := &commands.SandboxConfig{Backend: sandbox.Shared(backend), Environments: environments, GitAuthor: gitAuthor}
-	if len(environments) > 0 {
-		sandboxCfg.GitHosts = map[string]githost.Host{github.Kind: github.New(c.GitHubAPIURL)}
-		_, hasToken := gitSources[github.Kind]
-		sandboxCfg.GitTokens = map[string]bool{github.Kind: hasToken}
-		sandboxCfg.GitApps = gitAppAccessFuncs(gitAppSources, c.GitHubAPIURL)
-	}
 	// Runs outlive requests, so the registry's context is cancelled only after the server has drained.
 	registry := server.NewRegistry(context.WithoutCancel(ctx), server.RegistryConfig{
 		Home:        home,
@@ -263,42 +216,56 @@ func (c *serveCmd) Run(ctx context.Context, logger *slog.Logger) error {
 	return shutdownServe(ctx, srv, cancelBase, registry)
 }
 
+func (c *serveCmd) loadConfig(home string, logger *slog.Logger) (*config.Settings, []server.Setting, []string, error) {
+	settings, err := config.Load(home)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	settings.Apply(c.overrides())
+	err = settings.Validate()
+	warnings := make([]string, 0, len(settings.Warnings))
+	for _, w := range settings.Warnings {
+		logger.Warn(w.Message, slog.String("field", w.Field))
+		warnings = append(warnings, w.Message)
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	entries := settings.Entries()
+	shown := make([]server.Setting, len(entries))
+	for i, e := range entries {
+		shown[i] = server.Setting{Field: e.Field, Value: e.Value, Source: string(e.Source)}
+	}
+	// Sessions read these files again when they start, but a mistake should show now rather than when a session opens.
+	userWarnings, err := commands.CheckUserConfig(home)
+	for _, w := range userWarnings {
+		logger.Warn(w)
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return settings, shown, append(warnings, userWarnings...), nil
+}
+
+// resolveProviderToken resolves the key once so a 1Password reference isn't read on every session open.
+func (c *serveCmd) resolveProviderToken(ctx context.Context, settings *config.Settings) (string, error) {
+	apiToken, err := creds.ResolveAPIToken(ctx, c.APIToken, c.APITokenFrom1Password)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve API token: %w", err)
+	}
+	if apiToken == "" && settings.APIKey != "" {
+		if apiToken, err = creds.Resolve(ctx, settings.APIKeySource()); err != nil {
+			return "", fmt.Errorf("failed to resolve API token: %w", err)
+		}
+	}
+	return apiToken, nil
+}
+
 // startTracing resolves the header secrets and starts the exporter; the returned stop flushes it.
 func startTracing(ctx context.Context, logger *slog.Logger, cfg config.OTelSettings) (trace.TracerProvider, func(), error) {
-	headers := make(map[string]string, len(cfg.Headers))
-	for name, src := range cfg.Headers {
-		v, err := creds.Resolve(ctx, src)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to resolve otel.headers.%s: %w", name, err)
-		}
-		headers[name] = v
-	}
-	if cfg.HeadersFrom != nil {
-		raw, err := creds.Resolve(ctx, *cfg.HeadersFrom)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
-		}
-		fromRef, err := tracing.ParseHeaders(raw)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
-		}
-		for have := range headers {
-			for name := range fromRef {
-				if strings.EqualFold(have, name) {
-					return nil, nil, fmt.Errorf("otel.headers.%s is also set by otel.headers_from", have)
-				}
-			}
-		}
-		maps.Copy(headers, fromRef)
-	}
-	// Values are secrets, so an error never prints them.
-	for _, name := range slices.Sorted(maps.Keys(headers)) {
-		if !httpguts.ValidHeaderFieldName(name) {
-			return nil, nil, fmt.Errorf("otel header %q has an invalid name", name)
-		}
-		if !httpguts.ValidHeaderFieldValue(headers[name]) {
-			return nil, nil, fmt.Errorf("otel header %q has an invalid value", name)
-		}
+	headers, err := resolveOTelHeaders(ctx, cfg)
+	if err != nil {
+		return nil, nil, err
 	}
 	tp, shutdown, err := tracing.Setup(ctx, tracing.Config{
 		Endpoint:       cfg.Endpoint,
@@ -317,6 +284,45 @@ func startTracing(ctx context.Context, logger *slog.Logger, cfg config.OTelSetti
 			logger.Warn("failed to flush traces", slog.Any("error", err))
 		}
 	}, nil
+}
+
+func resolveOTelHeaders(ctx context.Context, cfg config.OTelSettings) (map[string]string, error) {
+	headers := make(map[string]string, len(cfg.Headers))
+	byLower := make(map[string]string, len(cfg.Headers))
+	for name, src := range cfg.Headers {
+		v, err := creds.Resolve(ctx, src)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve otel.headers.%s: %w", name, err)
+		}
+		headers[name] = v
+		byLower[strings.ToLower(name)] = name
+	}
+	if cfg.HeadersFrom != nil {
+		raw, err := creds.Resolve(ctx, *cfg.HeadersFrom)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
+		}
+		fromRef, err := tracing.ParseHeaders(raw)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read otel.headers_from: %w", err)
+		}
+		for name := range fromRef {
+			if have, ok := byLower[strings.ToLower(name)]; ok {
+				return nil, fmt.Errorf("otel.headers.%s is also set by otel.headers_from", have)
+			}
+		}
+		maps.Copy(headers, fromRef)
+	}
+	// Values are secrets, so an error never prints them.
+	for _, name := range slices.Sorted(maps.Keys(headers)) {
+		if !httpguts.ValidHeaderFieldName(name) {
+			return nil, fmt.Errorf("otel header %q has an invalid name", name)
+		}
+		if !httpguts.ValidHeaderFieldValue(headers[name]) {
+			return nil, fmt.Errorf("otel header %q has an invalid value", name)
+		}
+	}
+	return headers, nil
 }
 
 func buildVersion() string {

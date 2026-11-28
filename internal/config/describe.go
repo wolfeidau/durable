@@ -39,16 +39,25 @@ func (s *Settings) Entries() []Entry {
 	line := func(field, value string) {
 		out = append(out, Entry{Field: field, Value: value, Source: s.Sources[field]})
 	}
-	orDefault := func(v, def string) string {
-		if v == "" {
-			return def
-		}
-		return v
-	}
 	line("listen.addr", s.Addr)
 	line("listen.idle_timeout", s.IdleTimeout.String())
 	line("listen.open_timeout", s.OpenTimeout.String())
 	line("listen.heartbeat", s.Heartbeat.String())
+	s.appendProviderEntries(line)
+	s.appendGitEntries(line)
+	s.appendOTelEntries(line)
+	s.appendEnvEntries(line)
+	return out
+}
+
+func orDefault(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}
+
+func (s *Settings) appendProviderEntries(line func(field, value string)) {
 	line("provider.name", orDefault(s.Provider, "anthropic"))
 	line("provider.protocol", orDefault(s.Protocol, "provider default"))
 	line("provider.model", orDefault(s.Model, "built-in default"))
@@ -63,6 +72,9 @@ func (s *Settings) Entries() []Entry {
 	default:
 		line("provider.api_key", "provider default credentials")
 	}
+}
+
+func (s *Settings) appendGitEntries(line func(field, value string)) {
 	line("git.author", s.GitAuthor)
 	for _, kind := range slices.Sorted(maps.Keys(s.GitHosts)) {
 		line("git.hosts."+kind+".token", describeRef(s.GitHosts[kind]))
@@ -77,20 +89,26 @@ func (s *Settings) Entries() []Entry {
 		}
 		line("git.hosts."+kind+".app.private_key", describeRef(app.PrivateKey))
 	}
+}
+
+func (s *Settings) appendOTelEntries(line func(field, value string)) {
 	if s.OTelEndpoint == "" {
 		line("otel.endpoint", "off")
-	} else {
-		o := s.OTel()
-		line("otel.endpoint", o.Endpoint)
-		line("otel.protocol", o.Protocol)
-		line("otel.capture_content", fmt.Sprint(o.CaptureContent))
-		for _, name := range slices.Sorted(maps.Keys(s.OTelHeaders)) {
-			line("otel.headers."+name, describeRef(s.OTelHeaders[name]))
-		}
-		if s.OTelHeadersFrom != "" {
-			line("otel.headers_from", describeRef(s.OTelHeadersFrom))
-		}
+		return
 	}
+	o := s.OTel()
+	line("otel.endpoint", o.Endpoint)
+	line("otel.protocol", o.Protocol)
+	line("otel.capture_content", fmt.Sprint(o.CaptureContent))
+	for _, name := range slices.Sorted(maps.Keys(s.OTelHeaders)) {
+		line("otel.headers."+name, describeRef(s.OTelHeaders[name]))
+	}
+	if s.OTelHeadersFrom != "" {
+		line("otel.headers_from", describeRef(s.OTelHeadersFrom))
+	}
+}
+
+func (s *Settings) appendEnvEntries(line func(field, value string)) {
 	for _, name := range slices.Sorted(maps.Keys(s.Environments)) {
 		e := s.Environments[name]
 		value := "image=" + e.Image
@@ -102,7 +120,6 @@ func (s *Settings) Entries() []Entry {
 		}
 		line("environments."+name, value)
 	}
-	return out
 }
 
 // Describe writes each effective setting with its source.

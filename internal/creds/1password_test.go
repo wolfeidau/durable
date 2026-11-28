@@ -124,6 +124,33 @@ func TestResolveSources(t *testing.T) {
 		require.ErrorContains(t, err, "--tok")
 		require.NotContains(t, err.Error(), "ghp_pasted")
 	})
+	t.Run("malformed env reference is rejected", func(t *testing.T) {
+		for _, tc := range []struct{ bad, secret string }{
+			{"env:", ""},
+			{"env:1BAD", "1BAD"},
+			{"env:FOO=BAR", "FOO=BAR"},
+			{"env:FOO BAR", "FOO BAR"},
+		} {
+			_, err := Resolve(ctx, src(tc.bad))
+			require.ErrorContains(t, err, "env:NAME", tc.bad)
+			if tc.secret != "" {
+				require.NotContains(t, err.Error(), tc.secret)
+			}
+		}
+	})
+}
+
+func TestIsRefAndIsTokenRef(t *testing.T) {
+	for _, s := range []string{ref, "env:MY_VAR", "file:/etc/secret", "file:~/secret"} {
+		require.True(t, IsRef(s), s)
+		require.True(t, IsTokenRef(s), s)
+	}
+	require.False(t, IsRef("gh"))
+	require.True(t, IsTokenRef("gh"))
+	for _, s := range []string{"", "sk-secret", "env:", "env:1BAD", "file:", "file:rel"} {
+		require.False(t, IsRef(s), s)
+		require.False(t, IsTokenRef(s), s)
+	}
 }
 
 func TestResolveRejectsEmptySecret(t *testing.T) {

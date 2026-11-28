@@ -117,6 +117,19 @@ var githubAPIMutations = []string{
 	"createIssue", "updateIssue", "addLabelsToLabelable", "removeLabelsFromLabelable",
 }
 
+var githubRepoWriteRules = []sandbox.HTTPRule{
+	{Method: "POST", Path: "/pulls"},
+	{Method: "PATCH", Path: "/pulls/*"},
+	{Method: "POST", Path: "/pulls/*/comments"},
+	{Method: "POST", Path: "/issues"},
+	{Method: "PATCH", Path: "/issues/*"},
+	{Method: "POST", Path: "/issues/*/comments"},
+	{Method: "POST", Path: "/issues/*/labels"},
+	{Method: "DELETE", Path: "/issues/*/labels"},
+	{Method: "POST", Path: "/issues/*/labels/*"},
+	{Method: "DELETE", Path: "/issues/*/labels/*"},
+}
+
 // githubAPIGrant lets gh work on the session's GitHub repos without merging. It needs the credentialed access, because
 // the token or app installation token is what gh authenticates with.
 func githubAPIGrant(access []sandbox.GitAccess) (sandbox.Grant, bool) {
@@ -138,18 +151,9 @@ func githubAPIGrant(access []sandbox.GitAccess) (sandbox.Grant, bool) {
 		for _, m := range []string{"GET", "HEAD"} {
 			rules = append(rules, sandbox.HTTPRule{Method: m, Path: base}, sandbox.HTTPRule{Method: m, Path: base + "/**"})
 		}
-		rules = append(rules,
-			sandbox.HTTPRule{Method: "POST", Path: base + "/pulls"},
-			sandbox.HTTPRule{Method: "PATCH", Path: base + "/pulls/*"},
-			sandbox.HTTPRule{Method: "POST", Path: base + "/pulls/*/comments"},
-			sandbox.HTTPRule{Method: "POST", Path: base + "/issues"},
-			sandbox.HTTPRule{Method: "PATCH", Path: base + "/issues/*"},
-			sandbox.HTTPRule{Method: "POST", Path: base + "/issues/*/comments"},
-			sandbox.HTTPRule{Method: "POST", Path: base + "/issues/*/labels"},
-			sandbox.HTTPRule{Method: "DELETE", Path: base + "/issues/*/labels"},
-			sandbox.HTTPRule{Method: "POST", Path: base + "/issues/*/labels/*"},
-			sandbox.HTTPRule{Method: "DELETE", Path: base + "/issues/*/labels/*"},
-		)
+		for _, r := range githubRepoWriteRules {
+			rules = append(rules, sandbox.HTTPRule{Method: r.Method, Path: base + r.Path})
+		}
 	}
 	if len(rules) == baseRules {
 		return sandbox.Grant{}, false
@@ -226,24 +230,31 @@ func LoadEnvironments(path string) (map[string]Environment, error) {
 	}
 	out := make(map[string]Environment, len(raw))
 	for name, e := range raw {
-		if !environmentNameRE.MatchString(name) {
-			return nil, fmt.Errorf("environment %q: name must be letters, digits, '.', '_' or '-'", name)
-		}
-		if strings.TrimSpace(e.Image) == "" {
-			return nil, fmt.Errorf("environment %q: image is required", name)
-		}
-		for _, g := range e.Grants {
-			if _, ok := grantCatalog[g]; !ok {
-				return nil, fmt.Errorf("environment %q: unknown grant %q (known: %s)", name, g, strings.Join(GrantNames(), ", "))
-			}
-		}
-		if e.Approvals != "" && e.Approvals != ApprovalsAsk && e.Approvals != ApprovalsAuto {
-			return nil, fmt.Errorf("environment %q: approvals must be %q or %q", name, ApprovalsAsk, ApprovalsAuto)
+		if err := validateEnvironment(name, e); err != nil {
+			return nil, err
 		}
 		e.Name = name
 		out[name] = e
 	}
 	return out, nil
+}
+
+func validateEnvironment(name string, e Environment) error {
+	if !environmentNameRE.MatchString(name) {
+		return fmt.Errorf("environment %q: name must be letters, digits, '.', '_' or '-'", name)
+	}
+	if strings.TrimSpace(e.Image) == "" {
+		return fmt.Errorf("environment %q: image is required", name)
+	}
+	for _, g := range e.Grants {
+		if _, ok := grantCatalog[g]; !ok {
+			return fmt.Errorf("environment %q: unknown grant %q (known: %s)", name, g, strings.Join(GrantNames(), ", "))
+		}
+	}
+	if e.Approvals != "" && e.Approvals != ApprovalsAsk && e.Approvals != ApprovalsAuto {
+		return fmt.Errorf("environment %q: approvals must be %q or %q", name, ApprovalsAsk, ApprovalsAuto)
+	}
+	return nil
 }
 
 // ErrEnvironment is returned for an environment name that can't be resolved.
@@ -282,6 +293,7 @@ func BuildGrants(names []string, access []sandbox.GitAccess) []sandbox.Grant {
 	for _, n := range names {
 		spec, ok := grantCatalog[n]
 		if !ok {
+			// LoadEnvironments and config.Validate reject unknown grant names upfront.
 			continue
 		}
 		if spec.build == nil {

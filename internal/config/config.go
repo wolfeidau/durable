@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -40,17 +39,7 @@ const (
 // GitHostKinds lists the supported git hosts.
 var GitHostKinds = []string{github.Kind}
 
-// Secret reference patterns: a pasted value matches none of them.
-const (
-	secretRefPattern = `^(` + creds.OpRefPattern + `|gh|env:[A-Za-z_][A-Za-z0-9_]*|` + creds.FileRefPattern + `)$`
-	apiKeyRefPattern = `^(` + creds.OpRefPattern + `|env:[A-Za-z_][A-Za-z0-9_]*|` + creds.FileRefPattern + `)$`
-	durationPattern  = `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`
-)
-
-var (
-	secretRefRE = regexp.MustCompile(secretRefPattern)
-	apiKeyRefRE = regexp.MustCompile(apiKeyRefPattern)
-)
+const durationPattern = `^([0-9]+(\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$`
 
 // OTel protocols; the first is the default.
 const (
@@ -284,13 +273,26 @@ func (s *Settings) fromFile(c Config) error {
 		{"provider.effort", c.Provider.Effort, &s.Effort},
 		{"provider.api_key", c.Provider.APIKey, &s.APIKey},
 		{"git.author", c.Git.Author, &s.GitAuthor},
+		{"otel.endpoint", c.OTel.Endpoint, &s.OTelEndpoint},
+		{"otel.protocol", c.OTel.Protocol, &s.OTelProtocol},
+		{"otel.headers_from", c.OTel.HeadersFrom, &s.OTelHeadersFrom},
 	} {
 		if v.in != "" {
 			*v.to = v.in
 			s.Sources[v.field] = s.file
 		}
 	}
-	for kind, h := range c.Git.Hosts {
+	s.fromFileGitHosts(c.Git.Hosts)
+	s.fromFileOTel(c.OTel)
+	for name, e := range c.Environments {
+		s.Environments[name] = commands.Environment{Name: name, Image: e.Image, Grants: e.Grants, Approvals: e.Approvals}
+		s.Sources["environments."+name] = s.file
+	}
+	return nil
+}
+
+func (s *Settings) fromFileGitHosts(hosts map[string]GitHost) {
+	for kind, h := range hosts {
 		if h.App != nil {
 			s.GitHostApps[kind] = *h.App
 			s.Sources["git.hosts."+kind+".app.client_id"] = s.file
@@ -305,31 +307,17 @@ func (s *Settings) fromFile(c Config) error {
 		s.GitHosts[kind] = h.Token
 		s.Sources["git.hosts."+kind+".token"] = s.file
 	}
-	if c.OTel.Endpoint != "" {
-		s.OTelEndpoint = c.OTel.Endpoint
-		s.Sources["otel.endpoint"] = s.file
-	}
-	if c.OTel.Protocol != "" {
-		s.OTelProtocol = c.OTel.Protocol
-		s.Sources["otel.protocol"] = s.file
-	}
-	if c.OTel.CaptureContent {
+}
+
+func (s *Settings) fromFileOTel(o OTel) {
+	if o.CaptureContent {
 		s.OTelCaptureContent = true
 		s.Sources["otel.capture_content"] = s.file
 	}
-	for name, ref := range c.OTel.Headers {
+	for name, ref := range o.Headers {
 		s.OTelHeaders[name] = ref
 		s.Sources["otel.headers."+name] = s.file
 	}
-	if c.OTel.HeadersFrom != "" {
-		s.OTelHeadersFrom = c.OTel.HeadersFrom
-		s.Sources["otel.headers_from"] = s.file
-	}
-	for name, e := range c.Environments {
-		s.Environments[name] = commands.Environment{Name: name, Image: e.Image, Grants: e.Grants, Approvals: e.Approvals}
-		s.Sources["environments."+name] = s.file
-	}
-	return nil
 }
 
 func (s *Settings) loadLegacy(path string) error {
@@ -478,8 +466,8 @@ func (s *Settings) applyGitHostFlags(flags []string) {
 		case seen[kind]:
 			s.errs = append(s.errs, fmt.Errorf("--git-host-token given more than once for %s", kind))
 			continue
-		case !secretRefRE.MatchString(value):
-			s.errs = append(s.errs, fmt.Errorf("--git-host-token %s must be an op:// secret reference, gh, env:NAME or file:PATH", kind))
+		case !creds.IsTokenRef(value):
+			s.errs = append(s.errs, fmt.Errorf("--git-host-token %s must be %s", kind, creds.TokenRefHint))
 			continue
 		}
 		seen[kind] = true

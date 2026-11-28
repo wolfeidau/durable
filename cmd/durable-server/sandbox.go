@@ -7,14 +7,40 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/wolfeidau/durable/internal/audit"
+	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/config"
+	"github.com/wolfeidau/durable/internal/creds"
+	"github.com/wolfeidau/durable/internal/githost"
+	"github.com/wolfeidau/durable/internal/githost/github"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/sandbox/openshell"
 	"github.com/wolfeidau/durable/internal/server"
 )
+
+func newSandboxWiring(settings *config.Settings, gitSources map[string]creds.Source, gitAppSources map[string]config.GitHostAppSource, githubAPIURL string) (*lazyBackend, *commands.SandboxConfig) {
+	var appTokenURL string
+	if githubAPIURL != "" {
+		appTokenURL = strings.TrimRight(githubAPIURL, "/") + "/app/installations/{installation_id}/access_tokens"
+	}
+	backend := &lazyBackend{tokens: gitTokenFuncs(gitSources), apps: gitAppFuncs(gitAppSources), appTokenURL: appTokenURL}
+	sandboxCfg := &commands.SandboxConfig{
+		Backend:      sandbox.Shared(backend),
+		Environments: settings.Environments,
+		GitAuthor:    settings.GitIdentity(),
+	}
+	if len(settings.Environments) > 0 {
+		sandboxCfg.GitHosts = map[string]githost.Host{github.Kind: github.New(githubAPIURL)}
+		_, hasToken := gitSources[github.Kind]
+		sandboxCfg.GitTokens = map[string]bool{github.Kind: hasToken}
+		sandboxCfg.GitApps = gitAppAccessFuncs(gitAppSources, githubAPIURL)
+	}
+	return backend, sandboxCfg
+}
 
 const sandboxDeleteTimeout = 2 * time.Minute
 
@@ -161,14 +187,12 @@ func (c *sandboxDeleteCmd) Run(ctx context.Context) error {
 
 type sandboxAuditCmd struct {
 	Session string        `arg:"" help:"Session id, as shown in the session directory name."`
-	Since   time.Duration `help:"How far back to read the network decisions (default 24h)."`
+	Since   time.Duration `default:"24h" help:"How far back to read the network decisions."`
 	Denied  bool          `help:"List only denied requests."`
 }
 
-const defaultAuditSince = 24 * time.Hour
-
 func (c *sandboxAuditCmd) validate() error {
-	if c.Since < 0 {
+	if c.Since <= 0 {
 		return errors.New("--since must be positive")
 	}
 	return nil
@@ -194,11 +218,7 @@ func (c *sandboxAuditCmd) Run(ctx context.Context) error {
 	if !ok {
 		return fmt.Errorf("session %s has no sandbox", c.Session)
 	}
-	since := c.Since
-	if since == 0 {
-		since = defaultAuditSince
-	}
-	start := time.Now().Add(-since)
+	start := time.Now().Add(-c.Since)
 	gw := &lazyBackend{}
 	defer gw.Close()
 	res, err := audit.Read(ctx, audit.Query{Gateway: gw.Decisions, Sandbox: pin.Name, Since: start})

@@ -23,6 +23,7 @@ import (
 	"github.com/wolfeidau/durable/internal/catalog"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/githost"
+	"github.com/wolfeidau/durable/internal/pin"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/internal/userfile"
 	"github.com/wolfeidau/durable/mcp"
@@ -158,23 +159,7 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if out == nil {
 		out = io.Discard
 	}
-	path, err := cfg.sessionPath()
-	if err != nil {
-		return nil, err
-	}
-	dir := filepath.Dir(path)
-	_, statErr := os.Stat(path)
-	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
-		return nil, fmt.Errorf("failed to check session database: %w", statErr)
-	}
-	existed := statErr == nil
-	if cfg.ExistingOnly && !existed {
-		return nil, ErrNoSession
-	}
-	if err := createSessionDir(dir, cfg.sessionMeta()); err != nil {
-		return nil, err
-	}
-	useSandbox, err := cfg.checkSandboxed(dir, existed)
+	path, dir, existed, useSandbox, err := cfg.prepareSessionDir()
 	if err != nil {
 		return nil, err
 	}
@@ -204,6 +189,19 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	if err != nil {
 		return nil, err
 	}
+	var (
+		pool      *mcp.Pool
+		committed bool
+	)
+	defer func() {
+		if committed {
+			return
+		}
+		if pool != nil {
+			_ = pool.Close()
+		}
+		releaseSandbox(!existed)
+	}()
 	// A repo session's project files are in its clone, so they are read through the worker.
 	var workspace skills.FilesFunc
 	if cfg.Workspace == WorkspaceRepo && client != nil {
@@ -213,7 +211,6 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		return discoverInstructions(ctx, cfg.CWD, home, workspace)
 	})
 	if err != nil {
-		releaseSandbox(!existed)
 		return nil, err
 	}
 
@@ -222,18 +219,14 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 		// The servers run beside the worker, so nothing starts on the host.
 		poolOpts.Dial = sandboxDial(client, dir)
 	}
-	pool := mcp.NewPool(servers, poolOpts)
+	pool = mcp.NewPool(servers, poolOpts)
 	mcpPinned, err := pinMCPTools(ctx, dir, existed, pool.Discover)
 	if err != nil {
-		_ = pool.Close()
-		releaseSandbox(!existed)
 		return nil, err
 	}
 	toolset = append(toolset, pool.Tools(mcpPinned.Tools)...)
 	skillsPinned, err := pinSkills(dir, existed, cfg.NoContext, discoverSkillsFunc(ctx, cfg.CWD, home, workspace, client))
 	if err != nil {
-		_ = pool.Close()
-		releaseSandbox(!existed)
 		return nil, err
 	}
 	// Added before the display wrapper and the gate so the read-only tool runs without prompting.
@@ -268,11 +261,10 @@ func Assemble(ctx context.Context, cfg AssembleConfig) (*Assembled, error) {
 	opts.Observer = chainObservers(opts.Observer, cfg.Observer)
 	autoApprove, err := cfg.autoApproves(dir, useSandbox)
 	if err != nil {
-		_ = pool.Close()
-		releaseSandbox(!existed)
 		return nil, err
 	}
 	cfg.applyGate(&opts, toolset, hookCfg, dir, cfg.Yes || autoApprove)
+	committed = true
 
 	return &Assembled{
 		Path:    path,
@@ -343,7 +335,7 @@ func (c AssembleConfig) autoApproves(dir string, useSandbox bool) (bool, error) 
 		return false, nil
 	}
 	// session.json exists before the database does, and createSessionDir has already written it.
-	meta, _, err := readJSONPin[SessionMeta](filepath.Join(dir, sessionMetaFile), "session metadata")
+	meta, _, err := pin.ReadJSON[SessionMeta](filepath.Join(dir, sessionMetaFile), "session metadata")
 	if err != nil {
 		return false, err
 	}
@@ -362,6 +354,30 @@ func (c AssembleConfig) sessionMeta() SessionMeta {
 		meta.Repo, meta.Branch = c.Repo.String(), c.Branch
 	}
 	return meta
+}
+
+func (c AssembleConfig) prepareSessionDir() (path, dir string, existed, useSandbox bool, err error) {
+	path, err = c.sessionPath()
+	if err != nil {
+		return "", "", false, false, err
+	}
+	dir = filepath.Dir(path)
+	_, statErr := os.Stat(path)
+	if statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+		return "", "", false, false, fmt.Errorf("failed to check session database: %w", statErr)
+	}
+	existed = statErr == nil
+	if c.ExistingOnly && !existed {
+		return "", "", false, false, ErrNoSession
+	}
+	if err := createSessionDir(dir, c.sessionMeta()); err != nil {
+		return "", "", false, false, err
+	}
+	useSandbox, err = c.checkSandboxed(dir, existed)
+	if err != nil {
+		return "", "", false, false, err
+	}
+	return path, dir, existed, useSandbox, nil
 }
 
 func (c AssembleConfig) sessionPath() (string, error) {
@@ -415,49 +431,51 @@ func (c AssembleConfig) openTools(ctx context.Context, dir string, useSandbox, f
 		return toolset, nil, func(bool) {}, nil
 	}
 	// Pinned before the sandbox is created, so a failed create leaves its token on disk for the retry.
-	pin, ok, err := sandbox.ReadPin(dir)
+	sp, err := c.ensureSandboxPin(ctx, dir, servers)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if !ok {
-		env, err := ResolveEnvironment(c.Sandbox.Environments, c.Environment)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		var access []sandbox.GitAccess
-		if c.Workspace == WorkspaceRepo {
-			a, err := c.repoAccess(ctx, env.Grants)
-			if err != nil {
-				return nil, nil, nil, err
-			}
-			access = []sandbox.GitAccess{a}
-		}
-		// The access and grants are fixed here, so a reopen keeps them even if the tokens or the environments file changed.
-		if pin, err = sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, BuildGrants(env.Grants, access), c.Sandbox.GitAuthor.Config()); err != nil {
-			return nil, nil, nil, err
-		}
-	}
-	toolset, client, release, err := sandbox.Open(ctx, c.Sandbox.Backend, pin, fresh)
+	toolset, client, release, err := sandbox.Open(ctx, c.Sandbox.Backend, sp, fresh)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to open sandbox: %w", err)
 	}
 	releaseSandbox := func(discard bool) {
 		if err := release(discard); err != nil && c.Logger != nil {
-			c.Logger.ErrorContext(ctx, "failed to release sandbox", slog.String("sandbox", pin.Name), slog.Any("error", err))
+			c.Logger.ErrorContext(ctx, "failed to release sandbox", slog.String("sandbox", sp.Name), slog.Any("error", err))
 		}
 	}
 	if c.Workspace == WorkspaceRepo {
-		if len(pin.Git) == 0 {
+		if len(sp.Git) == 0 {
 			releaseSandbox(fresh)
 			return nil, nil, nil, errors.New("repo session pin has no repository")
 		}
 		// A new sandbox is discarded so the retry clones afresh; the pin stays.
-		if err := ensureClone(ctx, client, pin.Git[0].CloneURL, c.Branch); err != nil {
+		if err := ensureClone(ctx, client, sp.Git[0].CloneURL, c.Branch); err != nil {
 			releaseSandbox(fresh)
 			return nil, nil, nil, err
 		}
 	}
 	return toolset, client, releaseSandbox, nil
+}
+
+func (c AssembleConfig) ensureSandboxPin(ctx context.Context, dir string, servers map[string]mcp.Server) (sandbox.Pin, error) {
+	if sp, ok, err := sandbox.ReadPin(dir); ok || err != nil {
+		return sp, err
+	}
+	env, err := ResolveEnvironment(c.Sandbox.Environments, c.Environment)
+	if err != nil {
+		return sandbox.Pin{}, err
+	}
+	var access []sandbox.GitAccess
+	if c.Workspace == WorkspaceRepo {
+		a, err := c.repoAccess(ctx, env.Grants)
+		if err != nil {
+			return sandbox.Pin{}, err
+		}
+		access = []sandbox.GitAccess{a}
+	}
+	// The access and grants are fixed here, so a reopen keeps them even if the tokens or the environments file changed.
+	return sandbox.WritePinGit(dir, env.Image, mcpEgress(servers), access, BuildGrants(env.Grants, access), c.Sandbox.GitAuthor.Config())
 }
 
 func chainObservers(first, second func(durable.Event)) func(durable.Event) {

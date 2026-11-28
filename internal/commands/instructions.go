@@ -3,7 +3,6 @@ package commands
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/wolfeidau/durable/internal/pin"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/skills"
 )
@@ -241,8 +241,8 @@ func openInRoot(root, rel string, flags int) (*os.File, error) {
 
 // pinInstructions pins the text on first start; existed (session.sqlite predates this run) pins an older session empty.
 func pinInstructions(dir string, existed, noContext bool, discover func() (instructions, error)) (instructions, error) {
-	pin := filepath.Join(dir, pinFile)
-	switch b, err := os.ReadFile(pin); { //nolint:gosec // pin is a fixed name inside the session directory
+	path := filepath.Join(dir, pinFile)
+	switch b, err := os.ReadFile(path); { //nolint:gosec // path is a fixed name inside the session directory
 	case err == nil:
 		return instructions{Text: string(b), Pinned: true}, nil
 	case !errors.Is(err, fs.ErrNotExist):
@@ -257,13 +257,13 @@ func pinInstructions(dir string, existed, noContext bool, discover func() (instr
 		}
 	}
 
-	won, err := writePin(dir, pin, []byte(res.Text))
+	won, err := pin.WriteOnce(path, []byte(res.Text))
 	if err != nil {
 		return instructions{}, err
 	}
 	if !won {
 		// Another process pinned first; its text wins so both agree.
-		b, err := os.ReadFile(pin) //nolint:gosec // pin is a fixed name inside the session directory
+		b, err := os.ReadFile(path) //nolint:gosec // path is a fixed name inside the session directory
 		if err != nil {
 			return instructions{}, fmt.Errorf("failed to read pinned instructions: %w", err)
 		}
@@ -271,85 +271,4 @@ func pinInstructions(dir string, existed, noContext bool, discover func() (instr
 	}
 	res.Pinned = existed
 	return res, nil
-}
-
-// writePin durably creates pin with content unless it already exists, in which case won is false.
-func writePin(dir, pin string, content []byte) (won bool, err error) {
-	tmp, err := os.CreateTemp(dir, "pin-*.tmp")
-	if err != nil {
-		return false, fmt.Errorf("failed to create pin file: %w", err)
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return false, fmt.Errorf("failed to set pin file mode: %w", err)
-	}
-	if _, err := tmp.Write(content); err != nil {
-		_ = tmp.Close()
-		return false, fmt.Errorf("failed to write pin file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return false, fmt.Errorf("failed to sync pin file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return false, fmt.Errorf("failed to close pin file: %w", err)
-	}
-	if err := os.Link(tmp.Name(), pin); err != nil {
-		if errors.Is(err, fs.ErrExist) {
-			return false, nil
-		}
-		return false, fmt.Errorf("failed to pin %s: %w", filepath.Base(pin), err)
-	}
-	return true, nil
-}
-
-// pinJSON pins a value as JSON on first start; existed pins empty for a session that predates the pin.
-// pinned reports that the value is not from this run's discovery: an earlier pin, a lost race, or an older session.
-func pinJSON[T any](dir, name, what string, existed bool, empty T, discover func() (T, error)) (v T, pinned bool, err error) {
-	pin := filepath.Join(dir, name)
-	if v, ok, err := readJSONPin[T](pin, what); ok || err != nil {
-		return v, ok, err
-	}
-
-	v = empty
-	if !existed {
-		if v, err = discover(); err != nil {
-			return empty, false, err
-		}
-	}
-	data, err := json.Marshal(v)
-	if err != nil {
-		return empty, false, fmt.Errorf("failed to encode %s: %w", what, err)
-	}
-	won, err := writePin(dir, pin, data)
-	if err != nil {
-		return empty, false, err
-	}
-	if !won {
-		// Another process pinned first; its value wins so both agree.
-		v, ok, err := readJSONPin[T](pin, what)
-		if err != nil {
-			return empty, false, err
-		}
-		if !ok {
-			return empty, false, fmt.Errorf("pinned %s disappeared", what)
-		}
-		return v, true, nil
-	}
-	return v, existed, nil
-}
-
-func readJSONPin[T any](pin, what string) (v T, ok bool, err error) {
-	b, err := os.ReadFile(pin) //nolint:gosec // pin is a fixed name inside the session directory
-	if errors.Is(err, fs.ErrNotExist) {
-		return v, false, nil
-	}
-	if err != nil {
-		return v, false, fmt.Errorf("failed to read pinned %s: %w", what, err)
-	}
-	if err := json.Unmarshal(b, &v); err != nil {
-		return v, false, fmt.Errorf("failed to parse pinned %s %s: %w", what, pin, err)
-	}
-	return v, true, nil
 }

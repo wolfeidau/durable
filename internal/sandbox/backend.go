@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/wolfeidau/durable"
+	"github.com/wolfeidau/durable/internal/pin"
 )
 
 const (
@@ -209,7 +210,7 @@ func WritePinGit(dir, image string, egress []Endpoint, repos []GitAccess, grants
 	if err != nil {
 		return Pin{}, fmt.Errorf("failed to encode sandbox pin: %w", err)
 	}
-	if err := writeOnce(dir, filepath.Join(dir, PinFile), data); err != nil {
+	if _, err := pin.WriteOnce(filepath.Join(dir, PinFile), data); err != nil {
 		return Pin{}, err
 	}
 	p, ok, err := ReadPin(dir)
@@ -228,35 +229,6 @@ func randHex(n int) (string, error) {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}
 	return hex.EncodeToString(b), nil
-}
-
-// writeOnce durably creates path with content unless it exists. It copies the helper in internal/commands, which
-// imports this package.
-func writeOnce(dir, path string, content []byte) error {
-	tmp, err := os.CreateTemp(dir, "pin-*.tmp")
-	if err != nil {
-		return fmt.Errorf("failed to create pin file: %w", err)
-	}
-	defer os.Remove(tmp.Name())
-	if err := tmp.Chmod(0o600); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("failed to set pin file mode: %w", err)
-	}
-	if _, err := tmp.Write(content); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("failed to write pin file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return fmt.Errorf("failed to sync pin file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("failed to close pin file: %w", err)
-	}
-	if err := os.Link(tmp.Name(), path); err != nil && !errors.Is(err, fs.ErrExist) {
-		return fmt.Errorf("failed to pin %s: %w", filepath.Base(path), err)
-	}
-	return nil
 }
 
 // Open readies the pinned sandbox and returns tools that run in it, and the client for its worker. The tools equal the server's catalog in names,

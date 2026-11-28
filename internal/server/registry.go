@@ -250,23 +250,14 @@ func (r *Registry) Create(ctx context.Context, spec createSpec) (meta commands.S
 // acquire opens the session with spec only if no caller has it open yet.
 func (r *Registry) acquire(ctx context.Context, id, dir string, spec *createSpec) (*Session, func(), error) {
 	for {
-		r.mu.Lock()
-		if r.closed {
-			r.mu.Unlock()
-			return nil, nil, errRegistryClosed
+		e, leader, err := r.joinOrCreate(id)
+		if err != nil {
+			return nil, nil, err
 		}
-		e, ok := r.entries[id]
-		if !ok {
-			e = &entry{ready: make(chan struct{})}
-			r.entries[id] = e
-		}
-		e.holders++
-		r.mu.Unlock()
-
 		if spec != nil {
-			spec.led = !ok
+			spec.led = leader
 		}
-		if !ok {
+		if leader {
 			r.finishOpen(ctx, id, dir, e, spec)
 		}
 
@@ -278,9 +269,7 @@ func (r *Registry) acquire(ctx context.Context, id, dir string, spec *createSpec
 		}
 		if e.err != nil {
 			r.release(e)
-			// The leader's own cancellation says nothing about this caller's context.
-			// A creator that joined a lookup of a missing session leads the next attempt.
-			if ctx.Err() == nil && (errors.Is(e.err, context.Canceled) || errors.Is(e.err, context.DeadlineExceeded) || (spec != nil && errors.Is(e.err, commands.ErrNoSession))) {
+			if shouldRetryOpen(ctx, e.err, spec != nil) {
 				continue
 			}
 			return nil, nil, e.err
@@ -295,6 +284,29 @@ func (r *Registry) acquire(ctx context.Context, id, dir string, spec *createSpec
 		var once sync.Once
 		return e.s, func() { once.Do(func() { r.release(e) }) }, nil
 	}
+}
+
+func (r *Registry) joinOrCreate(id string) (e *entry, leader bool, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return nil, false, errRegistryClosed
+	}
+	e, ok := r.entries[id]
+	if !ok {
+		e = &entry{ready: make(chan struct{})}
+		r.entries[id] = e
+	}
+	e.holders++
+	return e, !ok, nil
+}
+
+// shouldRetryOpen retries when a leader cancelled on its own context, or a creator joined a lookup of a missing session.
+func shouldRetryOpen(ctx context.Context, err error, creating bool) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || (creating && errors.Is(err, commands.ErrNoSession))
 }
 
 // finishOpen opens the session for the entry's first caller and wakes the others.
@@ -344,10 +356,14 @@ func (r *Registry) release(e *entry) {
 	}
 	r.mu.Unlock()
 	if closing != nil {
-		closing.close()
-		if e.sandboxed {
-			r.notifySandboxChange()
-		}
+		r.closeSession(closing, e.sandboxed)
+	}
+}
+
+func (r *Registry) closeSession(s *Session, sandboxed bool) {
+	s.close()
+	if sandboxed {
+		r.notifySandboxChange()
 	}
 }
 
@@ -454,10 +470,7 @@ func (r *Registry) sweep() {
 	r.mu.Unlock()
 	// Closing waits for the driver, so it runs outside the lock.
 	for _, c := range idle {
-		c.s.close()
-		if c.sandboxed {
-			r.notifySandboxChange()
-		}
+		r.closeSession(c.s, c.sandboxed)
 	}
 }
 
@@ -483,9 +496,6 @@ func (r *Registry) Close() {
 	close(r.janitor)
 	r.cancelRun()
 	for _, c := range all {
-		c.s.close()
-		if c.sandboxed {
-			r.notifySandboxChange()
-		}
+		r.closeSession(c.s, c.sandboxed)
 	}
 }
