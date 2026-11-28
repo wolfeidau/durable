@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/internal/commands"
 	"github.com/wolfeidau/durable/internal/creds"
 	"github.com/wolfeidau/durable/internal/githost/github"
@@ -29,18 +30,7 @@ import (
 
 func cleanupAppProvider(t *testing.T, l *Launcher, providerName string) {
 	t.Helper()
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.Eventually(t, func() bool {
-			_, err := l.c.Providers().Delete(ctx, l.ws, providerName)
-			return err == nil
-		}, time.Minute, 2*time.Second, "provider %s was not deleted", providerName)
-		require.Eventually(t, func() bool {
-			_, err := l.c.Providers().Profiles().Delete(ctx, l.ws, github.AppProfile)
-			return err == nil
-		}, time.Minute, 2*time.Second, "profile %s was not deleted", github.AppProfile)
-	})
+	cleanupProviderProfile(t, l, providerName, github.AppProfile)
 }
 
 // TestGatewayGitHubAppMintsViaGatewayAndHidesKey exercises the real OpenShell v0.1.10 gateway's
@@ -140,16 +130,7 @@ func TestGatewayGitHubAppMintsViaGatewayAndHidesKey(t *testing.T) {
 	})
 	cleanupAppProvider(t, l, access.Provider)
 
-	name, token := "dt-"+randHex(t, 6), randHex(t, 16)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.NoError(t, l.Delete(ctx, name))
-	})
-	spec := sandbox.Spec{Name: name, Image: testImage(), Token: token, Git: []sandbox.GitAccess{access}}
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
-	defer cancel()
-	require.NoError(t, l.Create(ctx, spec))
+	spec := newSandboxWith(t, l, sandbox.Spec{Git: []sandbox.GitAccess{access}})
 	require.GreaterOrEqual(t, mints.Load(), int32(1), "gateway must mint an installation token from the issuer")
 
 	// Profile readback must match without bumping ResourceVersion, and a fresh launcher must not reconfigure a healthy provider.
@@ -157,6 +138,8 @@ func TestGatewayGitHubAppMintsViaGatewayAndHidesKey(t *testing.T) {
 	require.NoError(t, err)
 	mintsBefore := mints.Load()
 	l2 := gatewayLauncherWith(t, appCfg)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	defer cancel()
 	require.NoError(t, l2.Ensure(ctx, spec))
 	secondProf, err := l2.appRPC.GetProfile(t.Context(), l2.ws, github.AppProfile)
 	require.NoError(t, err)
@@ -164,20 +147,26 @@ func TestGatewayGitHubAppMintsViaGatewayAndHidesKey(t *testing.T) {
 	require.Equal(t, mintsBefore, mints.Load(), "fresh launcher must not reconfigure an unchanged healthy app provider")
 
 	// Sandbox sees only the resolver placeholder, never the raw token or private key.
-	bash := bashTool(t, dialWorker(t, l, name, token))
+	bash := bashTool(t, dialWorker(t, l, spec.Name, spec.Token))
 	out := runBash(t.Context(), t, bash, "ga1", "env | grep '^GITHUB_TOKEN='; echo rc=$?")
 	require.Contains(t, out, "GITHUB_TOKEN=openshell:resolve", out)
 	require.NotContains(t, out, mintedToken)
 	require.NotContains(t, out, "PRIVATE KEY")
 }
 
-// TestGatewayGitHubAppLiveReadsRepo exercises a real GitHub App installation end-to-end without writing to the repo.
-func TestGatewayGitHubAppLiveReadsRepo(t *testing.T) {
+type liveGitHubAppBox struct {
+	repo  string
+	scope github.AppRepoScope
+	bash  durable.Tool
+}
+
+func setupLiveGitHubApp(t *testing.T, optInEnv string, checkApp bool) liveGitHubAppBox {
+	t.Helper()
 	repo := strings.ToLower(os.Getenv(githubRepoEnv))
 	clientID := os.Getenv("DURABLE_TEST_GITHUB_APP_CLIENT_ID")
 	keyRef := os.Getenv("DURABLE_TEST_GITHUB_APP_KEY_REF")
-	if os.Getenv("DURABLE_TEST_OPENSHELL_GITHUB_APP") != "1" || repo == "" || clientID == "" || keyRef == "" {
-		t.Skip("set DURABLE_TEST_OPENSHELL_GITHUB_APP=1, DURABLE_TEST_GITHUB_REPO, DURABLE_TEST_GITHUB_APP_CLIENT_ID and DURABLE_TEST_GITHUB_APP_KEY_REF to run live GitHub App tests")
+	if os.Getenv(optInEnv) != "1" || repo == "" || clientID == "" || keyRef == "" {
+		t.Skipf("set %s=1, %s, DURABLE_TEST_GITHUB_APP_CLIENT_ID and DURABLE_TEST_GITHUB_APP_KEY_REF to run live GitHub App tests", optInEnv, githubRepoEnv)
 	}
 	var instID int64
 	if raw := os.Getenv("DURABLE_TEST_GITHUB_APP_INSTALLATION_ID"); raw != "" {
@@ -190,10 +179,11 @@ func TestGatewayGitHubAppLiveReadsRepo(t *testing.T) {
 
 	h := github.New("")
 	appCreds := github.AppCredentials{ClientID: clientID, InstallationID: instID, PrivateKeyPEM: keyPEM}
-	info, err := h.CheckApp(t.Context(), appCreds, true)
-	require.NoError(t, err)
-	require.NotEmpty(t, info.Slug)
-
+	if checkApp {
+		info, err := h.CheckApp(t.Context(), appCreds, true)
+		require.NoError(t, err)
+		require.NotEmpty(t, info.Slug)
+	}
 	parsed, err := h.ParseRepo("github.com/" + repo)
 	require.NoError(t, err)
 	scope, err := h.ResolveAppRepo(t.Context(), appCreds, parsed, true)
@@ -210,28 +200,18 @@ func TestGatewayGitHubAppLiveReadsRepo(t *testing.T) {
 		},
 	})
 	cleanupAppProvider(t, l, access.Provider)
-	name, token := "dt-"+randHex(t, 6), randHex(t, 16)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.NoError(t, l.Delete(ctx, name))
-	})
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
-	defer cancel()
-	require.NoError(t, l.Create(ctx, sandbox.Spec{
-		Name: name, Image: testImage(), Token: token,
+	spec := newSandboxWith(t, l, sandbox.Spec{
 		Git:    []sandbox.GitAccess{access},
 		Grants: commands.BuildGrants([]string{"github-api"}, []sandbox.GitAccess{access}),
-	}))
-	bash := bashTool(t, dialWorker(t, l, name, token))
-	n := 0
-	run := func(command string) string {
-		n++
-		out := runBash(t.Context(), t, bash, "gr"+strconv.Itoa(n), command+" 2>&1; echo rc=$?")
-		require.NotContains(t, out, "PRIVATE KEY")
-		require.NotContains(t, out, "ghs_")
-		return out
-	}
+	})
+	return liveGitHubAppBox{repo: repo, scope: scope, bash: bashTool(t, dialWorker(t, l, spec.Name, spec.Token))}
+}
+
+// TestGatewayGitHubAppLiveReadsRepo exercises a real GitHub App installation end-to-end without writing to the repo.
+func TestGatewayGitHubAppLiveReadsRepo(t *testing.T) {
+	box := setupLiveGitHubApp(t, "DURABLE_TEST_OPENSHELL_GITHUB_APP", true)
+	repo, scope := box.repo, box.scope
+	run := newBashRunner(t, box.bash, "gr", "PRIVATE KEY", "ghs_")
 
 	out := run("env | grep '^GITHUB_TOKEN='")
 	require.Contains(t, out, "GITHUB_TOKEN=openshell:resolve", out)
@@ -267,52 +247,8 @@ func TestGatewayGitHubAppLiveReadsRepo(t *testing.T) {
 
 // TestGatewayGitHubAppLivePushesAndQueriesAPI exercises a real write-capable GitHub App installation end-to-end when opted in.
 func TestGatewayGitHubAppLivePushesAndQueriesAPI(t *testing.T) {
-	repo := strings.ToLower(os.Getenv(githubRepoEnv))
-	clientID := os.Getenv("DURABLE_TEST_GITHUB_APP_CLIENT_ID")
-	keyRef := os.Getenv("DURABLE_TEST_GITHUB_APP_KEY_REF")
-	if os.Getenv("DURABLE_TEST_OPENSHELL_GITHUB_APP_PUSH") != "1" || repo == "" || clientID == "" || keyRef == "" {
-		t.Skip("set DURABLE_TEST_OPENSHELL_GITHUB_APP_PUSH=1, DURABLE_TEST_GITHUB_REPO, DURABLE_TEST_GITHUB_APP_CLIENT_ID and DURABLE_TEST_GITHUB_APP_KEY_REF to run live GitHub App push tests")
-	}
-	var instID int64
-	if raw := os.Getenv("DURABLE_TEST_GITHUB_APP_INSTALLATION_ID"); raw != "" {
-		var err error
-		instID, err = strconv.ParseInt(raw, 10, 64)
-		require.NoError(t, err)
-	}
-	keyPEM, err := creds.Resolve(t.Context(), creds.Source{Flag: "DURABLE_TEST_GITHUB_APP_KEY_REF", Value: keyRef})
-	require.NoError(t, err)
-
-	h := github.New("")
-	parsed, err := h.ParseRepo("github.com/" + repo)
-	require.NoError(t, err)
-	scope, err := h.ResolveAppRepo(t.Context(), github.AppCredentials{
-		ClientID: clientID, InstallationID: instID, PrivateKeyPEM: keyPEM,
-	}, parsed, true)
-	require.NoError(t, err)
-	access := h.AppAccess(parsed, scope)
-
-	l := gatewayLauncherWith(t, Config{
-		Apps: map[string]func(context.Context) (AppCredentials, error){
-			"github": func(context.Context) (AppCredentials, error) {
-				return AppCredentials{ClientID: clientID, PrivateKey: keyPEM}, nil
-			},
-		},
-	})
-	cleanupAppProvider(t, l, access.Provider)
-	name, token := "dt-"+randHex(t, 6), randHex(t, 16)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.NoError(t, l.Delete(ctx, name))
-	})
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
-	defer cancel()
-	require.NoError(t, l.Create(ctx, sandbox.Spec{
-		Name: name, Image: testImage(), Token: token,
-		Git:    []sandbox.GitAccess{access},
-		Grants: commands.BuildGrants([]string{"github-api"}, []sandbox.GitAccess{access}),
-	}))
-	bash := bashTool(t, dialWorker(t, l, name, token))
+	box := setupLiveGitHubApp(t, "DURABLE_TEST_OPENSHELL_GITHUB_APP_PUSH", false)
+	repo, bash := box.repo, box.bash
 	branch := "durable-app-test-" + randHex(t, 4)
 
 	script := strings.Join([]string{

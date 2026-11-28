@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -52,19 +53,72 @@ func randHex(t *testing.T, n int) string {
 	return hex.EncodeToString(b)
 }
 
-// newSandbox creates a sandbox with a random name (the gateway allows 19 lowercase characters) and deletes it at cleanup.
-func newSandbox(t *testing.T, l *Launcher) (name, token string) {
+func cleanupSandbox(t *testing.T, l *Launcher, name string) {
 	t.Helper()
-	name, token = "dt-"+randHex(t, 6), randHex(t, 16)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
 		require.NoError(t, l.Delete(ctx, name))
 	})
+}
+
+// cleanupProviderProfile deletes a provider and profile once the sandboxes using them are gone.
+func cleanupProviderProfile(t *testing.T, l *Launcher, provider, profile string) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		require.Eventually(t, func() bool {
+			_, err := l.c.Providers().Delete(ctx, l.ws, provider)
+			return err == nil
+		}, time.Minute, 2*time.Second, "provider %s was not deleted", provider)
+		require.Eventually(t, func() bool {
+			_, err := l.c.Providers().Profiles().Delete(ctx, l.ws, profile)
+			return err == nil
+		}, time.Minute, 2*time.Second, "profile %s was not deleted", profile)
+	})
+}
+
+// newSandboxWith creates a sandbox with defaults for empty Name/Image/Token and deletes it at cleanup.
+func newSandboxWith(t *testing.T, l *Launcher, spec sandbox.Spec) sandbox.Spec {
+	t.Helper()
+	if spec.Name == "" {
+		spec.Name = "dt-" + randHex(t, 6)
+	}
+	if spec.Image == "" {
+		spec.Image = testImage()
+	}
+	if spec.Token == "" {
+		spec.Token = randHex(t, 16)
+	}
+	cleanupSandbox(t, l, spec.Name)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
 	defer cancel()
-	require.NoError(t, l.Create(ctx, sandbox.Spec{Name: name, Image: testImage(), Token: token}))
-	return name, token
+	require.NoError(t, l.Create(ctx, spec))
+	return spec
+}
+
+// newSandbox creates a sandbox with a random name (the gateway allows 19 lowercase characters) and deletes it at cleanup.
+func newSandbox(t *testing.T, l *Launcher) (name, token string) {
+	t.Helper()
+	spec := newSandboxWith(t, l, sandbox.Spec{})
+	return spec.Name, spec.Token
+}
+
+func newBashRunner(t *testing.T, bash durable.Tool, prefix string, redact ...string) func(command string) string {
+	t.Helper()
+	n := 0
+	return func(command string) string {
+		t.Helper()
+		n++
+		out := runBash(t.Context(), t, bash, prefix+strconv.Itoa(n), command+" 2>&1; echo rc=$?")
+		for _, secret := range redact {
+			if secret != "" {
+				require.NotContains(t, out, secret)
+			}
+		}
+		return out
+	}
 }
 
 func dialWorker(t *testing.T, l *Launcher, name, token string) *Conn {
@@ -185,11 +239,7 @@ func TestGatewayDelete(t *testing.T) {
 func TestGatewayMissingImageFailsFast(t *testing.T) {
 	l := gatewayLauncher(t)
 	name := "dt-" + randHex(t, 6)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.NoError(t, l.Delete(ctx, name))
-	})
+	cleanupSandbox(t, l, name)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)
 	defer cancel()
@@ -202,11 +252,7 @@ func TestGatewayMissingImageFailsFast(t *testing.T) {
 func TestGatewayExitedWorkerFailsAndDeletes(t *testing.T) {
 	l := gatewayLauncher(t)
 	name := "dt-" + randHex(t, 6)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		require.NoError(t, l.Delete(ctx, name))
-	})
+	cleanupSandbox(t, l, name)
 
 	// The base image has no worker, so the sandbox's command fails at once.
 	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Minute)

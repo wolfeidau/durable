@@ -2,15 +2,20 @@ package openshell
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	v1 "github.com/ai-openshell/sdk-go/openshell/v1"
 	"github.com/ai-openshell/sdk-go/openshell/v1/types"
 	dm "github.com/ai-openshell/sdk-go/proto/datamodelv1"
 	pb "github.com/ai-openshell/sdk-go/proto/openshellv1"
@@ -304,4 +309,113 @@ func isRefreshHealthy(statuses []*pb.ProviderCredentialRefreshStatus, credential
 		}
 	}
 	return false
+}
+
+// syncAppProvider configures gateway-managed GitHub App token refresh for g and mints immediately on first setup or change.
+func (l *Launcher) syncAppProvider(ctx context.Context, g sandbox.GitAccess) error {
+	appFn := l.apps[g.Kind]
+	if appFn == nil {
+		return fmt.Errorf("no %s app is configured for this server", g.Kind)
+	}
+	if l.appRPC == nil {
+		return errors.New("gateway client does not support GitHub App refresh")
+	}
+	if g.InstallationID <= 0 || g.RepositoryID <= 0 || len(g.Permissions) == 0 {
+		return fmt.Errorf("incomplete %s app scope for provider %q", g.Kind, g.Provider)
+	}
+	if err := l.ensureAppProfile(ctx, g); err != nil {
+		return err
+	}
+	appCreds, err := appFn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get %s app credentials: %w", g.Kind, err)
+	}
+	repoIDsJSON := fmt.Sprintf("[%d]", g.RepositoryID)
+	permsJSON, err := json.Marshal(g.Permissions)
+	if err != nil {
+		return fmt.Errorf("failed to encode %s app permissions: %w", g.Kind, err)
+	}
+	sum := appMaterialHash(appCreds, g.InstallationID, repoIDsJSON, permsJSON, l.appTokenURL)
+	if last, ok := l.synced[g.Provider]; ok && last == sum {
+		return nil
+	}
+	hexSum := hex.EncodeToString(sum[:])
+
+	// Reconfiguring withdraws active handles immediately, so after a server restart skip it when the gateway already holds the same healthy config.
+	if l.isAppProviderHealthy(ctx, g, hexSum) {
+		l.synced[g.Provider] = sum
+		return nil
+	}
+
+	_, err = l.c.Providers().Ensure(ctx, l.ws, &types.Provider{
+		Name:        g.Provider,
+		Type:        g.ProfileID,
+		Annotations: map[string]string{refreshHashAnnotation: hexSum},
+		Spec:        types.ProviderSpec{ProfileWorkspace: l.ws},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to set %s app provider: %w", g.Kind, err)
+	}
+	_, err = l.appRPC.ConfigureRefresh(ctx, l.ws, &pb.ConfigureProviderRefreshRequest{
+		Provider:      g.Provider,
+		CredentialKey: g.CredentialEnv,
+		Strategy:      pb.ProviderCredentialRefreshStrategy_PROVIDER_CREDENTIAL_REFRESH_STRATEGY_GITHUB_APP_INSTALLATION,
+		Material: map[string]string{
+			"client_id":       appCreds.ClientID,
+			"installation_id": strconv.FormatInt(g.InstallationID, 10),
+			"private_key":     appCreds.PrivateKey,
+			"repository_ids":  repoIDsJSON,
+			"permissions":     string(permsJSON),
+		},
+		SecretMaterialKeys: []string{"private_key"},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to configure %s app refresh (requires OpenShell gateway >= v0.1.10): %w", g.Kind, err)
+	}
+	st, err := l.appRPC.RotateCredential(ctx, l.ws, g.Provider, g.CredentialEnv)
+	if err != nil {
+		return fmt.Errorf("failed to mint %s app installation token: %w", g.Kind, err)
+	}
+	if st.GetLastError() != "" || st.GetFailureCode() != "" {
+		return fmt.Errorf("failed to mint %s app installation token: %s (%s)", g.Kind, st.GetLastError(), st.GetFailureCode())
+	}
+	l.synced[g.Provider] = sum
+	return nil
+}
+
+func appMaterialHash(creds AppCredentials, installationID int64, repoIDsJSON string, permsJSON []byte, tokenURL string) [sha256.Size]byte {
+	return sha256.Sum256(fmt.Appendf(nil, "%s\x00%d\x00%s\x00%s\x00%s\x00%s",
+		creds.ClientID, installationID, creds.PrivateKey, repoIDsJSON, permsJSON, tokenURL))
+}
+
+func (l *Launcher) isAppProviderHealthy(ctx context.Context, g sandbox.GitAccess, hexSum string) bool {
+	existing, err := l.c.Providers().Get(ctx, l.ws, g.Provider)
+	if err != nil || existing.Type != g.ProfileID || existing.Annotations[refreshHashAnnotation] != hexSum {
+		return false
+	}
+	statuses, err := l.appRPC.GetRefreshStatus(ctx, l.ws, g.Provider, g.CredentialEnv)
+	return err == nil && isRefreshHealthy(statuses, g.CredentialEnv)
+}
+
+func (l *Launcher) ensureAppProfile(ctx context.Context, g sandbox.GitAccess) error {
+	if l.profiled[g.ProfileID] {
+		return nil
+	}
+	item := appProfileItem(g, l.appTokenURL)
+	existing, err := l.appRPC.GetProfile(ctx, l.ws, g.ProfileID)
+	switch {
+	case err == nil && sameAppProfile(existing, item.GetProfile()):
+	case err == nil:
+		if err := l.appRPC.UpdateProfile(ctx, l.ws, g.ProfileID, existing.GetResourceVersion(), item); err != nil {
+			return fmt.Errorf("failed to update %s app profile: %w", g.Kind, err)
+		}
+	case v1.IsNotFound(err):
+		if err := l.appRPC.ImportProfile(ctx, l.ws, item); err != nil {
+			return fmt.Errorf("failed to import %s app profile (requires OpenShell gateway >= v0.1.10): %w", g.Kind, err)
+		}
+	default:
+		return fmt.Errorf("failed to get %s app profile: %w", g.Kind, err)
+	}
+	l.profiled[g.ProfileID] = true
+	return nil
 }

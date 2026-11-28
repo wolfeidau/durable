@@ -3,19 +3,10 @@ package github
 import (
 	"bytes"
 	"context"
-	"crypto"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
-	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"strconv"
 	"strings"
@@ -23,7 +14,6 @@ import (
 	"unicode"
 
 	"github.com/wolfeidau/durable/internal/githost"
-	"github.com/wolfeidau/durable/internal/sandbox"
 )
 
 // ErrAppNotInstalled reports that the GitHub App is not installed on the target repository.
@@ -60,62 +50,6 @@ type AppRepoScope struct {
 	InstallationID int64
 	RepositoryID   int64
 	Permissions    map[string]string
-}
-
-// parsePrivateKey parses a PKCS#1 or PKCS#8 RSA PEM private key without echoing key material in errors.
-func parsePrivateKey(pemText string) (*rsa.PrivateKey, error) {
-	block, _ := pem.Decode([]byte(strings.TrimSpace(pemText)))
-	if block == nil {
-		return nil, errors.New("GitHub App private key is not valid PEM")
-	}
-	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
-		return key, nil
-	}
-	parsed, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, errors.New("GitHub App private key must be an RSA PKCS#1 or PKCS#8 PEM key")
-	}
-	key, ok := parsed.(*rsa.PrivateKey)
-	if !ok {
-		return nil, errors.New("GitHub App private key must be an RSA key")
-	}
-	return key, nil
-}
-
-// signAppJWT signs a short-lived RS256 GitHub App JWT with clientID as issuer.
-func signAppJWT(clientID string, key *rsa.PrivateKey, now time.Time) (string, error) {
-	if strings.TrimSpace(clientID) == "" {
-		return "", errors.New("GitHub App client_id is required")
-	}
-	if key == nil {
-		return "", errors.New("GitHub App private key is required")
-	}
-	header, err := json.Marshal(struct {
-		Alg string `json:"alg"`
-		Typ string `json:"typ"`
-	}{Alg: "RS256", Typ: "JWT"})
-	if err != nil {
-		return "", fmt.Errorf("failed to encode JWT header: %w", err)
-	}
-	claims, err := json.Marshal(struct {
-		Iss string `json:"iss"`
-		Iat int64  `json:"iat"`
-		Exp int64  `json:"exp"`
-	}{
-		Iss: clientID,
-		Iat: now.Add(-60 * time.Second).Unix(),
-		Exp: now.Add(5 * time.Minute).Unix(),
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to encode JWT claims: %w", err)
-	}
-	signingInput := base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(claims)
-	sum := sha256.Sum256([]byte(signingInput))
-	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, sum[:])
-	if err != nil {
-		return "", fmt.Errorf("failed to sign GitHub App JWT: %w", err)
-	}
-	return signingInput + "." + base64.RawURLEncoding.EncodeToString(sig), nil
 }
 
 type installationResponse struct {
@@ -262,8 +196,15 @@ func (h *Host) ResolveAppRepo(ctx context.Context, creds AppCredentials, repo gi
 	if err != nil {
 		return AppRepoScope{}, fmt.Errorf("GitHub App installation %d for %s/%s: %w", inst.ID, repo.Owner, repo.Name, err)
 	}
+	repoID, err := h.resolveRepoID(ctx, jwt, inst.ID, repo)
+	if err != nil {
+		return AppRepoScope{}, err
+	}
+	return AppRepoScope{InstallationID: inst.ID, RepositoryID: repoID, Permissions: perms}, nil
+}
 
-	// Mint a metadata-only token scoped to repo.Name to look up the numeric repository ID for private and public repos alike.
+// resolveRepoID mints a metadata-only token scoped to repo.Name to look up the numeric repository ID for private and public repos alike.
+func (h *Host) resolveRepoID(ctx context.Context, jwt string, installationID int64, repo githost.Repo) (int64, error) {
 	var minted struct {
 		Token        string `json:"token"`
 		Repositories []struct {
@@ -275,86 +216,18 @@ func (h *Host) ResolveAppRepo(ctx context.Context, creds AppCredentials, repo gi
 		"repositories": []string{repo.Name},
 		"permissions":  map[string]string{"metadata": "read"},
 	}
-	if _, err := h.doJSON(ctx, http.MethodPost, "/app/installations/"+strconv.FormatInt(inst.ID, 10)+"/access_tokens", jwt, reqBody, &minted); err != nil {
-		return AppRepoScope{}, fmt.Errorf("failed to resolve repository ID for %s/%s: %w", repo.Owner, repo.Name, err)
+	if _, err := h.doJSON(ctx, http.MethodPost, "/app/installations/"+strconv.FormatInt(installationID, 10)+"/access_tokens", jwt, reqBody, &minted); err != nil {
+		return 0, fmt.Errorf("failed to resolve repository ID for %s/%s: %w", repo.Owner, repo.Name, err)
 	}
 	if minted.Token != "" {
 		// Best-effort revocation of the temporary lookup token.
 		_, _ = h.doJSON(ctx, http.MethodDelete, "/installation/token", minted.Token, nil, nil)
 	}
 	want := repo.Owner + "/" + repo.Name
-	var repoID int64
 	for _, r := range minted.Repositories {
 		if strings.EqualFold(r.FullName, want) && r.ID > 0 {
-			repoID = r.ID
-			break
+			return r.ID, nil
 		}
 	}
-	if repoID == 0 {
-		return AppRepoScope{}, fmt.Errorf("GitHub App installation %d does not have access to %s", inst.ID, want)
-	}
-	return AppRepoScope{InstallationID: inst.ID, RepositoryID: repoID, Permissions: perms}, nil
-}
-
-// AppAccess returns sandbox GitAccess backed by an OpenShell GitHub App provider scoped to scope.
-func (h *Host) AppAccess(repo githost.Repo, scope AppRepoScope) sandbox.GitAccess {
-	a := h.Access(repo)
-	a.AuthMode = sandbox.GitAuthModeGitHubApp
-	a.ProfileID = AppProfile
-	a.Provider = AppProviderName(scope.InstallationID, scope.RepositoryID, scope.Permissions)
-	a.InstallationID = scope.InstallationID
-	a.RepositoryID = scope.RepositoryID
-	a.Permissions = maps.Clone(scope.Permissions)
-	return a
-}
-
-// AppProviderName returns the deterministic OpenShell provider name for one (installation, repository, permissions) scope.
-func AppProviderName(installationID, repoID int64, perms map[string]string) string {
-	permsJSON, _ := json.Marshal(perms)
-	sum := sha256.Sum256(fmt.Appendf(nil, "%d:%d:%s", installationID, repoID, permsJSON))
-	return fmt.Sprintf("%s%d-%s", AppProviderPrefix, repoID, hex.EncodeToString(sum[:4]))
-}
-
-func capPermission(granted map[string]string, name, want string) (string, bool) {
-	level := granted[name]
-	switch want {
-	case "write":
-		if level == "write" || level == "admin" {
-			return "write", true
-		}
-		if level == "read" {
-			return "read", true
-		}
-	case "read":
-		if level == "read" || level == "write" || level == "admin" {
-			return "read", true
-		}
-	}
-	return "", false
-}
-
-func scopedPermissions(granted map[string]string, withAPI bool) (map[string]string, error) {
-	contents, ok := capPermission(granted, "contents", "write")
-	if !ok {
-		return nil, errors.New("installation is missing contents permission")
-	}
-	perms := map[string]string{
-		"contents": contents,
-		"metadata": "read",
-	}
-	if !withAPI {
-		return perms, nil
-	}
-	// Cap each API permission at what the installation actually grants so both read-only and read-write apps work without GitHub 422s.
-	for _, spec := range []struct{ name, want string }{
-		{"pull_requests", "write"},
-		{"issues", "write"},
-		{"checks", "read"},
-		{"actions", "read"},
-	} {
-		if level, ok := capPermission(granted, spec.name, spec.want); ok {
-			perms[spec.name] = level
-		}
-	}
-	return perms, nil
+	return 0, fmt.Errorf("GitHub App installation %d does not have access to %s", installationID, want)
 }
