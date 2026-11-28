@@ -18,19 +18,45 @@ const (
 	filePrefix = "file:"
 )
 
+// EnvRefPattern is env:NAME, unanchored so callers can embed it.
+const EnvRefPattern = `env:[A-Za-z_][A-Za-z0-9_]*`
+
 // FileRefPattern is file:PATH where PATH is absolute or starts with ~/, unanchored so callers can embed it.
 const FileRefPattern = `file:(/|~/).+`
-
-var fileRefRE = regexp.MustCompile(`^` + FileRefPattern + `$`)
 
 // OpRefPattern is op://vault/item/[section/]field with an optional ?attribute=..., unanchored so callers can embed it.
 const OpRefPattern = `op://[^/?]+/[^/?]+/[^/?]+(/[^/?]+)?(\?.+)?`
 
-var opRefRE = regexp.MustCompile(`^` + OpRefPattern + `$`)
+// Anchored secret reference patterns; TokenRefPattern also accepts "gh".
+const (
+	RefPattern      = `^(` + OpRefPattern + `|` + EnvRefPattern + `|` + FileRefPattern + `)$`
+	TokenRefPattern = `^(` + OpRefPattern + `|gh|` + EnvRefPattern + `|` + FileRefPattern + `)$`
+
+	RefHint      = "an op:// secret reference, env:NAME or file:PATH"
+	TokenRefHint = "an op:// secret reference, gh, env:NAME or file:PATH" //nolint:gosec // hint text, not a credential
+)
+
+var (
+	envRefRE   = regexp.MustCompile(`^` + EnvRefPattern + `$`)
+	fileRefRE  = regexp.MustCompile(`^` + FileRefPattern + `$`)
+	opRefRE    = regexp.MustCompile(`^` + OpRefPattern + `$`)
+	refRE      = regexp.MustCompile(RefPattern)
+	tokenRefRE = regexp.MustCompile(TokenRefPattern)
+)
 
 // IsOpRef reports whether s is a well-formed 1Password secret reference.
 func IsOpRef(s string) bool {
 	return opRefRE.MatchString(s)
+}
+
+// IsRef reports whether s is a valid secret reference (op://, env:NAME or file:PATH).
+func IsRef(s string) bool {
+	return refRE.MatchString(s)
+}
+
+// IsTokenRef reports whether s is a valid token secret reference (op://, gh, env:NAME or file:PATH).
+func IsTokenRef(s string) bool {
+	return tokenRefRE.MatchString(s)
 }
 
 // Source says where a secret comes from.
@@ -59,7 +85,7 @@ func Resolve(ctx context.Context, s Source) (string, error) {
 			return "", fmt.Errorf("failed to read %s from 1Password: %w", s.Flag, err)
 		}
 		return secret, nil
-	case strings.HasPrefix(s.Value, envPrefix):
+	case envRefRE.MatchString(s.Value):
 		name := strings.TrimPrefix(s.Value, envPrefix)
 		secret := strings.TrimSpace(os.Getenv(name))
 		if secret == "" {
@@ -69,7 +95,7 @@ func Resolve(ctx context.Context, s Source) (string, error) {
 	case fileRefRE.MatchString(s.Value):
 		return readFile(s)
 	case s.Value != "":
-		return "", fmt.Errorf("%s must be an op:// secret reference, gh, env:NAME or file:PATH", s.Flag)
+		return "", fmt.Errorf("%s must be %s", s.Flag, TokenRefHint)
 	}
 	secret := strings.TrimSpace(os.Getenv(s.Env))
 	if secret == "" {

@@ -10,6 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 
 	"github.com/wolfeidau/durable/internal/commands"
+	"github.com/wolfeidau/durable/internal/creds"
 )
 
 // SchemaID is where the committed schema is published.
@@ -42,17 +43,17 @@ func Schema() (*jsonschema.Schema, error) {
 	provider := s.Properties["provider"]
 	provider.Properties["name"].Enum = enum(commands.ProviderNames())
 	provider.Properties["protocol"].Enum = enum(commands.ProtocolNames())
-	provider.Properties["api_key"].Pattern = apiKeyRefPattern
+	provider.Properties["api_key"].Pattern = creds.RefPattern
 
 	hosts := s.Properties["git"].Properties["hosts"]
 	hosts.PropertyNames = &jsonschema.Schema{Enum: enum(GitHostKinds)}
 	host := hosts.AdditionalProperties
-	host.Properties["token"].Pattern = secretRefPattern
+	host.Properties["token"].Pattern = creds.TokenRefPattern
 	app := host.Properties["app"]
 	app.Types, app.Type = nil, "object"
 	app.Properties["client_id"].MinLength = new(1)
 	app.Properties["installation_id"].Minimum = new(1.0)
-	app.Properties["private_key"].Pattern = apiKeyRefPattern
+	app.Properties["private_key"].Pattern = creds.RefPattern
 	host.OneOf = []*jsonschema.Schema{
 		{Required: []string{"token"}},
 		{Required: []string{"app"}},
@@ -60,8 +61,8 @@ func Schema() (*jsonschema.Schema, error) {
 
 	otel := s.Properties["otel"]
 	otel.Properties["protocol"].Enum = enum(OTelProtocols)
-	otel.Properties["headers"].AdditionalProperties.Pattern = apiKeyRefPattern
-	otel.Properties["headers_from"].Pattern = apiKeyRefPattern
+	otel.Properties["headers"].AdditionalProperties.Pattern = creds.RefPattern
+	otel.Properties["headers_from"].Pattern = creds.RefPattern
 
 	envs := s.Properties["environments"]
 	env := envs.AdditionalProperties
@@ -185,10 +186,8 @@ func checkSecrets(doc any) error {
 		return nil
 	}
 	if p, ok := root["provider"].(map[string]any); ok {
-		if v, ok := p["api_key"]; ok {
-			if err := checkRef("provider.api_key", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
-				return err
-			}
+		if err := checkSecretField(p, "api_key", "provider.api_key", creds.IsRef, creds.RefHint); err != nil {
+			return err
 		}
 	}
 	if err := checkOTelSecrets(root); err != nil {
@@ -201,14 +200,11 @@ func checkOTelSecrets(root map[string]any) error {
 	o, _ := root["otel"].(map[string]any)
 	headers, _ := o["headers"].(map[string]any)
 	for name, v := range headers {
-		if err := checkRef("otel.headers."+name, v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
+		if err := checkRef("otel.headers."+name, v, creds.IsRef, creds.RefHint); err != nil {
 			return err
 		}
 	}
-	if v, ok := o["headers_from"]; ok {
-		return checkRef("otel.headers_from", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH")
-	}
-	return nil
+	return checkSecretField(o, "headers_from", "otel.headers_from", creds.IsRef, creds.RefHint)
 }
 
 func checkGitHostSecrets(root map[string]any) error {
@@ -219,20 +215,24 @@ func checkGitHostSecrets(root map[string]any) error {
 		if !ok {
 			continue
 		}
-		if v, ok := host["token"]; ok {
-			if err := checkRef("git.hosts."+kind+".token", v, secretRefRE.MatchString, "an op:// secret reference, gh, env:NAME or file:PATH"); err != nil {
-				return err
-			}
+		if err := checkSecretField(host, "token", "git.hosts."+kind+".token", creds.IsTokenRef, creds.TokenRefHint); err != nil {
+			return err
 		}
 		if app, ok := host["app"].(map[string]any); ok {
-			if v, ok := app["private_key"]; ok {
-				if err := checkRef("git.hosts."+kind+".app.private_key", v, apiKeyRefRE.MatchString, "an op:// secret reference, env:NAME or file:PATH"); err != nil {
-					return err
-				}
+			if err := checkSecretField(app, "private_key", "git.hosts."+kind+".app.private_key", creds.IsRef, creds.RefHint); err != nil {
+				return err
 			}
 		}
 	}
 	return nil
+}
+
+func checkSecretField(obj map[string]any, key, field string, ok func(string) bool, want string) error {
+	v, exists := obj[key]
+	if !exists {
+		return nil
+	}
+	return checkRef(field, v, ok, want)
 }
 
 func checkRef(field string, v any, ok func(string) bool, want string) error {

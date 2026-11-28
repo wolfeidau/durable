@@ -82,20 +82,34 @@ func (s sessionService) DecideApproval(ctx context.Context, req *connect.Request
 	return connect.NewResponse(&v1.DecideApprovalResponse{Approval: wire.Approval(a)}), nil
 }
 
+type pinnedSession struct {
+	info *v1.SessionInfo
+	name string
+}
+
+func sessionInfo(m commands.SessionMeta) *v1.SessionInfo {
+	return &v1.SessionInfo{
+		Id:          m.ID,
+		Cwd:         m.CWD,
+		Name:        m.Name,
+		CreatedAt:   timestamppb.New(m.CreatedAt),
+		Workspace:   workspaceOf(m),
+		Repo:        m.Repo,
+		Branch:      m.Branch,
+		Environment: m.Environment,
+	}
+}
+
 func (s sessionService) ListSessions(ctx context.Context, req *connect.Request[v1.ListSessionsRequest]) (*connect.Response[v1.ListSessionsResponse], error) {
 	metas, warnings, err := commands.ListSessions(s.home)
 	if err != nil {
 		return nil, s.internal(ctx, "list sessions", err)
 	}
-	type pinnedSession struct {
-		info *v1.SessionInfo
-		name string
-	}
 	out := &v1.ListSessionsResponse{Warnings: warnings}
 	var pinned []pinnedSession
 	for _, m := range metas {
 		dir := filepath.Join(s.home, ".durable", "sessions", m.ID)
-		info := &v1.SessionInfo{Id: m.ID, Cwd: m.CWD, Name: m.Name, CreatedAt: timestamppb.New(m.CreatedAt), Workspace: workspaceOf(m), Repo: m.Repo, Branch: m.Branch, Environment: m.Environment}
+		info := sessionInfo(m)
 		st, err := durable.ReadStatus(ctx, filepath.Join(dir, "session.sqlite"))
 		if err != nil {
 			// The warning is returned to the client, so it isn't logged here.
@@ -113,20 +127,25 @@ func (s sessionService) ListSessions(ctx context.Context, req *connect.Request[v
 		}
 		out.Sessions = append(out.Sessions, info)
 	}
-	if len(pinned) > 0 {
-		if s.sandboxCache == nil {
-			for _, p := range pinned {
-				p.info.SandboxStatus = v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
-			}
-		} else {
-			snap := s.sandboxCache.Snapshot(req.Msg.GetRefreshSandboxStatus())
-			for _, p := range pinned {
-				p.info.SandboxStatus = sandboxStatusOf(snap, p.name)
-			}
-			out.SandboxSnapshot = protoSandboxSnapshot(snap)
-		}
-	}
+	s.attachSandboxStatus(out, pinned, req.Msg.GetRefreshSandboxStatus())
 	return connect.NewResponse(out), nil
+}
+
+func (s sessionService) attachSandboxStatus(out *v1.ListSessionsResponse, pinned []pinnedSession, refresh bool) {
+	if len(pinned) == 0 {
+		return
+	}
+	if s.sandboxCache == nil {
+		for _, p := range pinned {
+			p.info.SandboxStatus = v1.SandboxStatus_SANDBOX_STATUS_UNKNOWN
+		}
+		return
+	}
+	snap := s.sandboxCache.Snapshot(refresh)
+	for _, p := range pinned {
+		p.info.SandboxStatus = sandboxStatusOf(snap, p.name)
+	}
+	out.SandboxSnapshot = protoSandboxSnapshot(snap)
 }
 
 func sandboxStatusOf(snap sandboxSnapshot, name string) v1.SandboxStatus {
@@ -177,56 +196,48 @@ func (s sessionService) CreateSession(ctx context.Context, req *connect.Request[
 	if err := s.checkEnvironmentApplies(req.Msg); err != nil {
 		return nil, err
 	}
-	var spec createSpec
+	var (
+		spec createSpec
+		err  error
+	)
 	switch req.Msg.GetWorkspace() {
 	case v1.Workspace_WORKSPACE_UNSPECIFIED, v1.Workspace_WORKSPACE_DIRECTORY:
-		if s.reg.Sandboxed() {
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty and repo sessions: start it without --sandbox-image or environments for directory sessions"))
-		}
-		cwd := req.Msg.GetCwd()
-		if !filepath.IsAbs(cwd) {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an absolute path"))
-		}
-		// Symlinks stay unresolved: the CLI hashes os.Getwd() as given, so both name the same session.
-		cwd = filepath.Clean(cwd)
-		if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
-			return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an existing directory"))
-		}
-		// "default" is part of a directory session's key, shared with durable chat.
-		if name == "" {
-			name = "default"
-		}
-		spec = createSpec{cwd: cwd, name: name}
+		spec, err = s.directorySpec(req.Msg, name)
 	case v1.Workspace_WORKSPACE_EMPTY:
-		var err error
-		if spec, err = s.emptySpec(req.Msg, name); err != nil {
-			return nil, err
-		}
+		spec, err = s.emptySpec(req.Msg, name)
 	case v1.Workspace_WORKSPACE_REPO:
-		var err error
-		if spec, err = s.repoSpec(req.Msg); err != nil {
-			return nil, err
-		}
+		spec, err = s.repoSpec(req.Msg)
 	default:
-		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("unknown workspace"))
+		err = connect.NewError(connect.CodeInvalidArgument, errors.New("unknown workspace"))
+	}
+	if err != nil {
+		return nil, err
 	}
 	meta, created, err := s.reg.Create(ctx, spec)
 	if err != nil {
-		var (
-			se *sandbox.Error
-			ce *commands.CloneError
-		)
-		if errors.Is(err, errCreate) && !errors.As(err, &se) && !errors.As(err, &ce) {
-			// The detail can echo a credential reference, so only the log gets it.
-			s.logger.ErrorContext(ctx, "request failed", slog.String("op", "create session"), slog.Any("error", err))
-			return nil, connect.NewError(connect.CodeFailedPrecondition, errors.New("server can't create sessions: see its log"))
-		}
 		return nil, s.publicErr(ctx, "create session", err)
 	}
-	return connect.NewResponse(&v1.CreateSessionResponse{
-		Session: &v1.SessionInfo{Id: meta.ID, Cwd: meta.CWD, Name: meta.Name, CreatedAt: timestamppb.New(meta.CreatedAt), Workspace: workspaceOf(meta), Repo: meta.Repo, Branch: meta.Branch, Environment: meta.Environment},
-		Created: created,
-	}), nil
+	return connect.NewResponse(&v1.CreateSessionResponse{Session: sessionInfo(meta), Created: created}), nil
+}
+
+func (s sessionService) directorySpec(msg *v1.CreateSessionRequest, name string) (createSpec, error) {
+	if s.reg.Sandboxed() {
+		return createSpec{}, connect.NewError(connect.CodeFailedPrecondition, errors.New("this server creates empty and repo sessions: start it without --sandbox-image or environments for directory sessions"))
+	}
+	cwd := msg.GetCwd()
+	if !filepath.IsAbs(cwd) {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an absolute path"))
+	}
+	// Symlinks stay unresolved: the CLI hashes os.Getwd() as given, so both name the same session.
+	cwd = filepath.Clean(cwd)
+	if st, err := os.Stat(cwd); err != nil || !st.IsDir() {
+		return createSpec{}, connect.NewError(connect.CodeInvalidArgument, errors.New("cwd must be an existing directory"))
+	}
+	// "default" is part of a directory session's key, shared with durable chat.
+	if name == "" {
+		name = "default"
+	}
+	return createSpec{cwd: cwd, name: name}, nil
 }
 
 // emptySpec validates an empty create.
@@ -357,10 +368,14 @@ func errLost() error {
 	return connect.NewError(connect.CodeUnavailable, errors.New("session taken over by another process"))
 }
 
+func (s sessionService) logErr(ctx context.Context, op string, err error, code connect.Code, msg string) error {
+	s.logger.ErrorContext(ctx, "request failed", slog.String("op", op), slog.Any("error", err))
+	return connect.NewError(code, errors.New(msg))
+}
+
 // internal logs err and returns a code-only error, so internals don't reach the client.
 func (s sessionService) internal(ctx context.Context, op string, err error) error {
-	s.logger.ErrorContext(ctx, "request failed", slog.String("op", op), slog.Any("error", err))
-	return connect.NewError(connect.CodeInternal, errors.New("internal error"))
+	return s.logErr(ctx, op, err, connect.CodeInternal, "internal error")
 }
 
 // publicErr keeps codes already chosen and the caller's own cancellation, and hides everything else.
@@ -369,19 +384,21 @@ func (s sessionService) publicErr(ctx context.Context, op string, err error) err
 	var se *sandbox.Error
 	if errors.As(err, &se) && !errors.Is(err, context.Canceled) {
 		// Gateway errors can name providers, so only the log gets the cause.
-		s.logger.ErrorContext(ctx, "request failed", slog.String("op", op), slog.Any("error", err))
 		if se.Unavailable {
-			return connect.NewError(connect.CodeUnavailable, errors.New("sandbox unavailable: see the server log"))
+			return s.logErr(ctx, op, err, connect.CodeUnavailable, "sandbox unavailable: see the server log")
 		}
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("sandbox can't start: see the server log"))
-	}
-	if errors.Is(err, commands.ErrEmptyNeedsSandbox) {
-		s.logger.ErrorContext(ctx, "request failed", slog.String("op", op), slog.Any("error", err))
-		return connect.NewError(connect.CodeFailedPrecondition, errors.New("this session has no sandbox pin: see the server log"))
+		return s.logErr(ctx, op, err, connect.CodeFailedPrecondition, "sandbox can't start: see the server log")
 	}
 	// Msg is sanitised git output, safe for the client.
 	if cloneErr, ok := errors.AsType[*commands.CloneError](err); ok {
 		return connect.NewError(connect.CodeFailedPrecondition, cloneErr)
+	}
+	if errors.Is(err, errCreate) && !errors.Is(err, context.Canceled) {
+		// The detail can echo a credential reference, so only the log gets it.
+		return s.logErr(ctx, op, err, connect.CodeFailedPrecondition, "server can't create sessions: see its log")
+	}
+	if errors.Is(err, commands.ErrEmptyNeedsSandbox) {
+		return s.logErr(ctx, op, err, connect.CodeFailedPrecondition, "this session has no sandbox pin: see the server log")
 	}
 	var ce *connect.Error
 	if errors.As(err, &ce) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

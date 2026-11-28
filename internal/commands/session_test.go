@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/wolfeidau/durable/internal/pin"
 )
 
 func TestWriteSessionMetaKeepsFirstWrite(t *testing.T) {
@@ -15,7 +17,7 @@ func TestWriteSessionMetaKeepsFirstWrite(t *testing.T) {
 	require.NoError(t, WriteSessionMeta(dir, first))
 	require.NoError(t, WriteSessionMeta(dir, SessionMeta{CWD: "/b", Name: "two", CreatedAt: time.Now().UTC()}))
 
-	got, ok, err := readJSONPin[SessionMeta](filepath.Join(dir, sessionMetaFile), "session metadata")
+	got, ok, err := pin.ReadJSON[SessionMeta](filepath.Join(dir, sessionMetaFile), "session metadata")
 	require.NoError(t, err)
 	require.True(t, ok)
 	require.Equal(t, first, got)

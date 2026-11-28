@@ -14,6 +14,7 @@ import (
 	"github.com/wolfeidau/durable"
 	"github.com/wolfeidau/durable/claude"
 	"github.com/wolfeidau/durable/internal/catalog"
+	"github.com/wolfeidau/durable/internal/pin"
 	"github.com/wolfeidau/durable/responses"
 )
 
@@ -148,7 +149,8 @@ func (r route) matches(f routeFlags) error {
 
 // pinRoute pins the route on first start. check runs on the final route, before any pin is written.
 func pinRoute(dir string, existed bool, f routeFlags, check func(route) error) (route, bool, error) {
-	cur, ok, err := readJSONPin[route](filepath.Join(dir, providerPinFile), "provider")
+	path := filepath.Join(dir, providerPinFile)
+	cur, ok, err := pin.ReadJSON[route](path, "provider")
 	if err != nil {
 		return route{}, false, err
 	}
@@ -167,7 +169,7 @@ func pinRoute(dir string, existed bool, f routeFlags, check func(route) error) (
 			return route{}, false, err
 		}
 	}
-	r, pinned, err := pinJSON(dir, providerPinFile, "provider", existed, legacyRoute, func() (route, error) {
+	r, pinned, err := pin.EnsureJSON(path, "provider", existed, legacyRoute, func() (route, error) {
 		r, err := newRoute(f)
 		if err != nil {
 			return route{}, err

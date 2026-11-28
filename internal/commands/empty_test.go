@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/wolfeidau/durable/internal/pin"
 	"github.com/wolfeidau/durable/internal/sandbox/sandboxtest"
 )
 
@@ -21,7 +22,7 @@ func emptyCfg(f *sandboxtest.Fake, image string) AssembleConfig {
 // readSessionMetaFile reads session.json without the database ReadSessionMeta requires.
 func readSessionMetaFile(t *testing.T, dir string) SessionMeta {
 	t.Helper()
-	m, ok, err := readJSONPin[SessionMeta](filepath.Join(dir, sessionMetaFile), "session metadata")
+	m, ok, err := pin.ReadJSON[SessionMeta](filepath.Join(dir, sessionMetaFile), "session metadata")
 	require.NoError(t, err)
 	require.True(t, ok)
 	return m

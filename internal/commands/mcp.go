@@ -2,7 +2,9 @@ package commands
 
 import (
 	"context"
+	"path/filepath"
 
+	"github.com/wolfeidau/durable/internal/pin"
 	"github.com/wolfeidau/durable/mcp"
 )
 
@@ -19,7 +21,7 @@ type mcpTools struct {
 // pinMCPTools pins the tool list on first start; existed (session.sqlite predates this run) pins an older session empty.
 func pinMCPTools(ctx context.Context, dir string, existed bool, discover func(context.Context) ([]mcp.Pinned, []string)) (mcpTools, error) {
 	var warnings []string
-	tools, pinned, err := pinJSON(dir, mcpPinFile, "MCP tools", existed, []mcp.Pinned{}, func() ([]mcp.Pinned, error) {
+	tools, pinned, err := pin.EnsureJSON(filepath.Join(dir, mcpPinFile), "MCP tools", existed, []mcp.Pinned{}, func() ([]mcp.Pinned, error) {
 		var found []mcp.Pinned
 		found, warnings = discover(ctx)
 		if found == nil {

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/wolfeidau/durable/internal/pin"
 )
 
 const sessionMetaFile = "session.json"
@@ -49,7 +51,7 @@ func WriteSessionMeta(dir string, m SessionMeta) error {
 	if err != nil {
 		return fmt.Errorf("failed to encode session metadata: %w", err)
 	}
-	_, err = writePin(dir, filepath.Join(dir, sessionMetaFile), data)
+	_, err = pin.WriteOnce(filepath.Join(dir, sessionMetaFile), data)
 	return err
 }
 

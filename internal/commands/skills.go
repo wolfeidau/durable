@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/wolfeidau/durable/internal/pin"
 	"github.com/wolfeidau/durable/internal/sandbox"
 	"github.com/wolfeidau/durable/skills"
 )
@@ -84,7 +85,7 @@ func canonical(p string) string {
 // pinSkills pins the catalog on first start; existed (session.sqlite predates this run) pins an older session empty.
 func pinSkills(dir string, existed, noContext bool, discover func() ([]skills.Skill, []string, error)) (skillSet, error) {
 	var warnings []string
-	found, pinned, err := pinJSON(dir, skillsPinFile, "skills", existed, []skills.Skill{}, func() ([]skills.Skill, error) {
+	found, pinned, err := pin.EnsureJSON(filepath.Join(dir, skillsPinFile), "skills", existed, []skills.Skill{}, func() ([]skills.Skill, error) {
 		if noContext {
 			return []skills.Skill{}, nil
 		}
