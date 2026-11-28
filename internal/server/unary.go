@@ -381,8 +381,10 @@ func (s sessionService) internal(ctx context.Context, op string, err error) erro
 // publicErr keeps codes already chosen and the caller's own cancellation, and hides everything else.
 func (s sessionService) publicErr(ctx context.Context, op string, err error) error {
 	// First, because an unavailable sandbox can wrap a deadline, which would otherwise pass through with its detail.
-	var se *sandbox.Error
-	if errors.As(err, &se) && !errors.Is(err, context.Canceled) {
+	if se, ok := errors.AsType[*sandbox.Error](err); ok {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
 		// Gateway errors can name providers, so only the log gets the cause.
 		if se.Unavailable {
 			return s.logErr(ctx, op, err, connect.CodeUnavailable, "sandbox unavailable: see the server log")
@@ -393,7 +395,7 @@ func (s sessionService) publicErr(ctx context.Context, op string, err error) err
 	if cloneErr, ok := errors.AsType[*commands.CloneError](err); ok {
 		return connect.NewError(connect.CodeFailedPrecondition, cloneErr)
 	}
-	if errors.Is(err, errCreate) && !errors.Is(err, context.Canceled) {
+	if errors.Is(err, errCreate) {
 		// The detail can echo a credential reference, so only the log gets it.
 		return s.logErr(ctx, op, err, connect.CodeFailedPrecondition, "server can't create sessions: see its log")
 	}
